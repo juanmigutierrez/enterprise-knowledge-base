@@ -1,0 +1,27 @@
+# Synthetic test identities: served by the mock identity provider (S1c) and used
+# by the docs mock (S1) to check page permissions. Not real people.
+# Each user's full name matches exactly one employee in hr_api.yaml (1-1 link).
+groups:
+  all-staff: Everyone employed by the company
+  it-employees: Employees on an Italian contract
+  es-employees: Employees on a Spanish contract
+  ca-employees: Employees on a Canadian contract
+  hr-team: The People team
+  hr-compensation: People team members who manage pay and salary bands
+
+users:
+  # Milan
+  alice:  { name: Alice Rossi,    location: Milan,   groups: [all-staff, it-employees] }
+  bob:    { name: Bruno Moretti,  location: Milan,   groups: [all-staff, it-employees, hr-team, hr-compensation] }
+  dana:   { name: Daniela Ferri,  location: Milan,   groups: [all-staff, it-employees, hr-team] }
+  marco:  { name: Marco Bianchi,  location: Milan,   groups: [all-staff, it-employees] }
+  giulia: { name: Giulia Conti,   location: Milan,   groups: [all-staff, it-employees] }
+  luca:   { name: Luca Romano,    location: Milan,   groups: [all-staff, it-employees] }
+  # Madrid
+  carla:  { name: Carla Gómez,    location: Madrid,  groups: [all-staff, es-employees] }
+  javier: { name: Javier Ruiz,    location: Madrid,  groups: [all-staff, es-employees] }
+  lucia:  { name: Lucía Navarro,  location: Madrid,  groups: [all-staff, es-employees, hr-team] }
+  # Toronto
+  emma:   { name: Emma Tremblay,  location: Toronto, groups: [all-staff, ca-employees] }
+  noah:   { name: Noah Martin,    location: Toronto, groups: [all-staff, ca-employees] }
+  olivia: { name: Olivia Chen,    location: Toronto, groups: [all-staff, ca-employees] }

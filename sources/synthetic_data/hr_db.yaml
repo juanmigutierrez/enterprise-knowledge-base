@@ -1,0 +1,22 @@
+# Synthetic rows for the mock HR database (S1d), standing in for an operational Postgres.
+# office_headcount matches the number of employees per office in hr_api.yaml.
+# leave_balances is personal: later steps let each row be read only by that employee and hr-team.
+office_headcount:
+  - { office_id: MIL, city: Milan,   country: IT, headcount: 6 }
+  - { office_id: MAD, city: Madrid,  country: ES, headcount: 3 }
+  - { office_id: TOR, city: Toronto, country: CA, headcount: 3 }
+  - { office_id: BLQ, city: Bologna, country: IT, headcount: 0 }   # closed office: deleted in the S1d demo
+
+leave_balances:   # year 2026; Italian contracts get 26 days (HR-PL-02), others 25 (HR-PL-01)
+  - { employee_id: E-1001, year: 2026, days_total: 26, days_taken: 8 }
+  - { employee_id: E-1002, year: 2026, days_total: 26, days_taken: 14 }
+  - { employee_id: E-1003, year: 2026, days_total: 26, days_taken: 5 }
+  - { employee_id: E-1004, year: 2026, days_total: 26, days_taken: 19 }
+  - { employee_id: E-1005, year: 2026, days_total: 26, days_taken: 11 }
+  - { employee_id: E-1006, year: 2026, days_total: 26, days_taken: 9 }
+  - { employee_id: E-1007, year: 2026, days_total: 25, days_taken: 12 }
+  - { employee_id: E-1008, year: 2026, days_total: 25, days_taken: 3 }
+  - { employee_id: E-1009, year: 2026, days_total: 25, days_taken: 16 }
+  - { employee_id: E-1010, year: 2026, days_total: 25, days_taken: 10 }
+  - { employee_id: E-1011, year: 2026, days_total: 25, days_taken: 2 }
+  - { employee_id: E-1012, year: 2026, days_total: 25, days_taken: 6 }

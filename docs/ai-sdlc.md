@@ -70,7 +70,7 @@ Human-changes: <what I changed in the AI output>
 | 2026-11-23 | Option evaluation plan | Claude | `option-evaluation.md`: 19 option cards, metrics, gates | Asked for one measured comparison per choice; edited the permission and publication tests | I reviewed |
 | 2026-11-23 | Architecture diagrams | Claude | Whiteboard and `architecture.md` (Mermaid) | Asked for the enterprise version with local tools | I reviewed |
 | 2026-11-23 | Repository structure, CI/CD, Docker | Claude | Skeleton, layer rules, CI/CD, Dockerfile, Compose, this AI-SDLC setup | Folder-per-layer idea was mine; accepted the changes (no numbers, sources and agents outside `src/`) | Checks pass: ruff, mypy, import-linter, 16 tests |
-| | | | | | |
+| 2026-11-23 | S1–S1d mock sources | Claude Code (implementation), Codex + GPT-6 (review) | Four synthetic sources, CLI demos, walkthroughs and tests | Approved the reviewed changes for merge | Codex fixed seven findings, including a cursor race that could skip deletions and revocations. All 147 tests, five import contracts, Ruff, mypy and four demos passed. |
 
 ## 6. What I'll report at the end
 

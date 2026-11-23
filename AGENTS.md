@@ -33,6 +33,9 @@ These rules are enforced: `uv run lint-imports` fails the build on violations.
 ## Step-by-step build
 The POC is built one step at a time in architecture order (`docs/plan.md` §4.2, S1 → S19). Each step ends with a demo (`uv run ekb demo <step>`) and a walkthrough in `docs/walkthrough/` that teaches how it works. Build only the step you were asked for; never start the next one.
 
+## When in doubt, ask
+If something is ambiguous, not decided in `docs/`, or would need an assumption (a data shape, a library, a scope cut, a trade-off), stop and ask the user before acting. Number the questions and give your suggested answer for each. Never resolve a design question silently, in planning, building or review.
+
 ## Hard rules
 - Permissions and deletes are gates: no chunk is searchable before T8 has set its ACL and sensitivity, and deleted content must never be returned. Any change touching these needs a test.
 - No secrets in code, config or tests. Configuration goes in `config/*.yaml`, secrets in environment variables.

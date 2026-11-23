@@ -17,6 +17,9 @@ Write a short plan and **wait for approval**:
 - the option built now (the simplest that works: in-memory, rules, no model) and the options left for later
 - the tests, including failure cases and any gate (permissions, deletes, publication)
 - the demo command and what it will show
+- **open questions**: anything ambiguous, any choice not settled in the docs, and any assumption you would otherwise make silently. Ask them here, numbered, with your suggested answer for each.
+
+If a new question comes up while building, stop and ask; don't guess.
 
 ## 3. Build
 - Code goes in the folder of the layer it belongs to; concrete options are wired only in `src/ekb/app/`.

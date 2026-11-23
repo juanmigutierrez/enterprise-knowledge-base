@@ -1,0 +1,24 @@
+# Synthetic HR records for the mock HR record API (S1b), standing in for Workday.
+# Directory fields only: no pay data (salary bands live in the restricted page HR-CMP-01).
+# The API uses its own IDs (E-..., T-...). Each employee's full name matches exactly
+# one user in directory.yaml: that 1-1 name match is how the two sources are linked.
+teams:
+  - { id: T-ENG, name: Engineering, department: technology, lead_id: E-1004 }
+  - { id: T-SAL, name: Sales,       department: commercial, lead_id: E-1005 }
+  - { id: T-PPL, name: People,      department: people,     lead_id: E-1002 }
+  - { id: T-FIN, name: Finance,     department: finance,    lead_id: E-1006 }
+  - { id: T-PRD, name: Product,     department: technology, lead_id: E-1010 }
+
+employees:
+  - { id: E-1001, name: Alice Rossi,   work_email: alice.rossi@example.com,   team_id: T-ENG, office: Milan,   manager_id: E-1004, start_date: 2023-03-01 }
+  - { id: E-1002, name: Bruno Moretti, work_email: bruno.moretti@example.com, team_id: T-PPL, office: Milan,   manager_id: null,   start_date: 2019-09-16 }
+  - { id: E-1003, name: Daniela Ferri, work_email: daniela.ferri@example.com, team_id: T-PPL, office: Milan,   manager_id: E-1002, start_date: 2024-01-08 }
+  - { id: E-1004, name: Marco Bianchi, work_email: marco.bianchi@example.com, team_id: T-ENG, office: Milan,   manager_id: null,   start_date: 2018-05-02 }
+  - { id: E-1005, name: Giulia Conti,  work_email: giulia.conti@example.com,  team_id: T-SAL, office: Milan,   manager_id: null,   start_date: 2020-02-10 }
+  - { id: E-1006, name: Luca Romano,   work_email: luca.romano@example.com,   team_id: T-FIN, office: Milan,   manager_id: null,   start_date: 2021-06-14 }
+  - { id: E-1007, name: Carla Gómez,   work_email: carla.gomez@example.com,   team_id: T-SAL, office: Madrid,  manager_id: E-1005, start_date: 2022-10-03 }
+  - { id: E-1008, name: Javier Ruiz,   work_email: javier.ruiz@example.com,   team_id: T-ENG, office: Madrid,  manager_id: E-1004, start_date: 2023-11-20 }
+  - { id: E-1009, name: Lucía Navarro, work_email: lucia.navarro@example.com, team_id: T-PPL, office: Madrid,  manager_id: E-1002, start_date: 2021-04-12 }
+  - { id: E-1010, name: Emma Tremblay, work_email: emma.tremblay@example.com, team_id: T-PRD, office: Toronto, manager_id: null,   start_date: 2020-08-24 }
+  - { id: E-1011, name: Noah Martin,   work_email: noah.martin@example.com,   team_id: T-ENG, office: Toronto, manager_id: E-1004, start_date: 2024-09-09 }
+  - { id: E-1012, name: Olivia Chen,   work_email: olivia.chen@example.com,   team_id: T-FIN, office: Toronto, manager_id: E-1006, start_date: 2025-02-03 }

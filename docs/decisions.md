@@ -232,6 +232,17 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 
 ---
 
+### D19. Inspector UI: React + TypeScript, built alongside the pipeline
+
+- **Decision:** A local, read-only inspector: a FastAPI inspector API (`src/ekb/operate/inspector/`) and a React + TypeScript app built with Vite (`ui/`). The foundation comes in step S2b; after that, each step adds a panel showing its own output. Two larger screens are added in S13 (**Search as user**: the same question for two users, side by side) and S16 (**Lifecycle**: add, edit, delete or revoke, then see the effect).
+- **Why:** It makes each step visible as it is built, and it shows the two hardest requirements, permission-aware retrieval and self-maintenance, in a way a terminal can't.
+- **Safety:** The inspector shows data a normal user must never see, such as other users' documents and raw chunks. It is read-only, exists only in the local profile, binds to `127.0.0.1`, and a test checks it can't start under any other profile. Agents never use it; they go through the MCP access layer.
+- **Contract:** TypeScript types are generated from the inspector API's OpenAPI schema (`openapi-typescript`). CI fails if they are out of date, so the front end and back end can't drift apart.
+- **Rejected:**
+  - A Streamlit page: about 1–2 hours instead of 3–4, but it shows less front-end engineering and keeps no typed contract.
+  - Building the UI only at the end: cheaper, but it loses the visual check while each step is built.
+- **Trade-off:** It adds about 3–4 hours spread across the steps, and early panels may need rework when later steps change a data shape. Tests, not the UI, remain the proof that a step works. If time runs short, the per-step panels are dropped first.
+
 ## Part C — Risks and open questions
 
 | Risk | Mitigation |

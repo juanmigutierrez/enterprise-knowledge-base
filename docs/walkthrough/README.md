@@ -7,3 +7,7 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | Step | Walkthrough |
 |---|---|
 | S0 | Foundations: see `docs/repo-structure.md` |
+| S1 | [Sources: the mock HR docs service](S01-sources.md) |
+| S1b | [Sources: the mock HR record API](S01b-hr-api.md) |
+| S1c | [Sources: the mock identity provider](S01c-identity.md) |
+| S1d | [Sources: the mock HR database](S01d-hr-db.md) |
