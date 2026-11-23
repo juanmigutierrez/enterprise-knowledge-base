@@ -1,0 +1,8 @@
+# <type>(<scope>): <summary>      e.g. feat(t7_embed): add cohere_embed_v4 option
+#
+# Why this change, in one or two sentences.
+#
+# AI-SDLC trailers (keep the ones that apply, delete this comment block):
+AI-Tool: <Codex + model | Claude Code + model | Copilot | none>
+AI-Reviewed-by: <a different tool or person>
+Human-changes: <what you changed in the AI output, or "none">

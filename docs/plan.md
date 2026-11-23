@@ -36,7 +36,7 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 - ✅ Company sizing revised to ShopFully / Flipp (~100–500 employees): SQS instead of MSK, DynamoDB entity store before Neptune, EU + Canada deployments, lean AWS profile (`decisions.md` §0, D3–D6, D18)
 - ✅ Model routing by task: Haiku / Sonnet / Opus 5.5, provider switch `PROVIDER=ollama|bedrock` (D15)
 - ✅ 14 cost optimizations → $10–25 POC budget (D16)
-- ✅ AI-SDLC tools chosen: OpenCode with ChatGPT Plus, Copilot (GitHub Education), Claude; `AGENTS.md`; cross-review (D17)
+- ✅ AI-SDLC tools chosen: Codex (ChatGPT Plus) and Claude Code, cross-reviewing each other; Claude for design; Copilot optional; `AGENTS.md`; shared skills (D17)
 
 ### Documents in `docs/`
 - ✅ `decisions.md` — decision log D1–D18, risks, open questions, dated sources
@@ -73,7 +73,7 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 | # | Task | Status | Est. time |
 |---|---|---|---|
 | 1 | Create the GitHub repository and the skeleton (`src/`, `tests/`, `compose.yaml`, `README.md`) | 🟡 Skeleton, Docker, CI/CD and layer rules done (`docs/repo-structure.md`); GitHub repository not created yet | 15 min |
-| 2 | Write `AGENTS.md` and `opencode.json` (rules for the AI coding tools, model per task) | 🟡 `AGENTS.md` done; `opencode.json` left | 15 min |
+| 2 | Set up the AI coding tools (rules, skills, review) | ✅ `AGENTS.md`, `CLAUDE.md`, shared skills (`.agents/skills/`, `.claude/skills/`), Claude Code `reviewer` subagent, Copilot instructions, commit trailers | 15 min |
 | 3 | Docker Compose core: Kafka, OpenSearch, DynamoDB Local, SeaweedFS (optional), Ollama | 🟡 Kafka, OpenSearch, DynamoDB Local, Ollama in `compose.yaml`; not yet run; SeaweedFS left | 30 min |
 | 4 | Mock HR docs source with ACLs and webhooks + synthetic HR documents (several languages, one restricted doc) | ⬜ | 30 min |
 | 5 | Connector → T1 normalized change event → Kafka | ⬜ | 30 min |
@@ -83,7 +83,7 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 | 9 | Demo of self-maintenance: add, edit and delete a document and show the answer change | ⬜ | 15 min |
 | 10 | Tests: a small evaluation set (P1 options 4.4, 4.5, 4.13, 4.14 from `option-evaluation.md`), a permission-leak test, a deletion test | ⬜ | 30 min |
 | 11 | `README.md`: setup, run, demo script, stated assumptions | ⬜ | 20 min |
-| 12 | AI-SDLC write-up: how AI was used in design, implementation, testing and review | ⬜ | 15 min |
+| 12 | AI-SDLC write-up: how AI was used in design, implementation, testing and review | 🟡 `docs/ai-sdlc.md` written; keep the evidence log updated per task | 15 min |
 | 13 | Push to GitHub and check a clean setup from scratch | ⬜ | 15 min |
 
 **POC total:** about 5 h 30 min of work if nothing goes wrong. If time runs short, drop in this order: SeaweedFS → Keycloak (use static test users) → T5 / T6 → observability.
@@ -102,4 +102,4 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 
 ## 6. Next step
 
-Start the POC (§4.2 tasks 1–3): repository skeleton, `AGENTS.md` / `opencode.json`, and the Docker Compose core. In parallel, decide which design version is the official one (§4.1 task 1).
+Start the POC (§4.2 tasks 1–3): repository skeleton, AI tool setup, and the Docker Compose core. In parallel, decide which design version is the official one (§4.1 task 1).

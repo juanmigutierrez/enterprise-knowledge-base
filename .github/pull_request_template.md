@@ -15,5 +15,5 @@
 
 ## AI-SDLC
 
-- Written with: <!-- OpenCode + model / Copilot / Claude / by hand -->
+- Written with: <!-- Codex + model / Claude Code + model / Copilot / by hand -->
 - Reviewed by a different tool or person: <!-- which -->

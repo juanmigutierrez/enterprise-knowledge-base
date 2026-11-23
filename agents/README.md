@@ -6,4 +6,4 @@ agents only reach knowledge through the MCP tools of the Knowledge API.
 | Folder (planned) | Purpose |
 |---|---|
 | `hr_assistant/` | The POC use case: a small agent that answers HR questions with citations, acting as a given test user |
-| `mcp_clients/` | Example client configs (Claude Desktop / Claude Code, OpenCode, MCP Inspector) pointing at `http://localhost:8080` |
+| `mcp_clients/` | Example client configs (Claude Desktop / Claude Code, Codex, MCP Inspector) pointing at `http://localhost:8080` |

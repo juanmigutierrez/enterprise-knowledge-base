@@ -216,12 +216,13 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 | Stage | Tool |
 |---|---|
 | Design, research, architecture document, cross-review | Claude (this chat) |
-| Implementation tasks in the repository | OpenCode (open source) signed in with ChatGPT Plus |
-| Inline completions | GitHub Copilot Student (unlimited completions; 200 AI credits a month for chat and agents; automatic model selection only) |
-| Extra capacity if limits run out | OpenCode Go, $10/month (optional) |
+| Implementation tasks in the repository | Codex (signed in with ChatGPT Plus) and Claude Code, alternating by task |
+| Cross-review of code | The other tool: Claude Code reviews Codex code, Codex reviews Claude Code code (different model families) |
+| Inline completions (optional) | GitHub Copilot Student (unlimited completions; 200 AI credits a month for chat and agents; automatic model selection only) |
 
-- **Practices:** one `AGENTS.md` at the repository root (architecture, constraints, conventions, test commands) read by every tool; **cross-review**: code is reviewed by a different AI tool from the one that wrote it.
-- **Trade-off:** Several tools to coordinate; `AGENTS.md` keeps them consistent.
+- **Practices:** one `AGENTS.md` at the repository root (architecture, constraints, conventions, test commands) read by every tool (Claude Code through a `CLAUDE.md` that imports it); repeatable workflows as shared skills in `.agents/skills/` (plan-task, new-option, cross-review); **cross-review**: code is reviewed by the other tool, so an OpenAI model reviews Anthropic code and the reverse; AI use recorded in commit trailers (`.gitmessage`) and in `docs/ai-sdlc.md`.
+- **Rejected:** OpenCode. It would add a third agent tool to configure, while Codex and Claude Code already cover implementation and give cross-review across two model families.
+- **Trade-off:** Two agent tools to coordinate; `AGENTS.md` and the shared skills keep them consistent. Claude Code needs thin wrappers in `.claude/skills/` because it reads skills from its own folder.
 
 ### D18. Deploying the POC on AWS (optional bonus)
 

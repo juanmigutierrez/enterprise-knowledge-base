@@ -150,7 +150,7 @@ flowchart LR
     API["Knowledge API container<br/>same MCP tools and Q1–Q4 steps<br/>Presidio redaction"]
   end
 
-  AG["7 · Agents and MCP clients<br/>test HR agent · MCP Inspector<br/>Claude Desktop / Code · OpenCode"]
+  AG["7 · Agents and MCP clients<br/>test HR agent · MCP Inspector<br/>Claude Desktop / Code · Codex"]
   OPS["8 · Operate<br/>OpenTelemetry Collector → Jaeger, Prometheus + Grafana<br/>Ragas via pytest · freshness checks · synthetic data only"]
 
   S1 --> C1

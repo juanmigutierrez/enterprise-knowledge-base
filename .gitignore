@@ -43,3 +43,6 @@ evaluation/results/raw/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Claude desktop app output folder
+Claude outputs/

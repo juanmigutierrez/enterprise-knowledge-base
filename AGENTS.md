@@ -1,6 +1,6 @@
 # AGENTS.md: rules for AI coding tools in this repository
 
-Read by OpenCode, Copilot, Claude Code and any other agent. Humans: this is also the short version of `docs/repo-structure.md`.
+Read by Codex, Claude Code (through `CLAUDE.md`, which imports this file), Copilot and any other agent. Humans: this is also the short version of `docs/repo-structure.md`.
 
 ## What this is
 An enterprise knowledge base for AI agents. Sources change, connectors emit change events, workers turn them into permission-aware knowledge, and agents query it through MCP. Design: `docs/architecture.md`, `docs/decisions.md`. Plan and status: `docs/plan.md`.
@@ -52,5 +52,15 @@ uv run ekb options               # chosen option per step and whether it is buil
 ## Style
 Python 3.13, type hints everywhere (mypy strict), Pydantic models for anything crossing a boundary, small modules, docstrings that explain why, not what. Conventional commit messages (`feat(t7_embed): add cohere option`).
 
-## Review
-Code written by one AI tool is reviewed by a different one before merging (decisions.md D17). Say which tool wrote it in the PR template.
+## Review and traceability
+- Code written by one AI tool is reviewed by the other before merging (decisions.md D17): Codex-written code is reviewed by Claude Code (`reviewer` subagent or `/cross-review`), Claude-written code by Codex (`$cross-review` or `/review`).
+- Commit messages end with the trailers in `.gitmessage` (`AI-Tool`, `AI-Reviewed-by`, `Human-changes`). The PR template asks the same.
+- Process and evidence log: `docs/ai-sdlc.md`.
+
+## Skills (shared by Codex and Claude Code)
+Defined once in `.agents/skills/`; Claude Code reaches them through thin wrappers in `.claude/skills/`.
+- `plan-task`: implement a task from `docs/plan.md` (plan first, then code, then checks)
+- `new-option`: add an option to a step with its registration and tests
+- `cross-review`: read-only review of the branch against `main`
+
+Invoke in Codex with `$plan-task 4` (or `/skills`), in Claude Code with `/plan-task 4`.
