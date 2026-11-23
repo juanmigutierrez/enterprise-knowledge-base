@@ -5,10 +5,12 @@ from __future__ import annotations
 import typer
 
 from ekb.app.bootstrap import load_options
+from ekb.app.demos import demo_app
 from ekb.platform import registry
 from ekb.platform.config import load_settings
 
 app = typer.Typer(no_args_is_help=True, help="Enterprise knowledge base for AI agents.")
+app.add_typer(demo_app, name="demo")
 
 
 def _not_implemented(what: str, plan_task: str) -> None:

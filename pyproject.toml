@@ -8,6 +8,7 @@ requires-python = ">=3.13"
 # (e.g. confluent-kafka, opensearch-py, boto3, docling). Heavy, optional
 # ones go into [project.optional-dependencies] so the base image stays small.
 dependencies = [
+  "httpx>=0.27",
   "pydantic>=2.9",
   "pyyaml>=6.0",
   "typer>=0.12",
@@ -34,6 +35,9 @@ dev = [
   "import-linter>=2.1",
   "pre-commit>=4.0",
   "pip-audit>=2.7",
+  # Mock source systems (sources/). Dev-only, so they never enter the product image.
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
 ]
 
 [build-system]
@@ -47,7 +51,7 @@ packages = ["src/ekb"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["src", "tests"]
+src = ["src", "sources", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -69,12 +73,14 @@ select = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src", "tests"]
+files = ["src", "sources", "tests"]
 plugins = ["pydantic.mypy"]
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The repository root is on the path so tests can import the mock sources (sources/).
+pythonpath = ["."]
 addopts = "-ra --strict-markers"
 markers = [
   "integration: needs the Docker Compose infrastructure (make up)",
@@ -96,6 +102,14 @@ fail_under = 80
 # CI fails if code reaches across layers or if one pipeline step imports another.
 [tool.importlinter]
 root_package = "ekb"
+# Lets the contract below see imports of packages outside ekb, such as the mocks.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The product never imports the mock sources; it reaches them over the network"
+type = "forbidden"
+source_modules = ["ekb"]
+forbidden_modules = ["sources"]
 
 [[tool.importlinter.contracts]]
 name = "Layers: evaluation > entry points > pipeline stages > infrastructure > platform > contracts"

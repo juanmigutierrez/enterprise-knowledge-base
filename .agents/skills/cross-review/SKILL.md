@@ -17,6 +17,7 @@ You are the reviewer. Claude Code wrote this code; assume nothing is correct unt
    4. **Model calls.** Any direct model SDK call instead of the gateway? Missing cache or cost logging?
    5. **Secrets and config.** Secrets in code, config or tests? A default in `config/` changed without a result in `evaluation/results/`?
    6. **Readability.** Would a first-time reader understand why the code exists?
+   7. **Walkthrough and demo.** Does `docs/walkthrough/S<nn>-*.md` match the code (file names, flow, options, tests)? Does `uv run ekb demo <step>` run and show what the walkthrough says? A wrong walkthrough is a should-fix: the user learns from it.
 4. Report a numbered list: `file:line`, severity (blocker / should-fix / nit), one-line fix.
 
 ## 2. Fix
@@ -37,8 +38,8 @@ Show:
 Then **ask the user to confirm** before committing.
 
 ## 5. Commit and push (only after the user confirms)
-1. Update the task's status in `docs/plan.md` and add a row to the evidence log in `docs/ai-sdlc.md`.
-2. Commit with a conventional message and these trailers:
+1. Set the step's status in `docs/plan.md` to ✅ and add a row to the evidence log in `docs/ai-sdlc.md`. If you fixed code that the walkthrough describes, update the walkthrough too.
+2. Commit with a conventional message that names the step (for example `feat(t1): normalize source changes into ChangeEvent [S2]`) and these trailers:
    ```
    AI-Tool: Claude Code + <model>
    AI-Reviewed-by: Codex + <your model>

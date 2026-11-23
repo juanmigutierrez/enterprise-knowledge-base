@@ -35,6 +35,10 @@ data/
 # ---- Evaluation: summaries are committed, raw run outputs are not
 evaluation/results/raw/
 
+# ---- UI (Node)
+node_modules/
+ui/dist/
+
 # ---- Editors and OS
 .idea/
 .vscode/*
