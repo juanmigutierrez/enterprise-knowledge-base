@@ -14,10 +14,10 @@
 | Stage | Tool | Why this one |
 |---|---|---|
 | Research, design, architecture, decision log, option evaluation plan, repository structure | Claude (chat) | Long-context reasoning, web research with sources, diagrams |
-| Implementation of plan tasks | Codex (ChatGPT Plus) and Claude Code, alternating by task | Agents in the repository; both read `AGENTS.md`; shared skills in `.agents/skills/` |
+| Implementation of plan tasks | Claude Code (`/plan-task`) | Writes the code and the tests; reads `AGENTS.md` through `CLAUDE.md` |
 | Inline completions while editing (optional) | GitHub Copilot (Student) in VS Code | Fast small edits; reads `AGENTS.md` and `.github/copilot-instructions.md` |
-| Test writing | The agent that did **not** implement the step, from the port and option card | Tests that don't mirror the implementation's mistakes |
-| Code review | The other tool: Claude Code's read-only `reviewer` subagent for Codex code; Codex `$cross-review` or `/review` for Claude code; then me | Cross-review across model families (OpenAI vs Anthropic) |
+| Test writing | Claude Code writes the tests from the port and option card; Codex checks in review that failure cases and gates are covered | Tests are checked by a model that didn't write them |
+| Code review | Codex (ChatGPT Plus) with the read-only `cross-review` skill; then me | A different model family (OpenAI) reviews Anthropic-written code |
 | Checks | ruff, mypy, import-linter, pytest, gitleaks, pip-audit, Trivy in CI | Same checks for human and AI code |
 
 All tools read the same instructions: `AGENTS.md`. Codex and Copilot load it directly; Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`). Repeatable workflows are written once as skills in `.agents/skills/` (Codex) with thin wrappers in `.claude/skills/` (Claude Code).
@@ -26,17 +26,17 @@ All tools read the same instructions: `AGENTS.md`. Codex and Copilot load it dir
 
 ```
 plan task (docs/plan.md)
-  → plan-task skill in Codex or Claude Code: the agent proposes a plan → I approve or correct it
-  → agent implements + writes tests → runs format, lint, types, layer rules, tests
-  → cross-review skill in the *other* tool (different model family) → I read the findings
-  → I fix or reject → commit with AI-SDLC trailers → CI on push
+  → Claude Code: /plan-task <n> → proposes a plan → I approve or correct it
+  → Claude Code implements + writes tests → runs format, lint, types, layer rules, tests
+  → Codex: $cross-review → findings → I decide which to fix → Claude Code fixes → repeat until "approve"
+  → commit with AI-SDLC trailers → git push → CI on GitHub
   → if a default option changes: experiment result in evaluation/results/
 ```
 
 Commit trailers (template in `.gitmessage`, enabled with `git config commit.template .gitmessage`):
 ```
-AI-Tool: Codex + <model>   (or Claude Code + <model>)
-AI-Reviewed-by: Claude Code reviewer (<model>)   (or Codex + <model>) / me
+AI-Tool: Claude Code + <model>
+AI-Reviewed-by: Codex + <model>
 Human-changes: <what I changed in the AI output>
 ```
 
@@ -48,17 +48,17 @@ Human-changes: <what I changed in the AI output>
 - I set the constraints (AWS or open source only, budget of $10–25, company size), corrected the sizing and chose between the options.
 
 **Implementation.**
-- Codex or Claude Code implements one plan task at a time, inside the folder of the layer it belongs to.
+- Claude Code implements one plan task at a time, inside the folder of the layer it belongs to.
 - The `plan-task` skill forces a plan before any code, and `new-option` makes adding an option uniform (port, registration, contract test, unit tests).
 
 **Testing.**
-- Tests are written from the port and the option card, by the tool that did not write the implementation. This keeps them from mirroring the implementation's mistakes.
+- Claude Code writes tests from the port and the option card, not from its own implementation; Codex checks in review that failure cases and the gates are covered.
 - The permission and deletion gates are deterministic tests in CI that use no models.
 - Model quality is measured separately, with the frozen question set and the experiment runner.
 
 **Review.**
 - The `cross-review` skill (read-only) checks gates, layer rules, tests, model-call rules and secrets, in that order.
-- The reviewer is always the other tool, so an OpenAI model reviews Anthropic code and the reverse.
+- The reviewer is always Codex, so an OpenAI model reviews code an Anthropic model wrote. Nothing is pushed without its approval.
 - CI repeats every automated check on GitHub.
 
 ## 5. Evidence log

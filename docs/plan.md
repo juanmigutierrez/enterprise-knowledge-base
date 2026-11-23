@@ -64,29 +64,56 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 | 6 | Update the whiteboard to the resized design (optional) | ⬜ | Or use the `architecture.md` diagrams as the official ones |
 | 7 | Final read-through: every choice has a reason and a rejected alternative; known vs assumed is clearly separated | ⬜ | This is what the reviewers weigh most |
 
-### 4.2 Deliverable 2 — POC
+### 4.2 Deliverable 2 — POC, built step by step
 
-**Use case (proposed):** HR assistant. Employees ask about policies, procedures and benefits in natural language; answers are cited, respect the asker's permissions, and reflect edits and deletions in the source without manual steps.
+**Use case:** HR assistant. Employees ask about policies, procedures and benefits in natural language; answers are cited, respect the asker's permissions, and reflect edits and deletions in the source without manual steps.
 
 **Simplifying assumptions to state:** mocked connectors, synthetic HR documents, one region, small data volume, local Docker Compose only, optional Bedrock for models.
 
-| # | Task | Status | Est. time |
-|---|---|---|---|
-| 1 | Create the GitHub repository and the skeleton (`src/`, `tests/`, `compose.yaml`, `README.md`) | 🟡 Skeleton, Docker, CI/CD and layer rules done (`docs/repo-structure.md`); GitHub repository not created yet | 15 min |
-| 2 | Set up the AI coding tools (rules, skills, review) | ✅ `AGENTS.md`, `CLAUDE.md`, shared skills (`.agents/skills/`, `.claude/skills/`), Claude Code `reviewer` subagent, Copilot instructions, commit trailers | 15 min |
-| 3 | Docker Compose core: Kafka, OpenSearch, DynamoDB Local, SeaweedFS (optional), Ollama | 🟡 Kafka, OpenSearch, DynamoDB Local, Ollama in `compose.yaml`; not yet run; SeaweedFS left | 30 min |
-| 4 | Mock HR docs source with ACLs and webhooks + synthetic HR documents (several languages, one restricted doc) | ⬜ | 30 min |
-| 5 | Connector → T1 normalized change event → Kafka | ⬜ | 30 min |
-| 6 | Worker: T2 diff, T3 parse, T4 chunk + context, T7 embed, T8 permissions → OpenSearch (T5, T6 simplified) | ⬜ | 60 min |
-| 7 | Model-call cache keyed by content hash, per-task model config, cost logging | ⬜ | 20 min |
-| 8 | Knowledge API exposed as MCP tools: Q2 permission pre-filter, Q3 hybrid search, Q4 re-check and cite | ⬜ | 45 min |
-| 9 | Demo of self-maintenance: add, edit and delete a document and show the answer change | ⬜ | 15 min |
-| 10 | Tests: a small evaluation set (P1 options 4.4, 4.5, 4.13, 4.14 from `option-evaluation.md`), a permission-leak test, a deletion test | ⬜ | 30 min |
-| 11 | `README.md`: setup, run, demo script, stated assumptions | ⬜ | 20 min |
-| 12 | AI-SDLC write-up: how AI was used in design, implementation, testing and review | 🟡 `docs/ai-sdlc.md` written; keep the evidence log updated per task | 15 min |
-| 13 | Push to GitHub and check a clean setup from scratch | ⬜ | 15 min |
+#### How each step is built
 
-**POC total:** about 5 h 30 min of work if nothing goes wrong. If time runs short, drop in this order: SeaweedFS → Keycloak (use static test users) → T5 / T6 → observability.
+The POC follows the architecture in order (sources → T1 → change log → T2 … T8 → stores → Q1 … Q4 → agent), **one step at a time**, so every piece is understood before the next one depends on it.
+
+Each step goes through the same four stages:
+
+1. **Build (Claude Code, `/plan-task S<n>`):** plan first, then code and tests. Use the simplest option first (in-memory, rules, no model); real infrastructure and models come in later steps as extra options of the same port.
+2. **Understand:** each step ends with:
+   - a walkthrough in `docs/walkthrough/` covering what was built, how the data flows, the files involved, and what the tests prove
+   - a demo command you run yourself (`uv run ekb demo <step>`)
+   - three "check your understanding" questions
+3. **Review (Codex, `$cross-review`):** review, fix, re-check, and confirm that the walkthrough matches the code.
+4. **Push:** after your confirmation. A step is done only when you can answer its three questions.
+
+A step is never started before the previous one is pushed.
+
+#### Steps
+
+| Step | Layer / part | What gets built | What you will understand | Demo you run | Est. | Status |
+|---|---|---|---|---|---|---|
+| S0 | Foundations | Contracts (`ChangeEvent`, `Chunk`), option registry, config profiles, CLI, CI/CD, Docker, layer rules | How the code is organized and how options are swapped | `uv run ekb options` | — | ✅ |
+| S1 | 1 · Sources | Mock HR docs source with ACLs + ~12 synthetic documents (EN, IT, ES; one restricted; one to delete later) | What the source systems look like and what "a change" is | `uv run ekb demo s1`: list documents, edit one, see its version change | 30 min | ⬜ |
+| S2 | 2 · Connect + **T1** | Connector (webhook-style and full-listing) → normalized `ChangeEvent` | Why every source is reduced to one event shape | `ekb demo t1`: add, edit, delete and revoke access in the source → print the 4 events | 30 min | ⬜ |
+| S3 | 3 · Change log | Event bus, document registry, raw store: **in-memory** options | Ordering per document, replay, why originals are stored | `ekb demo s3`: publish, consume, replay | 30 min | ⬜ |
+| S4 | 4 · **T2** Diff | Skip unchanged, ACL fast lane, delete → purge | How the system avoids re-processing and handles deletes | `ekb demo t2`: same doc twice → second skipped; ACL change → fast lane | 20 min | ⬜ |
+| S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document | 15 min | ⬜ |
+| S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy | 20 min | ⬜ |
+| S7 | Platform · Model gateway | Provider switch (fake / Ollama / Bedrock), content-hash cache, cost log | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged | 30 min | ⬜ |
+| S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` | 30 min | ⬜ |
+| S9 | 4 · **T6** Entities | Exact match against the HR people / team list (model cascade later) | How documents get linked to people and teams | `ekb demo t6` | 20 min | ⬜ |
+| S10 | 4 · **T7** Embed | Ollama bge-m3 option next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences | 20 min | ⬜ |
+| S11 | 4 · **T8** + 5 · Search store | Permission resolution, publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs | 30 min | ⬜ |
+| S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks | 30 min | ⬜ |
+| S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` | 40 min | ⬜ |
+| S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations | 30 min | ⬜ |
+| S15 | 6 · MCP + 7 · Agent | Knowledge API as MCP tools; static test users; small HR assistant | How an agent uses the knowledge base safely | Ask the HR assistant from Claude Code / MCP Inspector | 40 min | ⬜ |
+| S16 | Self-maintenance | Scripted scenario: add, edit, delete, revoke → answers change; gate tests | The "maintains itself" requirement, proven | `ekb demo lifecycle` | 30 min | ⬜ |
+| S17 | Real infrastructure | Kafka, OpenSearch and DynamoDB options; `docker compose --profile app up` | That swapping infrastructure doesn't change the logic | Same demos against Docker | 45 min | ⬜ |
+| S18 | 8 · Evaluation | Golden question set, runner, P1 experiments 4.4, 4.5, 4.13, 4.14 | How each choice is measured | `uv run ekb-eval run …` | 60 min | ⬜ |
+| S19 | Finish | README (setup, demo, assumptions), AI-SDLC write-up, clean setup check | — | Fresh clone → follow README | 30 min | ⬜ |
+
+**Estimate:** about 9–10 hours of build time plus the time you spend reading walkthroughs. That is more than the assignment's 4–6 hours because the steps are built to be understood, not just delivered.
+
+**Minimum path if time runs short:** S1 → S6, S10 → S16 (in-memory stores, no models except embeddings). Skip S7–S9 and S17 and state them as planned. That still demonstrates the write path, permissions, self-maintenance and the MCP access layer.
 
 ---
 
@@ -102,4 +129,4 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 
 ## 6. Next step
 
-Start the POC (§4.2 tasks 1–3): repository skeleton, AI tool setup, and the Docker Compose core. In parallel, decide which design version is the official one (§4.1 task 1).
+Start **S1** (mock HR source and synthetic documents) with `/plan-task S1` in Claude Code, then `$cross-review` in Codex. In parallel, decide which design version is the official one (§4.1 task 1).

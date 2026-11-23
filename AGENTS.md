@@ -53,14 +53,14 @@ uv run ekb options               # chosen option per step and whether it is buil
 Python 3.13, type hints everywhere (mypy strict), Pydantic models for anything crossing a boundary, small modules, docstrings that explain why, not what. Conventional commit messages (`feat(t7_embed): add cohere option`).
 
 ## Review and traceability
-- Code written by one AI tool is reviewed by the other before merging (decisions.md D17): Codex-written code is reviewed by Claude Code (`reviewer` subagent or `/cross-review`), Claude-written code by Codex (`$cross-review` or `/review`).
-- Commit messages end with the trailers in `.gitmessage` (`AI-Tool`, `AI-Reviewed-by`, `Human-changes`). The PR template asks the same.
+- Fixed roles (decisions.md D17): **Claude Code writes** the code (`/plan-task <n>`). **Codex reviews, fixes and pushes** (`$cross-review`): it reports findings first, fixes blockers and should-fixes with a test for each, re-runs all checks, and commits and pushes only after the user confirms. Design decisions are never made in review; they go back to the user.
+- Commit messages end with the trailers in `.gitmessage` (`AI-Tool`, `AI-Reviewed-by`, `Review-fixes`, `Human-changes`). The PR template asks the same.
 - Process and evidence log: `docs/ai-sdlc.md`.
 
 ## Skills (shared by Codex and Claude Code)
 Defined once in `.agents/skills/`; Claude Code reaches them through thin wrappers in `.claude/skills/`.
 - `plan-task`: implement a task from `docs/plan.md` (plan first, then code, then checks)
 - `new-option`: add an option to a step with its registration and tests
-- `cross-review`: read-only review of the branch against `main`
+- `cross-review`: review the branch against `main`, fix what it finds, verify, then commit and push after confirmation
 
 Invoke in Codex with `$plan-task 4` (or `/skills`), in Claude Code with `/plan-task 4`.

@@ -216,13 +216,13 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 | Stage | Tool |
 |---|---|
 | Design, research, architecture document, cross-review | Claude (this chat) |
-| Implementation tasks in the repository | Codex (signed in with ChatGPT Plus) and Claude Code, alternating by task |
-| Cross-review of code | The other tool: Claude Code reviews Codex code, Codex reviews Claude Code code (different model families) |
+| Implementation tasks in the repository | Claude Code |
+| Review, fixes and push | Codex (signed in with ChatGPT Plus) reviews every change, fixes what it finds, re-runs the checks and pushes after I confirm (different model family) |
 | Inline completions (optional) | GitHub Copilot Student (unlimited completions; 200 AI credits a month for chat and agents; automatic model selection only) |
 
-- **Practices:** one `AGENTS.md` at the repository root (architecture, constraints, conventions, test commands) read by every tool (Claude Code through a `CLAUDE.md` that imports it); repeatable workflows as shared skills in `.agents/skills/` (plan-task, new-option, cross-review); **cross-review**: code is reviewed by the other tool, so an OpenAI model reviews Anthropic code and the reverse; AI use recorded in commit trailers (`.gitmessage`) and in `docs/ai-sdlc.md`.
+- **Practices:** one `AGENTS.md` at the repository root (architecture, constraints, conventions, test commands) read by every tool (Claude Code through a `CLAUDE.md` that imports it); repeatable workflows as shared skills in `.agents/skills/` (plan-task, new-option, cross-review); **fixed roles**: Claude Code writes; Codex reviews, fixes and pushes after I confirm, so an OpenAI model reviews Anthropic-written code; AI use recorded in commit trailers (`.gitmessage`) and in `docs/ai-sdlc.md`.
 - **Rejected:** OpenCode. It would add a third agent tool to configure, while Codex and Claude Code already cover implementation and give cross-review across two model families.
-- **Trade-off:** Two agent tools to coordinate; `AGENTS.md` and the shared skills keep them consistent. Claude Code needs thin wrappers in `.claude/skills/` because it reads skills from its own folder.
+- **Trade-off:** Two agent tools to coordinate; `AGENTS.md` and the shared skills keep them consistent. Because the reviewer also edits, its own fixes get no second AI review; they are kept small, listed in a `Review-fixes` commit trailer, re-checked by CI, and read by me before the push. Claude Code needs thin wrappers in `.claude/skills/` because it reads skills from its own folder.
 
 ### D18. Deploying the POC on AWS (optional bonus)
 
