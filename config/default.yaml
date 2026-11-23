@@ -1,0 +1,39 @@
+# Which option each step uses, and its parameters.
+# This file is the "local" profile: free, offline, runs with `docker compose up`.
+# Starting choices come from docs/option-evaluation.md; each is replaced only
+# when an experiment in evaluation/experiments/ shows a better option.
+#
+# Layering: config/default.yaml  <-  config/profiles/$EKB_PROFILE.yaml
+
+provider: ollama
+
+steps:
+  # 2 · Connect
+  connect:       { option: webhook_with_polling, params: { poll_minutes: 5 }, card: "4.14" }
+
+  # 3 · Change log
+  bus:           { option: kafka, card: "4.15" }
+  registry:      { option: dynamodb }
+  rawstore:      { option: s3, params: { bucket: ekb-raw } }
+
+  # 4 · Process
+  t2_diff:       { option: content_hash, card: "4.14" }
+  t3_parse:      { option: docling, card: "4.1" }
+  t4_chunk:      { option: structure_aware, params: { max_tokens: 400, context_header: model }, card: "4.2 / 4.3" }
+  t5_classify:   { option: model_plus_rules, card: "4.9" }
+  t6_entities:   { option: cascade, card: "4.10" }
+  t7_embed:      { option: bge_m3_ollama, card: "4.4" }
+  t8_permissions: { option: source_acl }
+
+  # 5 · Knowledge stores
+  search:        { option: opensearch, card: "4.16" }
+  entities:      { option: dynamodb, card: "4.17" }
+  metrics:       { option: duckdb }
+  policies:      { option: cedar_local, card: "4.18" }
+  permissions:   { option: dynamodb }
+
+  # 6 · Access
+  q1_plan:       { option: rewrite_when_needed, card: "4.8" }
+  q2_prefilter:  { option: acl_and_cedar, card: "4.13" }
+  q3_retrieve:   { option: hybrid_rrf, params: { rerank: bge_reranker, top_k: 5 }, card: "4.5 / 4.6 / 4.7" }
+  q4_postcheck:  { option: source_recheck, card: "4.13" }

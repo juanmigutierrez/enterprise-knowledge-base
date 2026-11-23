@@ -1,0 +1,53 @@
+# One image for every Python service (connector, worker, api); the command
+# picks the role: `ekb connect`, `ekb worker`, `ekb api`.
+#
+# Build:  docker build -f deploy/docker/Dockerfile -t ekb:local .
+# Extras: docker build --build-arg EXTRAS="--extra kafka --extra search" ...
+
+ARG PYTHON_VERSION=3.13
+
+# ---------------------------------------------------------------- builder
+FROM python:${PYTHON_VERSION}-slim AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.13.9 /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
+
+WORKDIR /app
+ARG EXTRAS=""
+
+# 1) Dependencies only: this layer is cached until uv.lock changes.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev ${EXTRAS}
+
+# 2) The project itself.
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-editable ${EXTRAS}
+
+# ---------------------------------------------------------------- runtime
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+RUN groupadd --system --gid 10001 app \
+ && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app
+
+WORKDIR /app
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app config ./config
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    EKB_CONFIG_DIR=/app/config
+
+USER app
+
+LABEL org.opencontainers.image.title="ekb" \
+      org.opencontainers.image.description="Enterprise knowledge base for AI agents"
+
+ENTRYPOINT ["ekb"]
+CMD ["--help"]

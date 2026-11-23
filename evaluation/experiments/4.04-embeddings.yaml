@@ -1,0 +1,27 @@
+# Option card 4.4 · Embeddings (T7). One file per experiment; the runner reads it.
+card: "4.4"
+step: t7_embed
+question: Which embedding model gives the best retrieval on our multilingual HR corpus, per dollar?
+
+dataset: golden_v1            # evaluation/datasets/golden_v1.jsonl (hold-out excluded)
+corpus: hr_synthetic_v1
+
+# Everything except the step under test is fixed, so differences come from the option.
+fixed:
+  t4_chunk:    { option: structure_aware, params: { max_tokens: 400 } }
+  q3_retrieve: { option: hybrid_rrf, params: { rerank: none, top_k: 10 } }
+
+options:
+  - { option: bge_m3_ollama }
+  - { option: cohere_embed_v4, params: { dimensions: 1024, dtype: float } }
+  - { option: cohere_embed_v4, params: { dimensions: 1024, dtype: int8 } }
+  - { option: titan_text_v2,   params: { dimensions: 1024 } }
+
+gates:                        # pass/fail before any score is compared
+  leakage_rate: 0
+  deleted_content_rate: 0
+
+primary_metric: recall@10
+secondary_metrics: [mrr@10, hit@5, cost_per_1k_chunks_usd, p95_latency_ms]
+decision_rule: cheapest option within 2 points of the best primary metric (paired bootstrap CI)
+max_spend_usd: 2

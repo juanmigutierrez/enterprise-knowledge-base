@@ -1,0 +1,61 @@
+# Option experiments (docs/option-evaluation.md). Run by hand, never on a PR:
+# they call paid models. Results are uploaded and summarized on the run page;
+# a person decides whether to change config/default.yaml.
+#
+# AWS access uses GitHub OIDC (no stored keys). One-time setup: an IAM role
+# that trusts this repository, allowed only bedrock:InvokeModel* in the eval
+# account, saved as the repository variable AWS_EVAL_ROLE_ARN.
+
+name: eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment:
+        description: "Experiment file in evaluation/experiments/"
+        required: true
+        default: "4.04-embeddings.yaml"
+      max_spend_usd:
+        description: "Stop when logged model cost exceeds this"
+        required: true
+        default: "5"
+
+permissions:
+  contents: read
+  id-token: write   # OIDC token for AWS
+
+concurrency:
+  group: eval
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: eval   # optional: require a reviewer before spending money
+    env:
+      EKB_PROFILE: bedrock
+      EKB_MAX_SPEND_USD: ${{ inputs.max_spend_usd }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: { enable-cache: true }
+      - run: uv sync --locked
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
+          aws-region: eu-central-1
+      - name: Start infrastructure
+        run: docker compose up -d --wait
+      - name: Run experiment
+        env:
+          EXPERIMENT: ${{ inputs.experiment }}
+        run: uv run ekb-eval run "evaluation/experiments/${EXPERIMENT}" --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eval-results
+          path: evaluation/results/
+      - if: always()
+        run: docker compose down -v

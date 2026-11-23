@@ -1,0 +1,45 @@
+# ---- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.python-eggs/
+
+# ---- Tooling caches and reports
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.import_linter_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ---- Secrets and local config (only .env.example is committed)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.aws/
+
+# ---- Runtime data
+data/
+# model-call cache (content-hash keyed)
+.cache/
+*.parquet
+*.duckdb
+
+# ---- Evaluation: summaries are committed, raw run outputs are not
+evaluation/results/raw/
+
+# ---- Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

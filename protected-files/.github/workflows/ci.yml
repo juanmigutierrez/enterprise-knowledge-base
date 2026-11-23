@@ -1,0 +1,133 @@
+# Runs on every pull request and on main. Each job maps to one question:
+#   quality      Is the code clean, typed, and does it respect the folder/layer rules?
+#   test         Do unit and contract tests pass, with enough coverage?
+#   security     Any leaked secret or known-vulnerable dependency?
+#   image        Does the image build, and is it free of critical vulnerabilities?
+#   integration  Does it work against the real local infrastructure, and do the
+#                permission and deletion gates hold (no LLM, deterministic)?
+#
+# Third-party actions are pinned to a full commit SHA (tag in the comment):
+# mutable tags were force-pushed to malware in the March 2026 trivy-action
+# compromise. Dependabot updates the SHAs.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EKB_PROFILE: ci
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: { enable-cache: true }
+      - run: uv sync --locked
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+      - name: Types
+        run: uv run mypy
+      - name: Layer rules (import-linter)
+        run: uv run lint-imports
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: { enable-cache: true }
+      - run: uv sync --locked
+      - name: Unit and contract tests
+        run: uv run pytest -m "not integration and not e2e and not eval" --cov --cov-report=xml --junitxml=junit.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            coverage.xml
+            junit.xml
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: { enable-cache: true }
+      - run: uv sync --locked
+      - name: Dependency vulnerabilities
+        run: uv run pip-audit --skip-editable
+
+  image:
+    needs: [quality, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          tags: ekb:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: docker run --rm ekb:ci --help
+      - name: Vulnerability scan (fail on fixable critical/high)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ekb:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  integration:
+    needs: [quality, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: { enable-cache: true }
+      - run: uv sync --locked
+      - name: Start infrastructure
+        run: docker compose up -d --wait
+      - name: Integration tests and gates (leakage = 0, deleted content = 0)
+        # Exit code 5 means "no tests collected": allowed until the first
+        # integration test lands (docs/plan.md §4.2 task 10).
+        run: uv run pytest -m integration || [ $? -eq 5 ]
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: Stop
+        if: always()
+        run: docker compose down -v
