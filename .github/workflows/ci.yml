@@ -1,5 +1,7 @@
 # Runs on every pull request and on main. Each job maps to one question:
 #   quality      Is the code clean, typed, and does it respect the folder/layer rules?
+#   ui           Does the inspector UI lint, type-check and build, and are its API
+#                types generated from the current API schema (D19)?
 #   test         Do unit and contract tests pass, with enough coverage?
 #   security     Any leaked secret or known-vulnerable dependency?
 #   image        Does the image build, and is it free of critical vulnerabilities?
@@ -46,6 +48,37 @@ jobs:
         run: uv run mypy
       - name: Layer rules (import-linter)
         run: uv run lint-imports
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: { enable-cache: true }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ui/.nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: uv sync --locked
+      - run: npm ci
+      - name: API types are current (schema exported from the API, types regenerated, no diff)
+        run: |
+          uv run ekb inspector --export-openapi openapi.json
+          npm run gen:types
+          git diff --exit-code -- openapi.json src/api/schema.d.ts
+      - name: Lint
+        run: npm run lint
+      - run: npm test
+      - name: Types
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
 
   test:
     runs-on: ubuntu-latest

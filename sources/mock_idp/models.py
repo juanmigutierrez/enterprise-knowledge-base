@@ -76,6 +76,7 @@ class IdentityEvent(BaseModel):
     user_id: str
     group: str | None = None  # set for membership events
     at: datetime
+    actor: str | None = None  # the admin who made the change (X-Actor), if anyone said
 
 
 class IdentityEventFeed(BaseModel):

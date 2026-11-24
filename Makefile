@@ -1,7 +1,7 @@
 # Every target is a thin wrapper over a plain command, so nothing here is
 # required: on Windows without make, run the command after the colon directly.
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint typecheck imports test test-int check audit build up up-models up-app down logs options clean
+.PHONY: help setup fmt lint typecheck imports test test-int check audit build up up-models up-app down logs options clean ui-types ui-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -30,7 +30,7 @@ test: ## Unit and contract tests with coverage
 test-int: ## Integration tests (needs `make up`)
 	uv run pytest -m integration
 
-check: lint typecheck imports test ## Everything CI runs on a pull request, locally
+check: lint typecheck imports test ## Everything CI runs on a pull request, locally (UI: make ui-check)
 
 audit: ## Known-vulnerability scan of locked dependencies
 	uv run pip-audit --skip-editable
@@ -58,3 +58,13 @@ options: ## Show the chosen option per step and whether it is built
 
 clean: ## Remove caches
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage coverage.xml htmlcov
+
+ui-types: ## Regenerate the inspector UI's API types from the API schema
+	uv run ekb inspector --export-openapi ui/openapi.json
+	cd ui && npm run gen:types
+
+ui-check: ## What CI runs for the inspector UI
+	cd ui && npm ci
+	$(MAKE) ui-types
+	git diff --exit-code -- ui/openapi.json ui/src/api/schema.d.ts
+	cd ui && npm test && npm run lint && npm run typecheck && npm run build

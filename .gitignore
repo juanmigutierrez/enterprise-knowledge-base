@@ -50,3 +50,7 @@ desktop.ini
 
 # Claude desktop app output folder
 Claude outputs/
+
+# ---- Inspector UI (ui/)
+ui/node_modules/
+ui/dist/

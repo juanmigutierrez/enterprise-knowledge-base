@@ -6,7 +6,7 @@ prints what happens in plain language, to be read next to the step's
 walkthrough in docs/walkthrough/.
 """
 
-from ekb.app.demos import s1, s1b, s1c, s1d  # noqa: F401  (importing registers the commands)
+from ekb.app.demos import s1, s1b, s1c, s1d, t1  # noqa: F401  (importing registers the commands)
 from ekb.app.demos._app import demo_app
 
 __all__ = ["demo_app"]

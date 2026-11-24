@@ -53,6 +53,7 @@ class _OfficeRow(BaseModel):
     city: str
     country: str = Field(pattern=r"^[A-Z]{2}$")
     headcount: int = Field(ge=0)
+    changed_by: str | None = None
 
 
 class _LeaveRow(BaseModel):
@@ -62,6 +63,7 @@ class _LeaveRow(BaseModel):
     year: int
     days_total: float = Field(ge=0)
     days_taken: float = Field(ge=0)
+    changed_by: str | None = None
 
     @model_validator(mode="after")
     def _taken_within_total(self) -> _LeaveRow:

@@ -111,9 +111,10 @@ class IdpStore:
 
     # ----------------------------------------------------------------- writes
 
-    def create_user(self, request: UserCreate) -> ScimUser:
+    def create_user(self, request: UserCreate, *, actor: str | None = None) -> ScimUser:
         """A joiner. Refused as a whole if any group is unknown."""
         with self._lock:
+            self._check_actor(actor)
             if request.id in self._users:
                 raise IdentityConflictError(f"user {request.id} exists")
             if any(u.name == request.name for u in self._users.values()):
@@ -124,38 +125,41 @@ class IdpStore:
             if unknown:
                 raise UnknownPrincipalError(f"unknown groups {unknown}")
             self._users[request.id] = _User(request.name, request.location)
-            self._record(IdentityEventKind.USER_CREATED, request.id)
+            self._record(IdentityEventKind.USER_CREATED, request.id, actor=actor)
             for gid in sorted(set(request.groups)):
                 self._groups[gid].members.add(request.id)
-                self._record(IdentityEventKind.MEMBER_ADDED, request.id, gid)
+                self._record(IdentityEventKind.MEMBER_ADDED, request.id, gid, actor=actor)
             return self._scim_user(request.id)
 
-    def deactivate(self, user_id: str) -> ScimUser:
+    def deactivate(self, user_id: str, *, actor: str | None = None) -> ScimUser:
         """A leaver: can no longer sign in; stays listed with their memberships."""
         with self._lock:
+            self._check_actor(actor)
             user = self._user(user_id)
             if not user.active:
                 raise IdentityConflictError(f"user {user_id} is already inactive")
             user.active = False
-            self._record(IdentityEventKind.USER_DEACTIVATED, user_id)
+            self._record(IdentityEventKind.USER_DEACTIVATED, user_id, actor=actor)
             return self._scim_user(user_id)
 
-    def add_member(self, group_id: str, user_id: str) -> ScimGroup:
+    def add_member(self, group_id: str, user_id: str, *, actor: str | None = None) -> ScimGroup:
         with self._lock:
+            self._check_actor(actor)
             group = self._group(group_id)
             self._user(user_id)
             if user_id not in group.members:
                 group.members.add(user_id)
-                self._record(IdentityEventKind.MEMBER_ADDED, user_id, group_id)
+                self._record(IdentityEventKind.MEMBER_ADDED, user_id, group_id, actor=actor)
             return self._scim_group(group_id)
 
-    def remove_member(self, group_id: str, user_id: str) -> ScimGroup:
+    def remove_member(self, group_id: str, user_id: str, *, actor: str | None = None) -> ScimGroup:
         with self._lock:
+            self._check_actor(actor)
             group = self._group(group_id)
             self._user(user_id)
             if user_id in group.members:
                 group.members.remove(user_id)
-                self._record(IdentityEventKind.MEMBER_REMOVED, user_id, group_id)
+                self._record(IdentityEventKind.MEMBER_REMOVED, user_id, group_id, actor=actor)
             return self._scim_group(group_id)
 
     # --------------------------------------------------------------- helpers
@@ -188,8 +192,22 @@ class IdpStore:
         group = self._groups[group_id]
         return ScimGroup(id=group_id, display_name=group.description, members=sorted(group.members))
 
-    def _record(self, kind: IdentityEventKind, user_id: str, group: str | None = None) -> None:
+    def _check_actor(self, actor: str | None) -> None:
+        """An actor must be a user this identity provider knows (called under the lock)."""
+        if actor is not None and actor not in self._users:
+            raise UnknownPrincipalError(f"unknown actor {actor!r}")
+
+    def _record(
+        self,
+        kind: IdentityEventKind,
+        user_id: str,
+        group: str | None = None,
+        *,
+        actor: str | None,
+    ) -> None:
         at = self._clock()
         self._feed.append(
-            lambda seq: IdentityEvent(seq=seq, event=kind, user_id=user_id, group=group, at=at)
+            lambda seq: IdentityEvent(
+                seq=seq, event=kind, user_id=user_id, group=group, at=at, actor=actor
+            )
         )

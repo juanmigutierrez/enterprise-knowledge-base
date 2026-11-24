@@ -21,11 +21,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Header, Response, status
 
 from sources.common.factory import create_service_app
 from sources.mock_hr_api.models import (
+    ACTOR_ID,
     Employee,
     EmployeeCreate,
     EmployeeUpdate,
@@ -42,6 +44,9 @@ from sources.mock_hr_api.store import (
 )
 
 DEFAULT_PORT = 8082
+
+# Who makes a write: an identity provider user ID (kept as ``updated_by``).
+Actor = Annotated[str | None, Header(alias="X-Actor", pattern=ACTOR_ID)]
 
 
 def create_app(seed_file: Path = SEED_FILE) -> FastAPI:
@@ -68,16 +73,16 @@ def create_app(seed_file: Path = SEED_FILE) -> FastAPI:
         return store().employee(employee_id)
 
     @app.post("/employees", status_code=status.HTTP_201_CREATED)
-    def hire(request: EmployeeCreate) -> Employee:
-        return store().hire(request)
+    def hire(request: EmployeeCreate, actor: Actor = None) -> Employee:
+        return store().hire(request, actor=actor)
 
     @app.patch("/employees/{employee_id}")
-    def update_employee(employee_id: str, request: EmployeeUpdate) -> Employee:
-        return store().update_employee(employee_id, request)
+    def update_employee(employee_id: str, request: EmployeeUpdate, actor: Actor = None) -> Employee:
+        return store().update_employee(employee_id, request, actor=actor)
 
     @app.delete("/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_employee(employee_id: str) -> Response:
-        store().delete_employee(employee_id)
+    def delete_employee(employee_id: str, actor: Actor = None) -> Response:
+        store().delete_employee(employee_id, actor=actor)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/teams")
@@ -89,8 +94,8 @@ def create_app(seed_file: Path = SEED_FILE) -> FastAPI:
         return store().team(team_id)
 
     @app.patch("/teams/{team_id}")
-    def update_team(team_id: str, request: TeamUpdate) -> Team:
-        return store().update_team(team_id, request)
+    def update_team(team_id: str, request: TeamUpdate, actor: Actor = None) -> Team:
+        return store().update_team(team_id, request, actor=actor)
 
     @app.post("/reset")
     def reset() -> dict[str, int]:

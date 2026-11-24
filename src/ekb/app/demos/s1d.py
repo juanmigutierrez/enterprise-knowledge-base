@@ -43,7 +43,8 @@ def run_s1d(db_path: Path, echo: Echo = typer.echo) -> None:
 
         echo("2. The HR application writes, in one transaction (nobody sends any event):")
         statements = [
-            "INSERT INTO office_headcount VALUES ('LIS', 'Lisbon', 'PT', 0)",
+            "INSERT INTO office_headcount (office_id, city, country, headcount) "
+            "VALUES ('LIS', 'Lisbon', 'PT', 0)",
             "UPDATE leave_balances SET days_taken = 10 WHERE employee_id = 'E-1001'",
             "DELETE FROM office_headcount WHERE office_id = 'BLQ'",
         ]

@@ -85,7 +85,7 @@ Each step goes through the same four stages:
 3. **Review (Codex, `$cross-review`):** review, fix, re-check, and confirm that the walkthrough matches the code.
 4. **Push:** after your confirmation. A step is done only when you can answer its three questions.
 
-A step is never started before the previous one is pushed.
+A step is never started before the previous one is pushed. Exception, decided on 24 November 2026: S2, S2a and S2b are built together and reviewed and pushed as one batch.
 
 **Tests are the proof that a step works; the UI is for seeing and understanding it.**
 
@@ -98,9 +98,9 @@ A step is never started before the previous one is pushed.
 | S1b | 1 · Sources | Mock HR record API (stands in for Workday): employee and team records over REST with an `updated_since` filter that **never reports deletes**; in-memory | Pull-based sources, and why a deleted record can only be found by a full listing | `ekb demo s1b`: change a record and poll with `updated_since`; delete one and see the delta stay silent | 25 min | ✅ |
 | S1c | 1 · Sources | Mock identity provider (stands in for Okta / Entra ID): the users and groups of `directory.yaml` served SCIM-style, with a change feed for joiners, leavers and group membership changes; in-memory | Why a group change is a permission change for every document that group can read | `ekb demo s1c`: remove alice from a group → one membership event, no document changed | 20 min | ✅ |
 | S1d | 1 · Sources | Mock HR database (stands in for Postgres + Debezium): SQLite tables (headcount per office, leave balances) with a CDC-style change log written by triggers, deletes included | Change data capture, and why table rows are queried with SQL instead of embedded (D7) | `ekb demo s1d`: insert, update and delete rows → three change-log entries in commit order | 25 min | ✅ |
-| S2 | 2 · Connect + **T1** | Connector (webhook-style and full-listing) → normalized `ChangeEvent` | Why every source is reduced to one event shape | `ekb demo t1`: add, edit, delete and revoke access in the source → print the 4 events | 30 min | ⬜ |
-| S2a | 2 · Connect + **T1** | Connectors for the other three sources, each an option of the connector port: delta polling + full listing (HR API), CDC reader (database), identity sync (identity provider) → the same `ChangeEvent` | That one event shape covers push, pull, CDC and identity sources, so nothing downstream depends on the source type | `ekb demo t1 --all`: one change in each of the four sources → four events of the same shape, side by side | 45 min | ⬜ |
-| S2b | 8 · Inspector UI foundation | Read-only inspector API (FastAPI, **local profile only**) + React + TypeScript app (Vite): **Documents** screen and **Events** panel; TypeScript types generated from the API (OpenAPI → `openapi-typescript`), CI fails if they are stale; UI lint, type check and build in CI | How the data looks at each stage, visually; how front end and back end share one contract | `uv run ekb inspector` + `npm run dev` in `ui/` | 90 min | ⬜ |
+| S2 | 2 · Connect + **T1** | Connector (webhook-style and full-listing) → normalized `ChangeEvent` | Why every source is reduced to one event shape | `ekb demo t1`: add, edit, delete and revoke access in the source → print the 4 events | 30 min | ✅ |
+| S2a | 2 · Connect + **T1** | Connectors for the other three sources, each an option of the connector port: delta polling + full listing (HR API), CDC reader (database), identity sync (identity provider) → the same `ChangeEvent` | That one event shape covers push, pull, CDC and identity sources, so nothing downstream depends on the source type | `ekb demo t1 --all`: one change in each of the four sources → four events of the same shape, side by side | 45 min | ✅ |
+| S2b | 8 · Inspector UI foundation | Read-only inspector API (FastAPI, **local profile only**) + React + TypeScript app (Vite): **Documents** screen and **Events** panel; TypeScript types generated from the API (OpenAPI → `openapi-typescript`), CI fails if they are stale; UI lint, type check and build in CI | How the data looks at each stage, visually; how front end and back end share one contract | `uv run ekb inspector` + `npm run dev` in `ui/` | 90 min | ✅ |
 | S3 | 3 · Change log | Event bus, document registry, raw store: **in-memory** options | Ordering per document, replay, why originals are stored | `ekb demo s3`: publish, consume, replay · UI: change log panel | 40 min | ⬜ |
 | S4 | 4 · **T2** Diff | Skip unchanged, ACL fast lane, delete → purge | How the system avoids re-processing and handles deletes | `ekb demo t2`: same doc twice → second skipped; ACL change → fast lane · UI: T2 decision panel | 30 min | ⬜ |
 | S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ⬜ |
@@ -138,4 +138,4 @@ A step is never started before the previous one is pushed.
 
 ## 6. Next step
 
-Continue with **S2** using `/plan-task S2`. In parallel, decide which design version is the official one (§4.1 task 1).
+S2, S2a and S2b are built (🟡) and go to review together (`$cross-review`); then **S3** with `/plan-task S3`. In parallel, decide which design version is the official one (§4.1 task 1).
