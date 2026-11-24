@@ -47,6 +47,11 @@ class ChangeLog:
     _lifetimes: dict[str, int] = field(default_factory=dict, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
+    def current_lifetime(self, document_key: str) -> int:
+        """The lifetime open for this key, even while consumers are catching up."""
+        with self._lock:
+            return self._lifetimes.get(document_key, 0)
+
     def store_original(self, document_key: str, version: str, original: bytes) -> str:
         with self._lock:
             lifetime = self._lifetimes.get(document_key, 0)

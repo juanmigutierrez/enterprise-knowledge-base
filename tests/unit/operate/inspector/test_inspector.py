@@ -21,9 +21,11 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
-from ekb.operate.inspector.log import DecisionLog, EventLog
+from ekb.operate.inspector.log import DecisionLog, EventLog, ParsedStore
 from ekb.process.t2_diff.options.content_hash import ContentHashDiffer
 from ekb.process.t2_diff.step import DiffResult, DiffStep
+from ekb.process.t3_parse.options.markdown import MarkdownParser
+from ekb.process.t3_parse.port import MARKDOWN, SourceFile
 from tests.conftest import REPO_ROOT
 
 AT = datetime(2026, 11, 24, 9, 0, tzinfo=UTC)
@@ -111,6 +113,7 @@ def _app(
     registry: InMemoryRegistry | None = None,
     rawstore: InMemoryRawStore | None = None,
     decisions: DecisionLog | None = None,
+    parsed: ParsedStore | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -119,7 +122,26 @@ def _app(
         registry=registry or InMemoryRegistry(),
         rawstore=rawstore or InMemoryRawStore(),
         decisions=decisions or DecisionLog(),
+        parsed=parsed or ParsedStore(),
+        current_lifetime=lambda key: 0,
     )
+
+
+BODY = (
+    "# Remote work\n\n## The rule\n- Two days a week.\n\n"
+    "| Day | Where |\n|---|---|\n| Fri | Home |\n"
+)
+
+
+@pytest.fixture
+def parsed() -> ParsedStore:
+    """T3's results as the inspector keeps them: HR-PL-04 parsed twice (an edit), one record."""
+    store = ParsedStore()
+    for version in ("1.1", "2.1"):
+        file = SourceFile("hr_docs:HR-PL-04", version, "Remote work", "en", MARKDOWN, BODY.encode())
+        store.record(EVENTS[0], MarkdownParser().parse(file))
+    store.record(EVENTS[4], None)  # identity:users/alice is a record, not a document
+    return store
 
 
 @pytest.fixture
@@ -129,8 +151,18 @@ def client(
     registry: InMemoryRegistry,
     rawstore: InMemoryRawStore,
     decisions: DecisionLog,
+    parsed: ParsedStore,
 ) -> TestClient:
-    return TestClient(_app(log, bus=bus, registry=registry, rawstore=rawstore, decisions=decisions))
+    return TestClient(
+        _app(
+            log,
+            bus=bus,
+            registry=registry,
+            rawstore=rawstore,
+            decisions=decisions,
+            parsed=parsed,
+        )
+    )
 
 
 def test_the_log_is_the_inspector_groups_copy_of_the_bus(
@@ -289,3 +321,67 @@ def test_t2_decisions_page_after_a_cursor_and_filter(
     identity = client.get("/api/t2/decisions", params={"source": "identity"}).json()
     assert [d["source_id"] for d in identity["decisions"]] == ["users/alice"]
     assert client.get("/api/t2/decisions", params={"action": "maybe"}).status_code == 422
+
+
+def test_t3_lists_parsed_documents_and_counts_records_not_parsed(client: TestClient) -> None:
+    view = client.get("/api/t3/parsed").json()
+    (doc,) = view["documents"]
+    assert (doc["document_key"], doc["version"], doc["title"], doc["runs"]) == (
+        "hr_docs:HR-PL-04",
+        "2.1",  # the latest parse
+        "Remote work",
+        2,  # parsed twice: once per processed version
+    )
+    assert (doc["source"], doc["source_id"], doc["language"]) == ("hr_docs", "HR-PL-04", "en")
+    assert doc["blocks"] == 4
+    assert doc["kinds"] == {"heading": 2, "list_item": 1, "table": 1}
+    assert doc["parser_id"].startswith("markdown-it-py@")
+    assert view["records"] == [{"source": "identity", "items": 1}]
+    only = client.get("/api/t3/parsed", params={"source": "identity"}).json()
+    assert only == {"documents": [], "records": [{"source": "identity", "items": 1}]}
+
+
+def test_t3_shows_one_documents_blocks_and_clean_text(client: TestClient) -> None:
+    view = client.get("/api/t3/parsed/document", params={"document_key": "hr_docs:HR-PL-04"})
+    assert view.status_code == 200
+    body = view.json()
+    assert body["summary"]["version"] == "2.1"
+    item, table = body["blocks"][2], body["blocks"][3]
+    assert (item["kind"], item["marker"], item["section"]) == (
+        "list_item",
+        "-",
+        ["Remote work", "The rule"],
+    )
+    assert table["rows"] == [["Day", "Where"], ["Fri", "Home"]]
+    assert body["text"] == (
+        "Remote work\n\nThe rule\n\n- Two days a week.\n\nDay | Where\nFri | Home"
+    )
+
+
+@pytest.mark.parametrize("key", ["hr_docs:none", "identity:users/alice"])
+def test_t3_has_nothing_for_unknown_items_or_records(client: TestClient, key: str) -> None:
+    response = client.get("/api/t3/parsed/document", params={"document_key": key})
+    assert response.status_code == 404
+    assert client.get("/api/t3/parsed/document").status_code == 422  # document_key is required
+
+
+def test_a_purged_item_s_parsed_text_is_never_returned(
+    client: TestClient, parsed: ParsedStore
+) -> None:
+    """Deletion gate, inspector side: a purge drops the parsed text with the originals."""
+    assert parsed.drop("hr_docs:HR-PL-04") is True
+    assert parsed.drop("identity:users/alice") is True
+    gone = client.get("/api/t3/parsed/document", params={"document_key": "hr_docs:HR-PL-04"})
+    assert gone.status_code == 404
+    assert client.get("/api/t3/parsed").json() == {"documents": [], "records": []}
+    assert parsed.drop("hr_docs:HR-PL-04") is False  # dropping again is harmless
+
+
+def test_a_re_created_document_starts_counting_runs_again(parsed: ParsedStore) -> None:
+    entry = parsed.get("hr_docs:HR-PL-04")
+    assert entry is not None
+    parsed.drop("hr_docs:HR-PL-04")
+    parsed.record(EVENTS[0], entry.document)
+    again = parsed.get("hr_docs:HR-PL-04")
+    assert again is not None
+    assert again.runs == 1

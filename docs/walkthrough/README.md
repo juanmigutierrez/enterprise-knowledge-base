@@ -16,3 +16,4 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S2b | [Inspector UI foundation](S02b-inspector.md) |
 | S3 | [Change log: event bus, document registry, raw store](S03-change-log.md) |
 | S4 | [T2 Diff: skip unchanged, ACL fast lane, purge deletes](S04-t2-diff.md) |
+| S5 | [T3 Parse: from a stored original to clean, structured text](S05-t3-parse.md) |

@@ -10,6 +10,8 @@ GET /api/registry[?source=]                     the document registry's records 
 GET /api/originals?document_key=                an item's stored originals, metadata only (S3)
 GET /api/t2/decisions[?since=&source=&action=   T2's decisions and totals (S4)
                      &document_key=]
+GET /api/t3/parsed[?source=]                    parsed documents, and records not parsed (S5)
+GET /api/t3/parsed/document?document_key=       one parsed document's blocks and text (S5)
 ==============================================  =====================================
 
 Every route is a GET: a test fails if a write route appears. The factory
@@ -19,15 +21,16 @@ refuses any profile but ``local``.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
 from ekb.contracts import ChangeOp, DiffAction
-from ekb.operate.inspector.log import DecisionLog, EventLog
+from ekb.operate.inspector.log import DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.models import (
     ChangeLogView,
     DecisionPage,
@@ -37,6 +40,10 @@ from ekb.operate.inspector.models import (
     EventPage,
     EventView,
     OriginalView,
+    ParsedDocumentView,
+    ParsedListView,
+    ParsedSummaryView,
+    RecordCountView,
     RecordView,
     SourceView,
 )
@@ -58,6 +65,8 @@ def create_inspector_app(
     registry: DocumentRegistry,
     rawstore: RawStore,
     decisions: DecisionLog,
+    parsed: ParsedStore,
+    current_lifetime: Callable[[str], int],
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -152,6 +161,32 @@ def create_inspector_app(
             cursor=cursor,
             counts=DiffCounts.of(decisions.counts(upto=cursor)),
         )
+
+    @app.get("/api/t3/parsed")
+    def t3_parsed(source: str | None = None) -> ParsedListView:
+        return ParsedListView(
+            documents=[
+                ParsedSummaryView.of(e)
+                for e in parsed.entries(source)
+                if e.lifetime == current_lifetime(e.document.document_key)
+            ],
+            records=[
+                RecordCountView(source=name, items=items)
+                for name, items in parsed.records().items()
+                if source is None or name == source
+            ],
+        )
+
+    @app.get("/api/t3/parsed/document", responses={404: {"description": "Not parsed"}})
+    def t3_parsed_document(document_key: str) -> ParsedDocumentView:
+        entry = parsed.get(document_key)
+        if entry is None or entry.lifetime != current_lifetime(document_key):
+            raise HTTPException(
+                status_code=404,
+                detail=f"{document_key} is not parsed: not a document, not processed yet, "
+                "or deleted",
+            )
+        return ParsedDocumentView.of(entry)
 
     return app
 

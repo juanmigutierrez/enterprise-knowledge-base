@@ -103,7 +103,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S2b | 8 · Inspector UI foundation | Read-only inspector API (FastAPI, **local profile only**) + React + TypeScript app (Vite): **Documents** screen and **Events** panel; TypeScript types generated from the API (OpenAPI → `openapi-typescript`), CI fails if they are stale; UI lint, type check and build in CI | How the data looks at each stage, visually; how front end and back end share one contract | `uv run ekb inspector` + `npm run dev` in `ui/` | 90 min | ✅ |
 | S3 | 3 · Change log | Event bus, document registry, raw store: **in-memory** options | Ordering per document, replay, why originals are stored | `ekb demo s3`: publish, consume, replay · UI: change log panel | 40 min | ✅ |
 | S4 | 4 · **T2** Diff | Skip unchanged, ACL fast lane, delete → purge | How the system avoids re-processing and handles deletes | `ekb demo t2`: same doc twice → second skipped; ACL change → fast lane · UI: T2 decision panel | 30 min | ✅ |
-| S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ⬜ |
+| S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ✅ |
 | S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy · UI: chunks panel | 30 min | ⬜ |
 | S7 | Platform · Model gateway | Provider switch (fake / Ollama / Bedrock), content-hash cache, cost log | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged · UI: model calls and cost panel | 40 min | ⬜ |
 | S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ⬜ |
@@ -138,4 +138,4 @@ A step is never started before the previous one is pushed. Exception, decided on
 
 ## 6. Next step
 
-S4 is complete. Next is **S5** with `/plan-task S5`. In parallel, decide which design version is the official one (§4.1 task 1).
+S5 is complete. Next is **S6** with `/plan-task S6`. In parallel, decide which design version is the official one (§4.1 task 1).

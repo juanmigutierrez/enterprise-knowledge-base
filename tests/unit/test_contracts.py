@@ -3,7 +3,16 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from ekb.contracts import Acl, ChangeEvent, ChangeOp, DiffAction, DiffDecision
+from ekb.contracts import (
+    Acl,
+    Block,
+    BlockKind,
+    ChangeEvent,
+    ChangeOp,
+    DiffAction,
+    DiffDecision,
+    ParsedDocument,
+)
 
 NOW = datetime(2026, 11, 23, tzinfo=UTC)
 
@@ -119,3 +128,47 @@ def test_valid_decisions_are_accepted() -> None:
         (DiffAction.PURGE, delete),
     ]:
         assert DiffDecision(action=action, reason="x", event=event).action is action
+
+
+# ----------------------------------------------------------------- T3: parsed documents
+
+
+@pytest.mark.parametrize(
+    ("fields", "problem"),
+    [
+        ({"kind": BlockKind.PARAGRAPH, "text": "  "}, "must have text"),
+        ({"kind": BlockKind.HEADING, "text": "x", "level": 0}, "level is 1 to 6"),
+        ({"kind": BlockKind.HEADING, "text": "x", "level": 7}, "level is 1 to 6"),
+        ({"kind": BlockKind.LIST_ITEM, "text": "x"}, "nesting depth"),
+        ({"kind": BlockKind.TABLE, "text": "x"}, "a table has rows"),
+        ({"kind": BlockKind.PARAGRAPH, "text": "x", "rows": (("a",),)}, "only a table"),
+    ],
+)
+def test_a_block_must_have_a_consistent_shape(fields: dict[str, object], problem: str) -> None:
+    with pytest.raises(ValidationError, match=problem):
+        Block.model_validate(fields)
+
+
+def test_the_clean_text_keeps_list_items_together_and_indents_nested_ones() -> None:
+    def item(text: str, level: int = 1, marker: str = "-") -> Block:
+        return Block(kind=BlockKind.LIST_ITEM, text=text, level=level, marker=marker)
+
+    parsed = ParsedDocument(
+        document_key="hr_docs:HR-PL-01",
+        version="1.1",
+        title="Leave",
+        media_type="text/markdown",
+        parser_id="test",
+        blocks=(
+            Block(kind=BlockKind.HEADING, text="Leave", level=1),
+            item("first"),
+            item("nested", level=2),
+            item("more about nested", level=2, marker=""),
+            item("second", marker="2."),
+            Block(kind=BlockKind.TABLE, text="a | b\n1 | 2", rows=(("a", "b"), ("1", "2"))),
+        ),
+    )
+    assert parsed.text == (
+        "Leave\n\n- first\n  - nested\n    more about nested\n2. second\n\na | b\n1 | 2"
+    )
+    assert ParsedDocument.model_validate(parsed.model_dump()) == parsed
