@@ -101,7 +101,7 @@ By hand, start a mock and pass its URL (`--url`, `--hr-url`, `--idp-url`), then 
 - **Fail closed, report loudly:** an unmapped person is never guessed. The event is still emitted, with less access, so the change isn't lost.
 - **A delete never names whom the item was about** (`person_id` is empty, like the content). It may name who deleted it.
 - **Identity records are readable by `all-staff`** (company-directory data). Groups are not tracked as items of their own; membership lives on the user.
-- **Cursors live in memory** (`as_of`, `seq`); from S3 they are stored with the change log so a restarted connector resumes.
+- **Cursors live in memory** (`as_of`, `seq`). Keeping them durably, so a restarted connector resumes, comes with the durable stores (S17; decided in S3, since an in-memory change log doesn't survive a restart either).
 - **`changed_by` for the database relies on the application** filling the column; Postgres logical replication alone can't tell.
 - **The HR listing has no paging** and the person map reloads both sources on a miss: fine for 12 people, batched and rate-limited at scale.
 

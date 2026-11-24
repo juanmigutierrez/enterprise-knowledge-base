@@ -19,6 +19,7 @@ from ekb.app.demos.s1 import run_s1
 from ekb.app.demos.s1b import run_s1b
 from ekb.app.demos.s1c import run_s1c
 from ekb.app.demos.s1d import run_s1d
+from ekb.app.demos.s3 import run_s3_live, run_s3_replay
 from ekb.app.demos.t1 import run_t1, run_t1_all
 from tests.conftest import REPO_ROOT
 
@@ -116,6 +117,7 @@ def test_demos_are_repeatable_against_the_same_running_mock(
         ("s1d", "16 entries, all op=r"),
         ("t1", "full listing sync() -> 0 events"),
         ("t1 --all", "Unmapped people reported during the run: none."),
+        ("s3", "Same as the registry: True."),
     ],
 )
 def test_cli_runs_each_demo_end_to_end(
@@ -127,7 +129,7 @@ def test_cli_runs_each_demo_end_to_end(
     assert expected in result.output
 
 
-@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1"])
+@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3"])
 def test_cli_reports_an_unreachable_mock_cleanly(step: str) -> None:
     result = CliRunner().invoke(app, ["demo", step, "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
@@ -195,3 +197,41 @@ def test_t1_all_shows_four_sources_in_one_shape(tmp_path: Path) -> None:
     assert "delta sync() -> 0 events" in output
     assert "-> delete     hr_api:employees/E-1012" in output
     assert "Unmapped people reported during the run: none." in output
+
+
+def _s3(runs: int = 1) -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        for _ in range(runs):
+            lines.clear()
+            changelog = run_s3_live(docs, idp, echo=lines.append)
+            assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    run_s3_replay(changelog, "The docs tool has been stopped.", echo=lines.append)
+    return "\n".join(lines)
+
+
+def test_s3_publishes_records_redelivers_and_replays_without_the_source() -> None:
+    output = _s3(runs=2)  # a second run starts clean
+    assert "full listing sync() -> 12 events published" in output
+    assert "partition 0:  6 events  HR-CMP-01 HR-PL-02 HR-PL-04" in output
+    assert "raw store: 12 originals, e.g. mem://ekb-raw/hr_docs/HR-PL-04/1.1" in output
+    assert "group 'registry' has 12 events pending" in output
+    assert "recorded 12 events; the registry knows 12 pages; pending now 0." in output
+    assert "full listing sync() again -> 0 events" in output
+    # Order per document: both edits in one partition, in order.
+    assert "p0@6   upsert     HR-PL-04  v2.1  by=dana" in output
+    assert "p1@3   acl_change HR-PL-05  v1.2  by=lucia  readers=es-employees" in output
+    assert "p0@7   upsert     HR-PL-04  v3.1" in output
+    assert "p0@8   delete     HR-PL-99  v1.1  by=dana   readers=-" in output
+    # At least once, and no skipping past a pending event.
+    assert "After a restart, poll -> 3 events again: p1@3, p0@7, p0@8." in output
+    assert "Committing the delete (p0@8) before p0@7 is refused" in output
+    assert "accepted (it must not be)" not in output
+    # The registry: an ACL change keeps the original; a delete leaves a tombstone.
+    assert "HR-PL-05  v1.2  live    readers=es-employees  hash=" in output
+    assert "original=hr_docs/HR-PL-05/1.1" in output
+    assert "HR-PL-99  v1.1  deleted readers=-             hash=-        original=-" in output
+    # Replay from the raw store only.
+    assert "16 events replayed; 14 originals read from the raw store" in output
+    assert "Rebuilt: 11 live pages, 1 tombstone. Same as the registry: True." in output
+    assert "Consumer groups: registry pending 0, reindex pending 0." in output

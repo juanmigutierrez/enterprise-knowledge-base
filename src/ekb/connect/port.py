@@ -8,10 +8,10 @@ downstream depends on ``ChangeEvent`` and nothing on the source type (D3).
 Two things are injected rather than built in, so the connector stays the same
 when the infrastructure changes:
 
-- ``EventSink``: where events go. A list in tests and demos; the event bus
-  from S3 on.
+- ``EventSink``: where events go. A list in tests; the event bus's
+  ``publish`` from S3 on.
 - ``OriginalStore``: where the fetched original is kept, returning the pointer
-  an upsert must carry. An in-memory dict in S2; the raw store (S3 API) from S3.
+  an upsert must carry. The raw store's ``put`` from S3 on.
 """
 
 from __future__ import annotations
@@ -21,8 +21,12 @@ from typing import Protocol, runtime_checkable
 
 from ekb.contracts import ChangeEvent
 
-EventSink = Callable[[ChangeEvent], None]
-"""Receives each normalized event, in the order the connector produced them."""
+EventSink = Callable[[ChangeEvent], object]
+"""Receives each normalized event, in the order the connector produced them.
+
+Whatever it returns is ignored: ``EventBus.publish`` (S3) says where the event
+landed, which the connector does not need to know.
+"""
 
 OriginalStore = Callable[[str, str, bytes], str]
 """``(document_key, version, original_bytes) -> raw_pointer``."""

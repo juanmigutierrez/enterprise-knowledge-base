@@ -31,9 +31,10 @@ from ekb.connect.normalize import docs as normalize
 from ekb.connect.people import PersonMap
 from ekb.connect.port import EventSink, OriginalStore
 from ekb.contracts import ChangeEvent
+from ekb.contracts.listing import ListingVersion, NeedsOriginal
 from ekb.platform.registry import register
 
-Known = Callable[[], Mapping[str, str]]
+Known = Callable[[], Mapping[str, ListingVersion]]
 """``source_id -> version`` of every document the knowledge base holds for this source."""
 
 
@@ -77,13 +78,21 @@ class DocsFullListingConnector:
         events: list[ChangeEvent] = []
         for summary in self._api.list_pages():
             known_version = unseen.pop(summary.id, None)
-            event = self._compare(summary, known_version)
+            event = (
+                self._fetch_upsert(summary, known_version.version)
+                if isinstance(known_version, NeedsOriginal)
+                else self._compare(summary, known_version)
+            )
             if event is not None:
                 events.append(event)
         # A page we know that the source no longer lists has been deleted. The
         # source never said so; the listing is the only evidence (D3).
         for source_id, version in sorted(unseen.items()):
-            events.append(self._deleted(source_id, version))
+            events.append(
+                self._deleted(
+                    source_id, version.version if isinstance(version, NeedsOriginal) else version
+                )
+            )
         return events
 
     def _compare(self, summary: DocsPageSummary, known_version: str | None) -> ChangeEvent | None:

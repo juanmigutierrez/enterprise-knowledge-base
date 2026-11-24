@@ -29,6 +29,7 @@ from ekb.connect.normalize import docs as normalize
 from ekb.connect.people import PersonMap
 from ekb.connect.port import EventSink, OriginalStore
 from ekb.contracts import ChangeEvent, ChangeOp
+from ekb.contracts.listing import ListingVersion
 from ekb.platform.registry import register
 
 
@@ -42,7 +43,7 @@ class DocsWebhookConnector:
         people: PersonMap,
         source: str = "hr_docs",
         *,
-        known: Callable[[], Mapping[str, str]] = dict,
+        known: Callable[[], Mapping[str, ListingVersion]] = dict,
     ) -> None:
         self._api = api
         self._sink = sink
@@ -107,7 +108,8 @@ class DocsWebhookConnector:
         acl = normalize.acl_of(page.acl, users=self._people.users_in(page.acl.users))
         changed_by = self._people.user(page.modified_by)
         if op is ChangeOp.ACL_CHANGE:
-            known = normalize.parse_version(self._known().get(page.id, ""))
+            version_hint = self._known().get(page.id)
+            known = normalize.parse_version(version_hint) if isinstance(version_hint, str) else None
             if known and known[0] == page.rev:
                 return normalize.acl_change_event(
                     self._source, page, acl=acl, changed_by=changed_by

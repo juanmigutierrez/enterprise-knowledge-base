@@ -1,5 +1,5 @@
 import type { EventView } from "../api/client";
-import { orDash, readers, shortHash, time } from "../format";
+import { orDash, place, readers, shortHash, time } from "../format";
 import { OpBadge } from "./OpBadge";
 
 /** Events as rows: the same columns wherever events are shown, whatever the source. */
@@ -17,6 +17,7 @@ export function EventTable({
                 <tr>
                     <th>#</th>
                     <th>received</th>
+                    <th title="partition@offset in the event bus">bus</th>
                     <th>op</th>
                     {showKey && <th>item</th>}
                     <th>version</th>
@@ -31,6 +32,7 @@ export function EventTable({
                     <tr key={event.seq}>
                         <td className="num">{event.seq}</td>
                         <td>{time(event.received_at)}</td>
+                        <td className="mono">{place(event)}</td>
                         <td>
                             <OpBadge op={event.op} />
                         </td>

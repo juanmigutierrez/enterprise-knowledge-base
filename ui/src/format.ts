@@ -17,6 +17,15 @@ export function orDash(value: string | null | undefined): string {
     return value ?? "—";
 }
 
+/** Where an event sits in the bus: `p0@7` is partition 0, offset 7. */
+export function place(at: { partition: number; offset: number }): string {
+    return `p${at.partition}@${at.offset}`;
+}
+
+export function bytes(size: number): string {
+    return size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`;
+}
+
 export const OP_LABEL: Record<ChangeOp, string> = {
     upsert: "upsert",
     delete: "delete",

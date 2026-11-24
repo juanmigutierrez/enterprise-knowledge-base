@@ -1,10 +1,13 @@
-"""An in-memory event log: every ``ChangeEvent`` received, in arrival order.
+"""The inspector's own copy of the change log: every event, in arrival order.
 
-Until the change log exists (S3) this is where the inspector's events come
-from: ``ekb inspector`` wires every connector's sink to :meth:`EventLog.append`.
-It can also say what each source is believed to hold (:meth:`known`), which is
-what the full-listing connectors compare against, the job the document
-registry takes over in S3.
+Since S3 the inspector is a consumer group (``inspector``) on the event bus,
+like any worker: ``ekb inspector`` drains the group into this log after every
+sync round. It keeps the events it has read so the UI can page through them
+with a cursor and show each item's history, and it records where each event
+sits in the bus (partition and offset).
+
+It no longer says what each source holds: the full listings ask the document
+registry for that (S3).
 """
 
 from __future__ import annotations
@@ -13,13 +16,16 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from ekb.contracts import ChangeEvent, ChangeOp
+from ekb.changelog.bus.port import Delivery
+from ekb.contracts import ChangeEvent
 
 
 @dataclass(frozen=True)
 class LoggedEvent:
     seq: int  # arrival order in this log, 1, 2, 3 ...
     received_at: datetime
+    partition: int
+    offset: int
     event: ChangeEvent
 
 
@@ -28,10 +34,18 @@ class EventLog:
         self._entries: list[LoggedEvent] = []
         self._lock = threading.Lock()
 
-    def append(self, event: ChangeEvent) -> None:
-        """An ``EventSink``: connectors call it with each event."""
+    def append(self, delivery: Delivery) -> None:
+        """A bus handler: ``drain(bus, "inspector", log.append)``."""
         with self._lock:
-            self._entries.append(LoggedEvent(len(self._entries) + 1, datetime.now(UTC), event))
+            self._entries.append(
+                LoggedEvent(
+                    seq=len(self._entries) + 1,
+                    received_at=datetime.now(UTC),
+                    partition=delivery.partition,
+                    offset=delivery.offset,
+                    event=delivery.event,
+                )
+            )
 
     @property
     def cursor(self) -> int:
@@ -62,11 +76,3 @@ class EventLog:
             count = latest[key][1] + 1 if key in latest else 1
             latest[key] = (entry, count)
         return latest
-
-    def known(self, source: str) -> dict[str, str]:
-        """``source_id -> version`` of the items of ``source`` that are not deleted."""
-        return {
-            entry.event.source_id: entry.event.version
-            for entry, _ in self.latest().values()
-            if entry.event.source == source and entry.event.op is not ChangeOp.DELETE
-        }

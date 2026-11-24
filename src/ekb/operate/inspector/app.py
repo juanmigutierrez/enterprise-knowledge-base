@@ -1,11 +1,14 @@
-"""The inspector API (FastAPI): read-only views over the event log.
+"""The inspector API (FastAPI): read-only views over the event log and the change log.
 
-==========================================  =====================================
-GET /api/health                             liveness
-GET /api/sources                            items and events per source
-GET /api/documents[?source=]                every item's current state
+==============================================  =====================================
+GET /api/health                                 liveness
+GET /api/sources                                items and events per source
+GET /api/documents[?source=]                    every item's current state
 GET /api/events[?since=&source=&document_key=]  events after a cursor (live polling)
-==========================================  =====================================
+GET /api/changelog                              bus partitions and consumer groups (S3)
+GET /api/registry[?source=]                     the document registry's records (S3)
+GET /api/originals?document_key=                an item's stored originals, metadata only (S3)
+==============================================  =====================================
 
 Every route is a GET: a test fails if a write route appears. The factory
 refuses any profile but ``local``.
@@ -18,9 +21,20 @@ from typing import Annotated
 
 from fastapi import FastAPI, Query
 
+from ekb.changelog.bus.port import EventBus
+from ekb.changelog.rawstore.port import RawStore
+from ekb.changelog.registry.port import DocumentRegistry
 from ekb.contracts import ChangeOp
 from ekb.operate.inspector.log import EventLog
-from ekb.operate.inspector.models import DocumentView, EventPage, EventView, SourceView
+from ekb.operate.inspector.models import (
+    ChangeLogView,
+    DocumentView,
+    EventPage,
+    EventView,
+    OriginalView,
+    RecordView,
+    SourceView,
+)
 
 LOCAL_PROFILE = "local"
 HOST = "127.0.0.1"  # never another interface: the inspector shows everything to anyone
@@ -31,7 +45,14 @@ class InspectorNotAllowedError(RuntimeError):
     """The inspector was asked to start outside the local profile."""
 
 
-def create_inspector_app(log: EventLog, *, profile: str) -> FastAPI:
+def create_inspector_app(
+    log: EventLog,
+    *,
+    profile: str,
+    bus: EventBus,
+    registry: DocumentRegistry,
+    rawstore: RawStore,
+) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
             f"the inspector runs only in the {LOCAL_PROFILE!r} profile, not {profile!r}: "
@@ -93,6 +114,21 @@ def create_inspector_app(log: EventLog, *, profile: str) -> FastAPI:
         return EventPage(
             events=[EventView.of(e) for e in entries if e.seq <= cursor], cursor=cursor
         )
+
+    @app.get("/api/changelog")
+    def changelog() -> ChangeLogView:
+        return ChangeLogView.of(bus.stats())
+
+    @app.get("/api/registry")
+    def registry_records(source: str | None = None) -> list[RecordView]:
+        return [
+            RecordView.of(record, originals=len(rawstore.versions(record.document_key)))
+            for record in registry.records(source)
+        ]
+
+    @app.get("/api/originals")
+    def originals(document_key: str) -> list[OriginalView]:
+        return [OriginalView.of(o) for o in rawstore.versions(document_key)]
 
     return app
 

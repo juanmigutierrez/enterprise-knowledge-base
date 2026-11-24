@@ -5,9 +5,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+from ekb.changelog.bus.consume import drain
+from ekb.changelog.bus.options.in_memory import InMemoryEventBus
+from ekb.changelog.rawstore.options.in_memory import InMemoryRawStore
+from ekb.changelog.registry.options.in_memory import InMemoryRegistry
+from ekb.changelog.registry.port import record_event
 from ekb.contracts import Acl, ChangeEvent, ChangeOp
 from ekb.operate.inspector.app import (
     HOST,
@@ -35,36 +41,87 @@ def _event(source_id: str, op: ChangeOp, version: str, **extra: object) -> Chang
     return ChangeEvent.model_validate(fields | extra)
 
 
+EVENTS = [
+    _event("HR-PL-04", ChangeOp.UPSERT, "1.1"),
+    _event("HR-PL-99", ChangeOp.UPSERT, "1.1"),
+    _event("HR-PL-04", ChangeOp.UPSERT, "2.1", changed_by="dana"),
+    _event("HR-PL-99", ChangeOp.DELETE, "1.1", changed_by="dana"),
+    ChangeEvent(
+        source="identity",
+        source_id="users/alice",
+        op=ChangeOp.UPSERT,
+        version="0",
+        occurred_at=AT,
+        raw_pointer="mem://x",
+        person_id="alice",
+    ),
+]
+
+
 @pytest.fixture
-def log() -> EventLog:
+def bus() -> InMemoryEventBus:
+    bus = InMemoryEventBus(partitions=3)
+    for event in EVENTS:
+        bus.publish(event)
+    return bus
+
+
+@pytest.fixture
+def registry(bus: InMemoryEventBus) -> InMemoryRegistry:
+    registry = InMemoryRegistry()
+    drain(bus, "registry", lambda d: record_event(registry, d.event))
+    return registry
+
+
+@pytest.fixture
+def rawstore() -> InMemoryRawStore:
+    store = InMemoryRawStore(clock=lambda: AT)
+    store.put("hr_docs:HR-PL-04", "1.1", b"first")
+    store.put("hr_docs:HR-PL-04", "2.1", b"second")
+    return store
+
+
+@pytest.fixture
+def log(bus: InMemoryEventBus) -> EventLog:
     log = EventLog()
-    log.append(_event("HR-PL-04", ChangeOp.UPSERT, "1.1"))
-    log.append(_event("HR-PL-99", ChangeOp.UPSERT, "1.1"))
-    log.append(_event("HR-PL-04", ChangeOp.UPSERT, "2.1", changed_by="dana"))
-    log.append(_event("HR-PL-99", ChangeOp.DELETE, "1.1", changed_by="dana"))
-    log.append(
-        ChangeEvent(
-            source="identity",
-            source_id="users/alice",
-            op=ChangeOp.UPSERT,
-            version="0",
-            occurred_at=AT,
-            raw_pointer="mem://x",
-            person_id="alice",
-        )
-    )
+    drain(bus, "inspector", log.append)
     return log
 
 
+def _app(
+    log: EventLog,
+    profile: str = "local",
+    bus: InMemoryEventBus | None = None,
+    registry: InMemoryRegistry | None = None,
+    rawstore: InMemoryRawStore | None = None,
+) -> FastAPI:
+    return create_inspector_app(
+        log,
+        profile=profile,
+        bus=bus or InMemoryEventBus(),
+        registry=registry or InMemoryRegistry(),
+        rawstore=rawstore or InMemoryRawStore(),
+    )
+
+
 @pytest.fixture
-def client(log: EventLog) -> TestClient:
-    return TestClient(create_inspector_app(log, profile="local"))
+def client(
+    log: EventLog,
+    bus: InMemoryEventBus,
+    registry: InMemoryRegistry,
+    rawstore: InMemoryRawStore,
+) -> TestClient:
+    return TestClient(_app(log, bus=bus, registry=registry, rawstore=rawstore))
 
 
-def test_the_log_knows_what_each_source_holds(log: EventLog) -> None:
-    assert log.known("hr_docs") == {"HR-PL-04": "2.1"}  # HR-PL-99 is deleted
-    assert log.known("identity") == {"users/alice": "0"}
+def test_the_log_is_the_inspector_groups_copy_of_the_bus(
+    log: EventLog, bus: InMemoryEventBus
+) -> None:
     assert log.cursor == 5
+    assert [e.event for e in log.entries()] == EVENTS  # one partition order kept per item
+    first = log.entries()[0]
+    assert (first.partition, first.offset) == (0, 0)  # HR-PL-04 lives in partition 0
+    assert {g.group: g.lag for g in bus.stats().groups} == {"inspector": 0}
 
 
 def test_documents_show_each_items_current_state(client: TestClient) -> None:
@@ -93,7 +150,7 @@ def test_events_page_after_a_cursor_and_filter(client: TestClient, log: EventLog
     assert page["cursor"] == 5
     history = client.get("/api/events", params={"document_key": "hr_docs:HR-PL-04"}).json()
     assert [e["version"] for e in history["events"]] == ["1.1", "2.1"]  # the item's history
-    log.append(_event("HR-PL-01", ChangeOp.UPSERT, "2.1"))
+    log.append(InMemoryEventBus().publish(_event("HR-PL-01", ChangeOp.UPSERT, "2.1")))
     assert [e["seq"] for e in client.get("/api/events", params={"since": 5}).json()["events"]] == [
         6
     ]
@@ -110,7 +167,7 @@ def test_sources_count_items_and_deletes(client: TestClient) -> None:
 def test_it_refuses_every_profile_but_local(profile: str) -> None:
     """D19 gate: the inspector shows everything, so it never runs outside local."""
     with pytest.raises(InspectorNotAllowedError, match="local"):
-        create_inspector_app(EventLog(), profile=profile)
+        _app(EventLog(), profile=profile)
 
 
 def test_it_is_read_only(client: TestClient) -> None:
@@ -129,4 +186,45 @@ def test_the_ui_contract_is_up_to_date() -> None:
     Fix with: uv run ekb inspector --export-openapi ui/openapi.json; cd ui; npm run gen:types
     """
     committed = (REPO_ROOT / "ui" / "openapi.json").read_text(encoding="utf-8")
-    assert committed == openapi_json(create_inspector_app(EventLog(), profile="local"))
+    assert committed == openapi_json(_app(EventLog()))
+
+
+def test_events_say_where_they_sit_in_the_bus(client: TestClient) -> None:
+    events = client.get("/api/events").json()["events"]
+    places = [(e["source_id"], e["partition"], e["offset"]) for e in events]
+    (first, second) = [(p, o) for source_id, p, o in places if source_id == "HR-PL-04"]
+    assert first[0] == second[0]  # one partition
+    assert first[1] < second[1]  # in order
+
+
+def test_changelog_shows_partitions_and_each_groups_position(client: TestClient) -> None:
+    view = client.get("/api/changelog").json()
+    assert (view["partitions"], view["events"], sum(view["end_offsets"])) == (3, 5, 5)
+    groups = {g["group"]: g for g in view["groups"]}
+    assert set(groups) == {"inspector", "registry"}
+    assert groups["registry"]["lag"] == 0
+    assert sum(groups["registry"]["committed"]) == 5
+
+
+def test_registry_shows_tombstones_without_content_and_counts_originals(
+    client: TestClient,
+) -> None:
+    records = {r["document_key"]: r for r in client.get("/api/registry").json()}
+    assert list(records) == ["hr_docs:HR-PL-04", "hr_docs:HR-PL-99", "identity:users/alice"]
+    edited, gone = records["hr_docs:HR-PL-04"], records["hr_docs:HR-PL-99"]
+    assert (edited["version"], edited["events"], edited["originals"]) == ("2.1", 2, 2)
+    assert edited["acl"] == {"users": [], "groups": ["all-staff"]}
+    assert gone["deleted"] is True
+    assert (gone["content_hash"], gone["raw_pointer"], gone["person_id"]) == (None, None, None)
+    assert gone["acl"] == {"users": [], "groups": []}
+    only = client.get("/api/registry", params={"source": "identity"}).json()
+    assert [r["document_key"] for r in only] == ["identity:users/alice"]
+
+
+def test_originals_list_versions_and_never_the_bytes(client: TestClient) -> None:
+    versions = client.get("/api/originals", params={"document_key": "hr_docs:HR-PL-04"}).json()
+    assert [(v["version"], v["size"]) for v in versions] == [("1.1", 5), ("2.1", 6)]
+    assert versions[0]["pointer"] == "mem://ekb-raw/hr_docs/HR-PL-04/1.1"
+    assert all("first" not in str(v) and "second" not in str(v) for v in versions)
+    assert client.get("/api/originals", params={"document_key": "hr_docs:none"}).json() == []
+    assert client.get("/api/originals").status_code == 422  # document_key is required

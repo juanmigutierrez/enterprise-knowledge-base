@@ -3,6 +3,8 @@
 > Architecture: `docs/architecture.md` (box 8, Operate). Plan: `docs/plan.md` §4.2, S2b. Decision: D19 (inspector UI: React + TypeScript, local only, typed contract). Option card: none.
 
 ## 1. In one paragraph
+> **Updated in S3:** the connectors now publish to the event bus, and the inspector reads it as its own consumer group (`inspector`) into the `EventLog`. The full listings compare against the document registry, not the log, and a **Change log** tab shows the bus, the registry and the raw store. See `S03-change-log.md` §4.
+
 Tests prove each step works; the inspector lets you **see** it. S2b builds the foundation every later step adds a panel to: a read-only inspector API in Python and a React + TypeScript app. For now it shows what the connectors have produced: a **Documents** screen (every tracked item, its current state and its full history) and a live **Events** panel. Two rules shape it. It shows everything, every document and every permission, so it is **local only** by construction. And the front end and back end share **one contract**: the UI's TypeScript types are generated from the API's OpenAPI schema, and CI fails if they drift apart.
 
 ## 2. Where it sits in the flow
@@ -49,7 +51,7 @@ So a renamed field in Python is a TypeScript compile error, not a blank cell at 
 **The screens.** *Documents*: every item with its last op, version, `person_id`, `changed_by`, readers and event count; deleted items greyed with their name struck through; click one for its history, newest first. *Events*: every event as it arrives, filterable by source, with pause. The source chips on top count items, deletes and events per source.
 
 ## 5. Options
-Not a pipeline step, so no options. Later steps each add a panel (S3 onwards: change log, T2 decisions, parsed text, chunks …), and two larger screens: **Search as user** (S13) and **Lifecycle** (S16). From S3 the `EventLog` is replaced by a reader over the change log.
+Not a pipeline step, so no options. Later steps each add a panel (S3 onwards: change log, T2 decisions, parsed text, chunks …), and two larger screens: **Search as user** (S13) and **Lifecycle** (S16). Since S3 the `EventLog` is filled by the inspector's own consumer group on the event bus.
 
 ## 6. What the tests prove
 - **Log:** knows each source's live items (deletes excluded) and its cursor.
@@ -75,7 +77,7 @@ The first terminal prints each mock's `/docs` URL. Make a change there, with an 
 
 ## 8. Decisions and limits
 - **Local only, read only, 127.0.0.1**, enforced in code and tested (D19). No authentication: it is never exposed.
-- **Events live in memory** and are lost on restart; the change log (S3) makes them durable.
+- **Events live in memory** and are lost on restart; the change log's durable options (Kafka, S17) make them durable.
 - **The serving part of `ekb inspector` is smoke-tested by hand**, not by unit tests (it starts processes and a server); its pieces (`build_connectors`, `SyncLoop`, the API) are tested.
 - **TypeScript 5.9, not 7**: `typescript-eslint` and `openapi-typescript` don't support TypeScript 7 yet.
 - **No UI unit tests**, as agreed: lint, strict types and the build. Tests in Python remain the proof.

@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/changelog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Changelog */
+        get: operations["changelog_api_changelog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents": {
         parameters: {
             query?: never;
@@ -55,6 +72,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/originals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Originals */
+        get: operations["originals_api_originals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Registry Records */
+        get: operations["registry_records_api_registry_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -82,6 +133,20 @@ export interface components {
             groups: string[];
             /** Users */
             users: string[];
+        };
+        /**
+         * ChangeLogView
+         * @description The event bus: how many events each partition holds, and how far each group has read.
+         */
+        ChangeLogView: {
+            /** End Offsets */
+            end_offsets: number[];
+            /** Events */
+            events: number;
+            /** Groups */
+            groups: components["schemas"]["GroupView"][];
+            /** Partitions */
+            partitions: number;
         };
         /**
          * ChangeOp
@@ -118,7 +183,7 @@ export interface components {
         };
         /**
          * EventView
-         * @description One event as received, with the log's arrival number.
+         * @description One event as received, with the log's arrival number and its place in the bus.
          */
         EventView: {
             acl: components["schemas"]["AclView"];
@@ -133,7 +198,11 @@ export interface components {
              * Format: date-time
              */
             occurred_at: string;
+            /** Offset */
+            offset: number;
             op: components["schemas"]["ChangeOp"];
+            /** Partition */
+            partition: number;
             /** Person Id */
             person_id: string | null;
             /** Raw Pointer */
@@ -154,10 +223,75 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * GroupView
+         * @description A consumer group: per partition, the offset of its next pending event.
+         */
+        GroupView: {
+            /** Committed */
+            committed: number[];
+            /** Group */
+            group: string;
+            /** Lag */
+            lag: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * OriginalView
+         * @description One stored version of an item's original: where it is and how big, not its bytes.
+         */
+        OriginalView: {
+            /** Checksum */
+            checksum: string;
+            /** Pointer */
+            pointer: string;
+            /** Size */
+            size: number;
+            /**
+             * Stored At
+             * Format: date-time
+             */
+            stored_at: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * RecordView
+         * @description One registry record: what the knowledge base last processed for an item.
+         */
+        RecordView: {
+            acl: components["schemas"]["AclView"];
+            /** Changed By */
+            changed_by: string | null;
+            /** Content Hash */
+            content_hash: string | null;
+            /** Deleted */
+            deleted: boolean;
+            /** Document Key */
+            document_key: string;
+            /** Events */
+            events: number;
+            /** Originals */
+            originals: number;
+            /** Person Id */
+            person_id: string | null;
+            /** Raw Pointer */
+            raw_pointer: string | null;
+            /** Source */
+            source: string;
+            /** Source Id */
+            source_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: string;
         };
         /** SourceView */
         SourceView: {
@@ -194,6 +328,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    changelog_api_changelog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeLogView"];
+                };
+            };
+        };
+    };
     documents_api_documents_get: {
         parameters: {
             query?: {
@@ -276,6 +430,68 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    originals_api_originals_get: {
+        parameters: {
+            query: {
+                document_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OriginalView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    registry_records_api_registry_get: {
+        parameters: {
+            query?: {
+                source?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

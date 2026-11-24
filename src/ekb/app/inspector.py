@@ -1,12 +1,14 @@
 """``ekb inspector``: run every connector against the mocks and serve the inspector.
 
-Until the change log exists (S3) there is no bus to read, so this command
-builds a small live system in one process:
+It builds a small live system in one process:
 
 1. starts the four mock sources (or uses the ones you pass with ``--*-url``);
-2. wires all six connectors (S2, S2a) to an in-memory :class:`EventLog`;
+2. wires all six connectors (S2, S2a) to the change log (S3): events to the
+   bus, originals to the raw store, the full listings against the registry;
 3. loads each source once, then keeps them in sync: webhooks as they arrive,
-   polling and CDC every few seconds, the full listings less often;
+   polling and CDC every few seconds, the full listings less often. After each
+   group of connectors the stand-in worker records the new events in the
+   registry, and the inspector's own consumer group copies them into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``).
 
 Change something in a mock's ``/docs`` page and watch the event appear.
@@ -19,7 +21,7 @@ import math
 import sqlite3
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,9 +30,12 @@ from typing import Annotated
 import httpx
 import typer
 import uvicorn
+from fastapi import FastAPI
 
+from ekb.app.changelog import ChangeLog
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
+from ekb.changelog.bus.consume import drain
 from ekb.connect.docs_api import DocsApi
 from ekb.connect.hr_api import HrApi
 from ekb.connect.hr_db import CdcReader
@@ -57,17 +62,8 @@ from ekb.platform.config import load_settings
 
 logger = logging.getLogger(__name__)
 
-
-class InMemoryOriginals:
-    """Originals kept in memory until the raw store exists (S3)."""
-
-    def __init__(self) -> None:
-        self.saved: dict[str, bytes] = {}
-
-    def __call__(self, document_key: str, version: str, original: bytes) -> str:
-        pointer = f"mem://raw/{document_key.replace(':', '/')}/{version}"
-        self.saved[pointer] = original
-        return pointer
+INSPECTOR_GROUP = "inspector"
+"""The inspector's consumer group: it reads every event, like any other consumer."""
 
 
 @dataclass
@@ -81,13 +77,13 @@ class Connectors:
 
 
 def build_connectors(
-    docs: httpx.Client, hr: httpx.Client, idp: httpx.Client, db_path: Path, log: EventLog
+    docs: httpx.Client, hr: httpx.Client, idp: httpx.Client, db_path: Path, changelog: ChangeLog
 ) -> Connectors:
-    originals = InMemoryOriginals()
+    originals = changelog.rawstore.put
     people = PersonMap(load_people(IdentityApi(idp), HrApi(hr)))
-    sink = log.append
+    sink = changelog.bus.publish
     webhook = DocsWebhookConnector(
-        DocsApi(docs), sink, originals, people, known=lambda: log.known("hr_docs")
+        DocsApi(docs), sink, originals, people, known=changelog.known("hr_docs")
     )
     return Connectors(
         webhook=webhook,
@@ -99,14 +95,17 @@ def build_connectors(
         ],
         listings=[
             DocsFullListingConnector(
-                DocsApi(docs), sink, originals, people, known=lambda: log.known("hr_docs")
+                DocsApi(docs), sink, originals, people, known=changelog.known("hr_docs")
             ),
             HrApiFullListingConnector(
-                HrApi(hr), sink, originals, people, known=lambda: log.known("hr_api")
+                HrApi(hr), sink, originals, people, known=changelog.known("hr_api")
             ),
         ],
         people=people,
     )
+
+
+_RETRYABLE = (httpx.HTTPError, sqlite3.Error, OSError, ValueError, LookupError)
 
 
 @dataclass
@@ -115,6 +114,8 @@ class SyncLoop:
     round; it never stops the others (a source outage must not hide other changes)."""
 
     connectors: Connectors
+    changelog: ChangeLog
+    log: EventLog
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
@@ -122,18 +123,37 @@ class SyncLoop:
     def run_round(self) -> int:
         # Frequent ones first: on round 0 the HR delta loads every record, so the HR
         # listing that follows finds nothing to add, and the docs listing loads the pages.
-        due = self.rounds % self.listing_every == 0
-        group = self.connectors.frequent + (self.connectors.listings if due else [])
-        emitted = 0
-        for connector in group:
-            try:
-                emitted += connector.sync()
-            except (httpx.HTTPError, sqlite3.Error, OSError, ValueError, LookupError) as exc:
-                message = f"{connector.source} ({type(connector).__name__}): {exc}"
-                self.errors.append(message)
-                logger.warning("sync failed, retrying next round: %s", message)
+        # The registry records each group's events before the listings compare with it.
+        emitted = self._sync(self.connectors.frequent)
+        self._consume("registry", self.changelog.record_processed)
+        if self.rounds % self.listing_every == 0:
+            emitted += self._sync(self.connectors.listings)
+            self._consume("registry", self.changelog.record_processed)
+        self._consume(
+            INSPECTOR_GROUP, lambda: drain(self.changelog.bus, INSPECTOR_GROUP, self.log.append)
+        )
         self.rounds += 1
         return emitted
+
+    def _sync(self, connectors: list[Connector]) -> int:
+        emitted = 0
+        for connector in connectors:
+            try:
+                emitted += connector.sync()
+            except _RETRYABLE as exc:
+                self._failed(f"{connector.source} ({type(connector).__name__}): {exc}")
+        return emitted
+
+    def _consume(self, group: str, drain_group: Callable[[], int]) -> None:
+        # A failing event stays pending in its group and is retried next round.
+        try:
+            drain_group()
+        except _RETRYABLE as exc:
+            self._failed(f"consumer group {group}: {exc}")
+
+    def _failed(self, message: str) -> None:
+        self.errors.append(message)
+        logger.warning("sync failed, retrying next round: %s", message)
 
     @contextmanager
     def running(self, interval_s: float) -> Iterator[None]:
@@ -170,14 +190,15 @@ def inspector(
     if not math.isfinite(interval) or interval <= 0:
         raise typer.BadParameter("must be finite and positive", param_hint="--interval")
     if export_openapi is not None:
-        schema = openapi_json(create_inspector_app(EventLog(), profile=LOCAL_PROFILE))
+        schema = openapi_json(_create_app(EventLog(), ChangeLog.in_memory(), LOCAL_PROFILE))
         export_openapi.write_text(schema, encoding="utf-8", newline="\n")
         typer.echo(f"wrote {export_openapi}")
         return
     profile = load_settings().profile
     log = EventLog()
+    changelog = ChangeLog.in_memory()
     try:
-        app = create_inspector_app(log, profile=profile)
+        app = _create_app(log, changelog, profile)
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(code=2) from exc
@@ -189,17 +210,19 @@ def inspector(
         db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
         run_mock_command("sources.mock_hr_db", ["init", "--path", str(db_path)])
 
-        connectors = build_connectors(docs, hr, idp, db_path, log)
+        connectors = build_connectors(docs, hr, idp, db_path, changelog)
         receiver = stack.enter_context(serving(create_receiver_app(connectors.webhook.receive)))
         hook = call(docs, "POST", "/subscriptions", json={"url": receiver.url + DOCS_WEBHOOK_PATH})
         stack.callback(lambda: call(docs, "DELETE", f"/subscriptions/{hook['id']}"))
 
-        loop = SyncLoop(connectors, listing_every=listing_every)
+        loop = SyncLoop(connectors, changelog, log, listing_every=listing_every)
         loaded = loop.run_round()
         stack.enter_context(loop.running(interval))
 
         mapped, total = connectors.people.coverage()
         typer.echo(f"Loaded {loaded} events from 4 sources; people mapped {mapped}/{total}.")
+        partitions = changelog.bus.partitions
+        typer.echo(f"Change log: in-memory bus ({partitions} partitions), registry and raw store.")
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -207,3 +230,13 @@ def inspector(
         typer.echo(f"Inspector API: http://{HOST}:{port}/docs")
         typer.echo("UI: in ui/, run `npm install` once, then `npm run dev`. Ctrl+C stops.")
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
+
+
+def _create_app(log: EventLog, changelog: ChangeLog, profile: str) -> FastAPI:
+    return create_inspector_app(
+        log,
+        profile=profile,
+        bus=changelog.bus,
+        registry=changelog.registry,
+        rawstore=changelog.rawstore,
+    )

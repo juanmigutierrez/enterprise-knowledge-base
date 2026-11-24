@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { api } from "./api/client";
+import { ChangeLogScreen } from "./components/ChangeLogScreen";
 import { DocumentsScreen } from "./components/DocumentsScreen";
 import { EventsPanel } from "./components/EventsPanel";
 import { usePolling } from "./usePolling";
 
-type Tab = "documents" | "events";
+type Tab = "documents" | "events" | "changelog";
+
+const TABS: Record<Tab, string> = {
+    documents: "Documents",
+    events: "Events",
+    changelog: "Change log",
+};
 
 export function App() {
     const [tab, setTab] = useState<Tab>("documents");
@@ -17,13 +24,13 @@ export function App() {
                 <h1>ekb inspector</h1>
                 <span className="tag">local · read-only</span>
                 <nav>
-                    {(["documents", "events"] as const).map((name) => (
+                    {(Object.keys(TABS) as Tab[]).map((name) => (
                         <button
                             key={name}
                             className={tab === name ? "on" : ""}
                             onClick={() => setTab(name)}
                         >
-                            {name === "documents" ? "Documents" : "Events"}
+                            {TABS[name]}
                         </button>
                     ))}
                 </nav>
@@ -44,11 +51,9 @@ export function App() {
                 ))}
             </div>
             <main>
-                {tab === "documents" ? (
-                    <DocumentsScreen sources={names} />
-                ) : (
-                    <EventsPanel sources={names} />
-                )}
+                {tab === "documents" && <DocumentsScreen sources={names} />}
+                {tab === "events" && <EventsPanel sources={names} />}
+                {tab === "changelog" && <ChangeLogScreen sources={names} />}
             </main>
         </div>
     );

@@ -13,10 +13,13 @@ from sources.mock_hr_db.db import create_database
 from sources.mock_idp.app import create_app as idp_app
 from typer.testing import CliRunner
 
+from ekb.app.changelog import ChangeLog
 from ekb.app.cli import app
 from ekb.app.inspector import SyncLoop, build_connectors
-from ekb.contracts import ChangeOp
+from ekb.contracts import Acl, ChangeOp
+from ekb.contracts.listing import NeedsOriginal
 from ekb.operate.inspector.log import EventLog
+from tests.unit.changelog.factories import acl_change
 
 
 @pytest.fixture
@@ -34,15 +37,25 @@ def test_round_zero_loads_every_source_once(
 ) -> None:
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
-    log = EventLog()
-    loop = SyncLoop(build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", log), listing_every=2)
+    log, changelog = EventLog(), ChangeLog.in_memory()
+    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, log, listing_every=2)
     assert loop.run_round() == 12 + 17 + 16 + 12  # pages, HR records, DB rows, users
-    assert {s: len(log.known(s)) for s in ("hr_docs", "hr_api", "hr_db", "identity")} == {
+    # The registry recorded everything before the listings compared with it, so the
+    # HR listing added nothing on top of the delta's first poll.
+    registry = changelog.registry
+    assert {s: len(registry.known(s)) for s in ("hr_docs", "hr_api", "hr_db", "identity")} == {
         "hr_docs": 12,
         "hr_api": 17,
         "hr_db": 16,
         "identity": 12,
     }
+    assert log.cursor == 57  # the inspector's group has read every event
+    assert {g.group: g.lag for g in changelog.bus.stats().groups} == {
+        "inspector": 0,
+        "registry": 0,
+    }
+    assert len(changelog.rawstore.versions("hr_docs:HR-PL-04")) == 1
     assert loop.run_round() == 0  # nothing changed
 
     hr.delete("/employees/E-1012")
@@ -52,14 +65,19 @@ def test_round_zero_loads_every_source_once(
     assert revoked.acl.users == frozenset()
     (last,) = log.entries(since=log.cursor - 1)
     assert (last.event.op, last.event.source_id) == (ChangeOp.DELETE, "employees/E-1012")
+    gone = registry.get("hr_api:employees/E-1012")
+    assert gone is not None
+    assert gone.deleted
+    assert "employees/E-1012" not in registry.known("hr_api")
 
 
 def test_a_failing_source_does_not_stop_the_others(
     clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
 ) -> None:
     docs, hr, idp = clients
-    log = EventLog()  # no database file: the CDC connector fails every round
-    loop = SyncLoop(build_connectors(docs, hr, idp, tmp_path / "missing.sqlite", log))
+    changelog = ChangeLog.in_memory()  # no database file: the CDC connector fails every round
+    connectors = build_connectors(docs, hr, idp, tmp_path / "missing.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, EventLog())
     assert loop.run_round() == 12 + 17 + 12
     assert any("hr_db" in error for error in loop.errors)
 
@@ -69,7 +87,9 @@ def test_the_loop_runs_in_the_background(
 ) -> None:
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
-    loop = SyncLoop(build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", EventLog()))
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, EventLog())
     with loop.running(interval_s=0.01):
         while loop.rounds < 2:
             pass
@@ -96,3 +116,73 @@ def test_the_command_exports_the_schema(tmp_path: Path) -> None:
 def test_invalid_sync_schedule_is_rejected(option: str, value: str) -> None:
     result = CliRunner().invoke(app, ["inspector", option, value])
     assert result.exit_code == 2
+
+
+def test_a_failing_consumer_is_retried_next_round_and_loses_nothing(
+    clients: tuple[TestClient, TestClient, TestClient],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    log, changelog = EventLog(), ChangeLog.in_memory()
+    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, log)
+
+    def broken(_: object) -> None:
+        raise ValueError("the inspector's copy failed")
+
+    monkeypatch.setattr(log, "append", broken)
+    loop.run_round()
+    assert any("consumer group inspector" in error for error in loop.errors)
+    assert log.cursor == 0
+    monkeypatch.undo()
+    loop.run_round()
+    assert log.cursor == 57  # every event was still pending, none was skipped
+
+
+@pytest.mark.parametrize(
+    ("source", "item", "listing_index"),
+    [
+        ("hr_docs", "HR-PL-04", 0),
+        ("hr_api", "employees/E-1001", 1),
+    ],
+)
+def test_listing_repairs_missing_original_and_tombstones_absent_items(
+    clients: tuple[TestClient, TestClient, TestClient],
+    tmp_path: Path,
+    source: str,
+    item: str,
+    listing_index: int,
+) -> None:
+    changelog = ChangeLog.in_memory()
+    listing = build_connectors(*clients, tmp_path / "unused.sqlite", changelog).listings[
+        listing_index
+    ]
+    listing.sync()
+    changelog.record_processed()
+    key = f"{source}:{item}"
+    before = changelog.registry.get(key)
+    assert before is not None
+    assert before.raw_pointer is not None
+    for source_id in (item, "vanished"):
+        changelog.bus.publish(
+            acl_change(source_id, before.version, Acl(), source, content_hash="mismatch")
+        )
+    changelog.record_processed()
+    pending = changelog.registry.get(key)
+    assert pending is not None
+    assert pending.acl == Acl()
+    assert pending.raw_pointer is None
+    assert changelog.registry.known(source)[item] == NeedsOriginal(version=before.version)
+    assert listing.sync() == 2
+    changelog.record_processed()
+    repaired = changelog.registry.get(key)
+    gone = changelog.registry.get(f"{source}:vanished")
+    assert repaired is not None
+    assert repaired.raw_pointer == before.raw_pointer
+    assert repaired.content_hash == before.content_hash
+    assert gone is not None
+    assert gone.deleted
+    assert gone.version == before.version
+    assert listing.sync() == 0

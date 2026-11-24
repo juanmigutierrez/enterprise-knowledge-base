@@ -12,6 +12,9 @@ import httpx
 import pytest
 
 from ekb.app.bootstrap import load_options
+from ekb.changelog.bus.port import EventBus
+from ekb.changelog.rawstore.port import RawStore
+from ekb.changelog.registry.port import DocumentRegistry
 from ekb.connect.docs_api import DocsApi
 from ekb.connect.hr_api import HrApi
 from ekb.connect.hr_db import CdcReader
@@ -22,7 +25,10 @@ from ekb.platform import registry
 from ekb.process.t7_embed.port import Embedder
 
 PORTS: dict[str, type] = {
+    "bus": EventBus,
     "connect": Connector,
+    "registry": DocumentRegistry,
+    "rawstore": RawStore,
     "t7_embed": Embedder,
 }
 
