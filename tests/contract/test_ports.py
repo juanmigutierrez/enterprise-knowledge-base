@@ -24,6 +24,7 @@ from ekb.connect.port import Connector
 from ekb.platform import registry
 from ekb.process.t2_diff.port import Differ
 from ekb.process.t3_parse.port import Parser
+from ekb.process.t4_chunk.port import Chunker
 from ekb.process.t7_embed.port import Embedder
 
 PORTS: dict[str, type] = {
@@ -33,6 +34,7 @@ PORTS: dict[str, type] = {
     "rawstore": RawStore,
     "t2_diff": Differ,
     "t3_parse": Parser,
+    "t4_chunk": Chunker,
     "t7_embed": Embedder,
 }
 

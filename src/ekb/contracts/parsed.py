@@ -1,6 +1,6 @@
 """T3 contract: a document as clean text with its structure kept.
 
-T3 produces it; T4 (S6) splits it into chunks, and the inspector shows it. It
+T3 produces it; T4 splits it into chunks (S6), and the inspector shows it. It
 lives here, with the other shared models, because those readers sit in
 layers that may not import ``ekb.process``.
 
@@ -25,6 +25,7 @@ removed: what is left is the text a reader sees.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Self
 
@@ -91,19 +92,29 @@ class ParsedDocument(BaseModel):
     @property
     def text(self) -> str:
         """The whole document as clean text: blocks in order, list items kept together."""
-        lines: list[str] = []
-        previous: Block | None = None
-        for block in self.blocks:
-            together = (
-                previous is not None
-                and previous.kind is BlockKind.LIST_ITEM
-                and block.kind is BlockKind.LIST_ITEM
-            )
-            if previous is not None and not together:
-                lines.append("")
-            lines.append(_line(block))
-            previous = block
-        return "\n".join(lines)
+        return render_blocks(self.blocks)
+
+
+def render_blocks(blocks: Sequence[Block]) -> str:
+    """Blocks as clean text: a blank line between blocks, list items kept together.
+
+    Shared by :attr:`ParsedDocument.text` and T4, so a chunk's text is written
+    exactly as the same blocks read in the whole document: whichever chunker
+    cut it, the words and their layout are the same.
+    """
+    lines: list[str] = []
+    previous: Block | None = None
+    for block in blocks:
+        together = (
+            previous is not None
+            and previous.kind is BlockKind.LIST_ITEM
+            and block.kind is BlockKind.LIST_ITEM
+        )
+        if previous is not None and not together:
+            lines.append("")
+        lines.append(_line(block))
+        previous = block
+    return "\n".join(lines)
 
 
 def _line(block: Block) -> str:

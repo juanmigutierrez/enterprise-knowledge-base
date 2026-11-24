@@ -129,6 +129,175 @@
         "title": "ChangeOp",
         "type": "string"
       },
+      "ChunkListView": {
+        "properties": {
+          "chunks": {
+            "title": "Chunks",
+            "type": "integer"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkSummaryView"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents",
+          "chunks"
+        ],
+        "title": "ChunkListView",
+        "type": "object"
+      },
+      "ChunkSummaryView": {
+        "description": "One chunked document, without its chunks: what the list on the T4 screen shows (S6).",
+        "properties": {
+          "chunked_at": {
+            "format": "date-time",
+            "title": "Chunked At",
+            "type": "string"
+          },
+          "chunker_id": {
+            "title": "Chunker Id",
+            "type": "string"
+          },
+          "chunks": {
+            "title": "Chunks",
+            "type": "integer"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "largest": {
+            "title": "Largest",
+            "type": "integer"
+          },
+          "max_tokens": {
+            "title": "Max Tokens",
+            "type": "integer"
+          },
+          "over_limit": {
+            "title": "Over Limit",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "smallest": {
+            "title": "Smallest",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_key",
+          "source",
+          "source_id",
+          "version",
+          "title",
+          "chunker_id",
+          "max_tokens",
+          "chunks",
+          "tokens",
+          "smallest",
+          "largest",
+          "over_limit",
+          "runs",
+          "chunked_at"
+        ],
+        "title": "ChunkSummaryView",
+        "type": "object"
+      },
+      "ChunkView": {
+        "description": "One chunk, as T4 left it: no header, labels, vector or ACL yet.",
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "context_header": {
+            "title": "Context Header",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "publishable": {
+            "title": "Publishable",
+            "type": "boolean"
+          },
+          "section": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Section",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "position",
+          "section",
+          "tokens",
+          "text",
+          "context_header",
+          "publishable"
+        ],
+        "title": "ChunkView",
+        "type": "object"
+      },
+      "ChunkedDocumentView": {
+        "description": "One document's chunks, in reading order.",
+        "properties": {
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkView"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ChunkSummaryView"
+          }
+        },
+        "required": [
+          "summary",
+          "chunks"
+        ],
+        "title": "ChunkedDocumentView",
+        "type": "object"
+      },
       "DecisionPage": {
         "description": "Decisions after a cursor (filtered), the next cursor, and the totals (unfiltered).",
         "properties": {
@@ -1330,6 +1499,94 @@
           }
         },
         "summary": "T3 Parsed Document"
+      }
+    },
+    "/api/t4/chunks": {
+      "get": {
+        "operationId": "t4_chunks_api_t4_chunks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkListView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "T4 Chunks"
+      }
+    },
+    "/api/t4/chunks/document": {
+      "get": {
+        "operationId": "t4_chunks_document_api_t4_chunks_document_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "document_key",
+            "required": true,
+            "schema": {
+              "title": "Document Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkedDocumentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not chunked"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "T4 Chunks Document"
       }
     }
   }

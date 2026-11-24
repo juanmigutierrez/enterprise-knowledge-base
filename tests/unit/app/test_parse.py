@@ -11,7 +11,7 @@ from ekb.app.diff import diff_step
 from ekb.app.inspector import _create_app
 from ekb.app.parse import DOCUMENT_SOURCES, parse_after_t2, parse_step, parser
 from ekb.contracts import Acl, DiffAction
-from ekb.operate.inspector.log import DecisionLog, EventLog, ParsedStore
+from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.platform.registry import UnknownOptionError
 from ekb.process.t2_diff.step import DiffStep
 from ekb.process.t3_parse.port import MARKDOWN, ParseError, SourceFile
@@ -102,7 +102,8 @@ def test_published_delete_hides_parsed_text_while_t2_is_blocked(changelog: Chang
             parse_step(changelog), lambda r: store.record(r.event, r.parsed), store.drop
         ),
     )
-    client = TestClient(_create_app(EventLog(), DecisionLog(), store, changelog, "local"))
+    app = _create_app(EventLog(), DecisionLog(), store, changelog, "local", chunks=ChunkStore())
+    client = TestClient(app)
     original = changelog.publish(upsert("HR-PL-04")).event
     step.handle(original)
     url = "/api/t3/parsed/document"

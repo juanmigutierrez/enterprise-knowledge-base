@@ -112,6 +112,40 @@ def test_t3_parses_what_t2_processes_and_forgets_what_it_purges(
     assert len(parsed.entries()) == 11
 
 
+def test_t4_chunks_what_t3_parses_and_forgets_what_t2_purges(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
+    loop.run_round()
+    chunks = loop.chunks
+    assert loop.t4.chunker_id == "structure_aware@1(max_tokens=400)"
+    assert len(chunks.entries()) == 12  # every page; records are never chunked
+    assert sum(len(e.chunks) for e in chunks.entries()) == 48
+
+    page = docs.get("/pages/HR-PL-01").json()
+    docs.put("/pages/HR-PL-01", json={"body": page["body"]})  # same text: T2 skips
+    docs.put("/pages/HR-PL-04", json={"body": "# Remote work\n\n## Rule\nFriday too.\n"})
+    docs.put("/pages/HR-PL-05/acl", json={"groups": ["es-employees"]})  # fast lane
+    docs.delete("/pages/HR-PL-99")
+    loop.run_round()
+
+    resaved, edited = chunks.get("hr_docs:HR-PL-01"), chunks.get("hr_docs:HR-PL-04")
+    revoked = chunks.get("hr_docs:HR-PL-05")
+    assert resaved is not None
+    assert edited is not None
+    assert revoked is not None
+    assert (resaved.runs, resaved.version) == (1, "1.1")  # not chunked again
+    assert (revoked.runs, revoked.version) == (1, "1.1")  # readers changed, text didn't
+    assert (edited.runs, edited.version) == (2, "2.1")
+    assert [c.text for c in edited.chunks] == ["Rule\n\nFriday too."]
+    assert chunks.get("hr_docs:HR-PL-99") is None  # deleted: its chunks are gone
+    assert len(chunks.entries()) == 11
+
+
 def test_a_failing_source_does_not_stop_the_others(
     clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
 ) -> None:

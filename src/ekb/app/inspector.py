@@ -9,8 +9,8 @@ It builds a small live system in one process:
    polling and CDC every few seconds, the full listings less often. After each
    group of connectors T2 (S4) decides every new event, purges deleted items'
    originals and records the registry, keeping its decisions for the UI. T3
-   (S5) parses what T2 sends on and forgets what it purges; the inspector's own
-   consumer group copies the events into its log;
+   (S5) parses what T2 sends on and T4 (S6) chunks it; both forget what T2
+   purges. The inspector's own consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``).
 
 Change something in a mock's ``/docs`` page and watch the event appear.
@@ -35,6 +35,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from ekb.app.changelog import ChangeLog
+from ekb.app.chunk import Processed, chunk_after_t3, chunk_step
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
 from ekb.app.diff import T2_GROUP, diff_step, run_t2
@@ -61,10 +62,11 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
-from ekb.operate.inspector.log import DecisionLog, EventLog, ParsedStore
+from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.platform.config import load_settings
 from ekb.process.t2_diff.step import DiffResult, DiffStep
-from ekb.process.t3_parse.step import ParseResult, ParseStep
+from ekb.process.t3_parse.step import ParseStep
+from ekb.process.t4_chunk.step import ChunkStep
 
 logger = logging.getLogger(__name__)
 
@@ -124,21 +126,37 @@ class SyncLoop:
     log: EventLog
     decisions: DecisionLog = field(default_factory=DecisionLog)
     parsed: ParsedStore = field(default_factory=ParsedStore, kw_only=True)
+    chunks: ChunkStore = field(default_factory=ChunkStore, kw_only=True)
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
     t2: DiffStep = field(init=False)
     t3: ParseStep = field(init=False)
+    t4: ChunkStep = field(init=False)
 
     def __post_init__(self) -> None:
-        def parsed(result: ParseResult) -> None:
-            self.parsed.record(result.event, result.parsed)
+        def processed(result: Processed) -> None:
+            event, parsed = result.parse.event, result.parse.parsed
+            self.parsed.record(event, parsed)
+            if parsed is not None and result.chunks is not None:
+                self.chunks.record(
+                    event,
+                    parsed.title,
+                    result.chunks.chunks,
+                    chunker_id=result.chunks.chunker_id,
+                    max_tokens=result.chunks.max_tokens,
+                )
+
+        def forget(document_key: str) -> None:
+            self.parsed.drop(document_key)
+            self.chunks.drop(document_key)
 
         self.t3 = parse_step(self.changelog)
-        then_parse = parse_after_t2(self.t3, parsed, self.parsed.drop)
+        self.t4 = chunk_step()
+        then_parse = parse_after_t2(self.t3, chunk_after_t3(self.t4, processed), forget)
 
         def keep(result: DiffResult) -> None:
-            then_parse(result)  # first: if T3 fails, T2 records nothing and the event comes back
+            then_parse(result)  # first: if T3 or T4 fails, T2 records nothing; the event comes back
             self.decisions.append(result.decision, result.purged)
 
         self.t2 = diff_step(self.changelog, downstream=keep)
@@ -218,17 +236,22 @@ def inspector(
     if export_openapi is not None:
         schema = openapi_json(
             _create_app(
-                EventLog(), DecisionLog(), ParsedStore(), ChangeLog.in_memory(), LOCAL_PROFILE
+                EventLog(),
+                DecisionLog(),
+                ParsedStore(),
+                ChangeLog.in_memory(),
+                LOCAL_PROFILE,
+                chunks=ChunkStore(),
             )
         )
         export_openapi.write_text(schema, encoding="utf-8", newline="\n")
         typer.echo(f"wrote {export_openapi}")
         return
     profile = load_settings().profile
-    log, decisions, parsed = EventLog(), DecisionLog(), ParsedStore()
+    log, decisions, parsed, chunks = EventLog(), DecisionLog(), ParsedStore(), ChunkStore()
     changelog = ChangeLog.in_memory()
     try:
-        app = _create_app(log, decisions, parsed, changelog, profile)
+        app = _create_app(log, decisions, parsed, changelog, profile, chunks=chunks)
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(code=2) from exc
@@ -246,7 +269,13 @@ def inspector(
         stack.callback(lambda: call(docs, "DELETE", f"/subscriptions/{hook['id']}"))
 
         loop = SyncLoop(
-            connectors, changelog, log, decisions, parsed=parsed, listing_every=listing_every
+            connectors,
+            changelog,
+            log,
+            decisions,
+            parsed=parsed,
+            chunks=chunks,
+            listing_every=listing_every,
         )
         loaded = loop.run_round()
         stack.enter_context(loop.running(interval))
@@ -258,6 +287,8 @@ def inspector(
         counts = ", ".join(f"{a.value} {n}" for a, n in decisions.counts().items())
         typer.echo(f"T2 decisions so far: {counts}.")
         typer.echo(f"T3 parsed {len(parsed.entries())} documents with {loop.t3.parser_id}.")
+        cut = sum(len(entry.chunks) for entry in chunks.entries())
+        typer.echo(f"T4 cut them into {cut} chunks with {loop.t4.chunker_id}.")
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -273,6 +304,8 @@ def _create_app(
     parsed: ParsedStore,
     changelog: ChangeLog,
     profile: str,
+    *,
+    chunks: ChunkStore,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -282,5 +315,6 @@ def _create_app(
         rawstore=changelog.rawstore,
         decisions=decisions,
         parsed=parsed,
+        chunks=chunks,
         current_lifetime=changelog.current_lifetime,
     )
