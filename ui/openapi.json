@@ -25,6 +25,65 @@
         "title": "AclView",
         "type": "object"
       },
+      "BlockKind": {
+        "description": "What a block is in the document's structure.",
+        "enum": [
+          "heading",
+          "paragraph",
+          "list_item",
+          "table",
+          "code"
+        ],
+        "title": "BlockKind",
+        "type": "string"
+      },
+      "BlockView": {
+        "description": "One block of a parsed document, as in the contract (``ekb.contracts.Block``).",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/BlockKind"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "marker": {
+            "title": "Marker",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "section": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Section",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "section",
+          "level",
+          "marker",
+          "rows"
+        ],
+        "title": "BlockView",
+        "type": "object"
+      },
       "ChangeLogView": {
         "description": "The event bus: how many events each partition holds, and how far each group has read.",
         "properties": {
@@ -472,6 +531,158 @@
           "stored_at"
         ],
         "title": "OriginalView",
+        "type": "object"
+      },
+      "ParsedDocumentView": {
+        "description": "One parsed document: its blocks in reading order, and its clean text.",
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockView"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ParsedSummaryView"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "blocks",
+          "text"
+        ],
+        "title": "ParsedDocumentView",
+        "type": "object"
+      },
+      "ParsedListView": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/ParsedSummaryView"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/RecordCountView"
+            },
+            "title": "Records",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents",
+          "records"
+        ],
+        "title": "ParsedListView",
+        "type": "object"
+      },
+      "ParsedSummaryView": {
+        "description": "One parsed document, without its blocks: what the list on the T3 screen shows (S5).",
+        "properties": {
+          "blocks": {
+            "title": "Blocks",
+            "type": "integer"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "kinds": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/BlockKind"
+            },
+            "title": "Kinds",
+            "type": "object"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "parsed_at": {
+            "format": "date-time",
+            "title": "Parsed At",
+            "type": "string"
+          },
+          "parser_id": {
+            "title": "Parser Id",
+            "type": "string"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_key",
+          "source",
+          "source_id",
+          "version",
+          "title",
+          "language",
+          "media_type",
+          "parser_id",
+          "blocks",
+          "kinds",
+          "runs",
+          "parsed_at"
+        ],
+        "title": "ParsedSummaryView",
+        "type": "object"
+      },
+      "RecordCountView": {
+        "description": "A source whose items T3 found to be structured records, not documents (D7).",
+        "properties": {
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "items"
+        ],
+        "title": "RecordCountView",
         "type": "object"
       },
       "RecordView": {
@@ -1031,6 +1242,94 @@
           }
         },
         "summary": "T2 Decisions"
+      }
+    },
+    "/api/t3/parsed": {
+      "get": {
+        "operationId": "t3_parsed_api_t3_parsed_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParsedListView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "T3 Parsed"
+      }
+    },
+    "/api/t3/parsed/document": {
+      "get": {
+        "operationId": "t3_parsed_document_api_t3_parsed_document_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "document_key",
+            "required": true,
+            "schema": {
+              "title": "Document Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParsedDocumentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not parsed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "T3 Parsed Document"
       }
     }
   }

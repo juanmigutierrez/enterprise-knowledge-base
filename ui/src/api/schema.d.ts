@@ -140,6 +140,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t3/parsed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** T3 Parsed */
+        get: operations["t3_parsed_api_t3_parsed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t3/parsed/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** T3 Parsed Document */
+        get: operations["t3_parsed_document_api_t3_parsed_document_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -150,6 +184,29 @@ export interface components {
             groups: string[];
             /** Users */
             users: string[];
+        };
+        /**
+         * BlockKind
+         * @description What a block is in the document's structure.
+         * @enum {string}
+         */
+        BlockKind: "heading" | "paragraph" | "list_item" | "table" | "code";
+        /**
+         * BlockView
+         * @description One block of a parsed document, as in the contract (``ekb.contracts.Block``).
+         */
+        BlockView: {
+            kind: components["schemas"]["BlockKind"];
+            /** Level */
+            level: number;
+            /** Marker */
+            marker: string;
+            /** Rows */
+            rows: string[][];
+            /** Section */
+            section: string[];
+            /** Text */
+            text: string;
         };
         /**
          * ChangeLogView
@@ -338,6 +395,69 @@ export interface components {
             stored_at: string;
             /** Version */
             version: string;
+        };
+        /**
+         * ParsedDocumentView
+         * @description One parsed document: its blocks in reading order, and its clean text.
+         */
+        ParsedDocumentView: {
+            /** Blocks */
+            blocks: components["schemas"]["BlockView"][];
+            summary: components["schemas"]["ParsedSummaryView"];
+            /** Text */
+            text: string;
+        };
+        /** ParsedListView */
+        ParsedListView: {
+            /** Documents */
+            documents: components["schemas"]["ParsedSummaryView"][];
+            /** Records */
+            records: components["schemas"]["RecordCountView"][];
+        };
+        /**
+         * ParsedSummaryView
+         * @description One parsed document, without its blocks: what the list on the T3 screen shows (S5).
+         */
+        ParsedSummaryView: {
+            /** Blocks */
+            blocks: number;
+            /** Document Key */
+            document_key: string;
+            /** Kinds */
+            kinds: {
+                [key: string]: number;
+            };
+            /** Language */
+            language: string | null;
+            /** Media Type */
+            media_type: string;
+            /**
+             * Parsed At
+             * Format: date-time
+             */
+            parsed_at: string;
+            /** Parser Id */
+            parser_id: string;
+            /** Runs */
+            runs: number;
+            /** Source */
+            source: string;
+            /** Source Id */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * RecordCountView
+         * @description A source whose items T3 found to be structured records, not documents (D7).
+         */
+        RecordCountView: {
+            /** Items */
+            items: number;
+            /** Source */
+            source: string;
         };
         /**
          * RecordView
@@ -618,6 +738,75 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DecisionPage"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    t3_parsed_api_t3_parsed_get: {
+        parameters: {
+            query?: {
+                source?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParsedListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    t3_parsed_document_api_t3_parsed_document_get: {
+        parameters: {
+            query: {
+                document_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParsedDocumentView"];
+                };
+            };
+            /** @description Not parsed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -82,6 +82,36 @@ def test_round_zero_loads_every_source_once(
     assert changelog.rawstore.versions("hr_api:employees/E-1012") == []
 
 
+def test_t3_parses_what_t2_processes_and_forgets_what_it_purges(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
+    loop.run_round()
+    parsed = loop.parsed
+    assert len(parsed.entries()) == 12  # every page; nothing from the other sources
+    assert {e.document.document_key.partition(":")[0] for e in parsed.entries()} == {"hr_docs"}
+    assert parsed.records() == {"hr_api": 17, "hr_db": 16, "identity": 12}  # D7: not parsed
+
+    page = docs.get("/pages/HR-PL-01").json()
+    docs.put("/pages/HR-PL-01", json={"body": page["body"]})  # same text: T2 skips
+    docs.put("/pages/HR-PL-04", json={"body": "# Remote work\n\nFriday too.\n"})
+    docs.delete("/pages/HR-PL-99")
+    loop.run_round()  # the full listing finds all three
+
+    resaved, edited = parsed.get("hr_docs:HR-PL-01"), parsed.get("hr_docs:HR-PL-04")
+    assert resaved is not None
+    assert edited is not None
+    assert (resaved.runs, resaved.document.version) == (1, "1.1")  # not parsed again
+    assert (edited.runs, edited.document.version) == (2, "2.1")
+    assert [b.text for b in edited.document.blocks] == ["Remote work", "Friday too."]
+    assert parsed.get("hr_docs:HR-PL-99") is None  # deleted: its parsed text is gone
+    assert len(parsed.entries()) == 11
+
+
 def test_a_failing_source_does_not_stop_the_others(
     clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
 ) -> None:

@@ -12,6 +12,9 @@ registry for that (S3).
 Since S4 it also keeps T2's decisions (:class:`DecisionLog`): ``ekb inspector``
 hands it every result T2 produces, so the UI can show what was processed,
 fast-tracked, skipped or purged, and why.
+
+Since S5 it keeps T3's latest output per document (:class:`ParsedStore`). A
+purge drops it: deleted content is never shown, parsed or not.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ekb.changelog.bus.port import Delivery
-from ekb.contracts import ChangeEvent, DiffAction, DiffDecision
+from ekb.contracts import ChangeEvent, DiffAction, DiffDecision, ParsedDocument
 
 
 @dataclass(frozen=True)
@@ -137,3 +140,63 @@ class DecisionLog:
         for entry in self.entries()[:upto]:
             counts[entry.decision.action] += 1
         return counts
+
+
+@dataclass(frozen=True)
+class ParsedEntry:
+    document: ParsedDocument
+    lifetime: int
+    parsed_at: datetime
+    runs: int
+    """How many times T3 parsed this item: an edit adds one, a skip or a fast lane doesn't."""
+
+
+class ParsedStore:
+    """T3's latest output per document, and which items were records, not documents.
+
+    ``record`` and ``drop`` are what ``ekb inspector`` calls after T2: ``record``
+    for every item T3 ran on, ``drop`` for every purge.
+    """
+
+    def __init__(self) -> None:
+        self._documents: dict[str, ParsedEntry] = {}
+        self._records: dict[str, set[str]] = {}  # source -> keys of items that aren't documents
+        self._lock = threading.Lock()
+
+    def record(self, event: ChangeEvent, parsed: ParsedDocument | None) -> None:
+        """Keep T3's result for ``event``'s item; ``None`` means a structured record."""
+        key = event.document_key
+        with self._lock:
+            if parsed is None:
+                self._records.setdefault(event.source, set()).add(key)
+                return
+            previous = self._documents.get(key)
+            self._documents[key] = ParsedEntry(
+                document=parsed,
+                lifetime=event.original_lifetime,
+                parsed_at=datetime.now(UTC),
+                runs=previous.runs + 1 if previous else 1,
+            )
+
+    def drop(self, document_key: str) -> bool:
+        """Forget a deleted item: its parsed text goes with its originals. True if any was kept."""
+        source = document_key.partition(":")[0]
+        with self._lock:
+            had_record = document_key in self._records.get(source, set())
+            self._records.get(source, set()).discard(document_key)
+            return self._documents.pop(document_key, None) is not None or had_record
+
+    def get(self, document_key: str) -> ParsedEntry | None:
+        with self._lock:
+            return self._documents.get(document_key)
+
+    def entries(self, source: str | None = None) -> list[ParsedEntry]:
+        """Parsed documents, sorted by key."""
+        with self._lock:
+            entries = sorted(self._documents.items())
+        return [e for key, e in entries if source is None or key.partition(":")[0] == source]
+
+    def records(self) -> dict[str, int]:
+        """Per source, how many live items T3 found to be records, not documents."""
+        with self._lock:
+            return {source: len(keys) for source, keys in sorted(self._records.items()) if keys}

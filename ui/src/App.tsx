@@ -4,15 +4,17 @@ import { ChangeLogScreen } from "./components/ChangeLogScreen";
 import { DiffScreen } from "./components/DiffScreen";
 import { DocumentsScreen } from "./components/DocumentsScreen";
 import { EventsPanel } from "./components/EventsPanel";
+import { ParseScreen } from "./components/ParseScreen";
 import { usePolling } from "./usePolling";
 
-type Tab = "documents" | "events" | "changelog" | "t2";
+type Tab = "documents" | "events" | "changelog" | "t2" | "t3";
 
 const TABS: Record<Tab, string> = {
     documents: "Documents",
     events: "Events",
     changelog: "Change log",
     t2: "T2 Diff",
+    t3: "T3 Parse",
 };
 
 export function App() {
@@ -57,6 +59,7 @@ export function App() {
                 {tab === "events" && <EventsPanel sources={names} />}
                 {tab === "changelog" && <ChangeLogScreen sources={names} />}
                 {tab === "t2" && <DiffScreen sources={names} />}
+                {tab === "t3" && <ParseScreen sources={names} />}
             </main>
         </div>
     );

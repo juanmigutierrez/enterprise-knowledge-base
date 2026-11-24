@@ -274,3 +274,64 @@ ol.decisions {
 ol.decisions li {
     margin-bottom: 10px;
 }
+
+/* T3 Parse: one row per block, its kind on the left, its section above the first block of it. */
+.spacer {
+    flex: 1;
+}
+.doc-title {
+    margin: 0 0 2px;
+    font-size: 15px;
+}
+.blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.blk {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 8px;
+    align-items: baseline;
+}
+.blk .kind {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, monospace;
+}
+.blk-heading {
+    margin-top: 6px;
+}
+.h1 {
+    font-size: 15px;
+}
+.h2 {
+    font-size: 14px;
+}
+.marker {
+    font-family: ui-monospace, monospace;
+    color: var(--accent);
+}
+.section-label {
+    margin: 4px 0 0 80px;
+    font-size: 11px;
+    color: var(--acl);
+}
+.cells {
+    width: auto;
+}
+.cells td,
+.cells th {
+    position: static;
+}
+pre.code,
+pre.clean-text {
+    margin: 0;
+    white-space: pre-wrap;
+    font-size: 12px;
+}
+pre.code {
+    background: var(--bg);
+    padding: 6px;
+    border-radius: 4px;
+}

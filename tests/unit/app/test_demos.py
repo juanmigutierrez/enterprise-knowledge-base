@@ -22,6 +22,7 @@ from ekb.app.demos.s1d import run_s1d
 from ekb.app.demos.s3 import run_s3_live, run_s3_replay
 from ekb.app.demos.t1 import run_t1, run_t1_all
 from ekb.app.demos.t2 import run_t2_demo
+from ekb.app.demos.t3 import run_t3_demo
 from tests.conftest import REPO_ROOT
 
 Story = Callable[..., None]
@@ -120,6 +121,8 @@ def test_demos_are_repeatable_against_the_same_running_mock(
         ("t1 --all", "Unmapped people reported during the run: none."),
         ("s3", "Same as the registry: True."),
         ("t2", "T2 decided 19 events: process 14, acl_only 1, skip 2, purge 2."),
+        ("t3", "T2 decided 16 events: process 13, acl_only 1, skip 1, purge 1."),
+        ("t3 --doc HR-PL-09 --parser plain_text", "T3 ran 13 times"),
     ],
 )
 def test_cli_runs_each_demo_end_to_end(
@@ -131,7 +134,7 @@ def test_cli_runs_each_demo_end_to_end(
     assert expected in result.output
 
 
-@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2"])
+@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2", "t3"])
 def test_cli_reports_an_unreachable_mock_cleanly(step: str) -> None:
     result = CliRunner().invoke(app, ["demo", step, "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
@@ -273,3 +276,61 @@ def test_t2_skips_repeats_fast_tracks_a_revocation_and_purges_deletes() -> None:
     assert "T2 decided 19 events: process 14, acl_only 1, skip 2, purge 2." in output
     assert "With it, 14 do: 3 runs avoided." in output
     assert "Consumer groups: t2_diff pending 0." in output
+
+
+def _t3(runs: int = 1, **options: str) -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        for _ in range(runs):
+            lines.clear()
+            story = run_t3_demo(docs, idp, echo=lines.append, **options)
+            assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    assert "hr_docs:HR-PL-99" not in story.latest
+    return "\n".join(lines)
+
+
+def test_t3_follows_a_page_keeps_tables_and_parses_only_changes() -> None:
+    output = _t3(runs=2)  # a second run starts clean
+    assert "full listing sync() -> 12 events" in output
+    assert "HR-PL-01   v1.1  13 blocks: 5 heading, 2 paragraph, 6 list_item" in output
+    assert "HR-CMP-01  v1.1  8 blocks: 4 heading, 2 paragraph, 2 table" in output
+    # One page, end to end: bytes -> body -> blocks with their section.
+    assert "Its fields: id, title, language, department, acl, rev, acl_rev" in output
+    assert "   | ## Booking leave" in output
+    assert "list_item 1.   Request leave in the HR portal" in output
+    assert "sits under: Annual leave policy > How much leave you get" in output
+    assert "'**25 working days**' in the Markdown is '25 working days' in the text" in output
+    # Tables survive as tables.
+    assert "Engineering \N{EN DASH} Italy (gross annual, EUR): 4 rows x 4 columns" in output
+    assert "E2       | 40,000   | 47,000   | 54,000" in output
+    # The baseline loses the structure.
+    assert "plain_text  5 blocks: 5 paragraph" in output
+    assert "glued to the paragraph below; 0 blocks" in output
+    # Only changes are parsed again; the deleted page's parsed text goes.
+    assert "HR-PL-04 v2.1: T2 process -> T3 parsed with markdown-it-py@" in output
+    assert "HR-PL-01 v2.1: T2 skip -> T3 not run (same text: same blocks)" in output
+    assert "HR-PL-05 v1.2: T2 acl_only -> T3 not run (only the readers changed" in output
+    assert "HR-PL-99 v1.1: T2 purge -> T3 not run; its parsed text is forgotten" in output
+    assert "Parsed documents kept: 11." in output
+    assert "T3 ran 13 times: once per 'process', never for the others." in output
+
+
+def test_t3_can_follow_another_page_with_the_baseline_parser() -> None:
+    output = _t3(doc="HR-PL-09", parser_name="plain_text")
+    assert "1. Initial load: full listing -> T2 -> T3 (plain_text@1)." in output
+    assert "2. One page, end to end: HR-PL-09 v1.1" in output
+
+
+def test_t3_shows_a_section_on_a_page_without_list_items() -> None:
+    output = _t3(doc="HR-CMP-01")
+    assert "sits under: Salary bands 2026 (restricted)" in output
+
+
+def test_cli_t3_rejects_an_unknown_parser_or_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    bad_parser = CliRunner().invoke(app, ["demo", "t3", "--parser", "docling"])
+    assert bad_parser.exit_code == 2
+    assert "markdown, plain_text" in bad_parser.output
+    bad_page = CliRunner().invoke(app, ["demo", "t3", "--doc", "HR-XX-00"])
+    assert bad_page.exit_code == 1
+    assert "no page 'HR-XX-00'" in bad_page.output

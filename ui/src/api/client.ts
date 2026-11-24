@@ -5,6 +5,7 @@ import type { components, operations } from "./schema";
 
 type Schemas = components["schemas"];
 export type AclView = Schemas["AclView"];
+export type BlockView = Schemas["BlockView"];
 export type ChangeLogView = Schemas["ChangeLogView"];
 export type DecisionPage = Schemas["DecisionPage"];
 export type DecisionView = Schemas["DecisionView"];
@@ -14,10 +15,14 @@ export type EventPage = Schemas["EventPage"];
 export type EventView = Schemas["EventView"];
 export type GroupView = Schemas["GroupView"];
 export type OriginalView = Schemas["OriginalView"];
+export type ParsedDocumentView = Schemas["ParsedDocumentView"];
+export type ParsedListView = Schemas["ParsedListView"];
+export type ParsedSummaryView = Schemas["ParsedSummaryView"];
 export type RecordView = Schemas["RecordView"];
 export type SourceView = Schemas["SourceView"];
 export type ChangeOp = EventView["op"];
 export type DiffAction = DecisionView["action"];
+export type BlockKind = BlockView["kind"];
 
 export type EventsQuery = NonNullable<
     operations["events_api_events_get"]["parameters"]["query"]
@@ -33,20 +38,38 @@ type OriginalsQuery =
 export type DecisionsQuery = NonNullable<
     operations["t2_decisions_api_t2_decisions_get"]["parameters"]["query"]
 >;
+type ParsedQuery = NonNullable<
+    operations["t3_parsed_api_t3_parsed_get"]["parameters"]["query"]
+>;
+type ParsedDocumentQuery =
+    operations["t3_parsed_document_api_t3_parsed_document_get"]["parameters"]["query"];
 
-async function get<T>(
-    path: string,
-    query: Record<string, string | number | null | undefined> = {},
-) {
+type Query = Record<string, string | number | null | undefined>;
+
+function url(path: string, query: Query): string {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) {
         if (value !== undefined && value !== null && value !== "")
             params.set(key, String(value));
     }
-    const url = params.size ? `${path}?${params}` : path;
-    const response = await fetch(url);
+    return params.size ? `${path}?${params}` : path;
+}
+
+async function get<T>(path: string, query: Query = {}) {
+    const address = url(path, query);
+    const response = await fetch(address);
     if (!response.ok)
-        throw new Error(`${url}: ${response.status} ${response.statusText}`);
+        throw new Error(`${address}: ${response.status} ${response.statusText}`);
+    return (await response.json()) as T;
+}
+
+/** Like `get`, but a 404 is an answer (`null`), not an error: the item isn't there. */
+async function getOrNull<T>(path: string, query: Query = {}) {
+    const address = url(path, query);
+    const response = await fetch(address);
+    if (response.status === 404) return null;
+    if (!response.ok)
+        throw new Error(`${address}: ${response.status} ${response.statusText}`);
     return (await response.json()) as T;
 }
 
@@ -62,4 +85,8 @@ export const api = {
         get<OriginalView[]>("/api/originals", query),
     t2Decisions: (query: DecisionsQuery = {}) =>
         get<DecisionPage>("/api/t2/decisions", query),
+    t3Parsed: (query: ParsedQuery = {}) =>
+        get<ParsedListView>("/api/t3/parsed", query),
+    t3Document: (query: ParsedDocumentQuery) =>
+        getOrNull<ParsedDocumentView>("/api/t3/parsed/document", query),
 };

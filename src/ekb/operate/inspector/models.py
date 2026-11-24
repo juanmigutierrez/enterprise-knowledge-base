@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict
 from ekb.changelog.bus.port import BusStats
 from ekb.changelog.rawstore.port import StoredOriginal
 from ekb.changelog.registry.port import DocumentRecord
-from ekb.contracts import Acl, ChangeEvent, ChangeOp, DiffAction
-from ekb.operate.inspector.log import LoggedDecision, LoggedEvent
+from ekb.contracts import Acl, Block, BlockKind, ChangeEvent, ChangeOp, DiffAction
+from ekb.operate.inspector.log import LoggedDecision, LoggedEvent, ParsedEntry
 
 
 class _View(BaseModel):
@@ -248,3 +248,94 @@ class DecisionPage(_View):
     decisions: list[DecisionView]
     cursor: int
     counts: DiffCounts
+
+
+class ParsedSummaryView(_View):
+    """One parsed document, without its blocks: what the list on the T3 screen shows (S5)."""
+
+    document_key: str
+    source: str
+    source_id: str
+    version: str
+    title: str
+    language: str | None
+    media_type: str
+    parser_id: str
+    blocks: int
+    kinds: dict[BlockKind, int]
+    """How many blocks of each kind, in the order they first appear."""
+    runs: int
+    """How many times T3 parsed this item since the inspector started."""
+    parsed_at: datetime
+
+    @classmethod
+    def of(cls, entry: ParsedEntry) -> ParsedSummaryView:
+        doc = entry.document
+        kinds: dict[BlockKind, int] = {}
+        for block in doc.blocks:
+            kinds[block.kind] = kinds.get(block.kind, 0) + 1
+        source, _, source_id = doc.document_key.partition(":")
+        return cls(
+            document_key=doc.document_key,
+            source=source,
+            source_id=source_id,
+            version=doc.version,
+            title=doc.title,
+            language=doc.language,
+            media_type=doc.media_type,
+            parser_id=doc.parser_id,
+            blocks=len(doc.blocks),
+            kinds=kinds,
+            runs=entry.runs,
+            parsed_at=entry.parsed_at,
+        )
+
+
+class RecordCountView(_View):
+    """A source whose items T3 found to be structured records, not documents (D7)."""
+
+    source: str
+    items: int
+
+
+class ParsedListView(_View):
+    documents: list[ParsedSummaryView]
+    records: list[RecordCountView]
+
+
+class BlockView(_View):
+    """One block of a parsed document, as in the contract (``ekb.contracts.Block``)."""
+
+    kind: BlockKind
+    text: str
+    section: list[str]
+    level: int
+    marker: str
+    rows: list[list[str]]
+
+    @classmethod
+    def of(cls, block: Block) -> BlockView:
+        return cls(
+            kind=block.kind,
+            text=block.text,
+            section=list(block.section),
+            level=block.level,
+            marker=block.marker,
+            rows=[list(row) for row in block.rows],
+        )
+
+
+class ParsedDocumentView(_View):
+    """One parsed document: its blocks in reading order, and its clean text."""
+
+    summary: ParsedSummaryView
+    blocks: list[BlockView]
+    text: str
+
+    @classmethod
+    def of(cls, entry: ParsedEntry) -> ParsedDocumentView:
+        return cls(
+            summary=ParsedSummaryView.of(entry),
+            blocks=[BlockView.of(b) for b in entry.document.blocks],
+            text=entry.document.text,
+        )
