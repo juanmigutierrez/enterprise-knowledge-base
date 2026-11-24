@@ -38,6 +38,7 @@ def _checksum(original: bytes) -> str:
 class _Object:
     meta: StoredOriginal
     data: bytes
+    lifetime: int
 
 
 @register("rawstore", "in_memory")
@@ -49,13 +50,14 @@ class InMemoryRawStore:
         self._by_key: dict[str, list[str]] = {}
         self._lock = threading.Lock()
 
-    def pointer_for(self, document_key: str, version: str) -> str:
+    def pointer_for(self, document_key: str, version: str, *, lifetime: int = 0) -> str:
         source, _, source_id = document_key.partition(":")
         parts = (quote(part, safe="") for part in (source, source_id, version))
-        return f"mem://{self._bucket}/" + "/".join(parts)
+        base = f"mem://{self._bucket}/" + "/".join(parts)
+        return f"{base}?lifetime={lifetime}" if lifetime else base
 
-    def put(self, document_key: str, version: str, original: bytes) -> str:
-        pointer = self.pointer_for(document_key, version)
+    def put(self, document_key: str, version: str, original: bytes, *, lifetime: int = 0) -> str:
+        pointer = self.pointer_for(document_key, version, lifetime=lifetime)
         checksum = _checksum(original)
         with self._lock:
             existing = self._objects.get(pointer)
@@ -73,7 +75,7 @@ class InMemoryRawStore:
                 checksum=checksum,
                 stored_at=self._clock(),
             )
-            self._objects[pointer] = _Object(meta, bytes(original))
+            self._objects[pointer] = _Object(meta, bytes(original), lifetime)
             self._by_key.setdefault(document_key, []).append(pointer)
         return pointer
 
@@ -88,9 +90,15 @@ class InMemoryRawStore:
         with self._lock:
             return [self._objects[p].meta for p in self._by_key.get(document_key, [])]
 
-    def purge(self, document_key: str) -> int:
+    def purge(self, document_key: str, *, lifetime: int | None = None) -> int:
         with self._lock:
             pointers = self._by_key.pop(document_key, [])
+            kept = []
             for pointer in pointers:
-                del self._objects[pointer]
-        return len(pointers)
+                if lifetime is None or self._objects[pointer].lifetime == lifetime:
+                    del self._objects[pointer]
+                else:
+                    kept.append(pointer)
+            if kept:
+                self._by_key[document_key] = kept
+        return len(pointers) - len(kept)

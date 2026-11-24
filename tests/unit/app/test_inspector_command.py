@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 from ekb.app.changelog import ChangeLog
 from ekb.app.cli import app
 from ekb.app.inspector import SyncLoop, build_connectors
-from ekb.contracts import Acl, ChangeOp
+from ekb.contracts import Acl, ChangeOp, DiffAction
 from ekb.contracts.listing import NeedsOriginal
 from ekb.operate.inspector.log import EventLog
 from tests.unit.changelog.factories import acl_change
@@ -41,7 +41,7 @@ def test_round_zero_loads_every_source_once(
     connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
     loop = SyncLoop(connectors, changelog, log, listing_every=2)
     assert loop.run_round() == 12 + 17 + 16 + 12  # pages, HR records, DB rows, users
-    # The registry recorded everything before the listings compared with it, so the
+    # T2 recorded everything before the listings compared with the registry, so the
     # HR listing added nothing on top of the delta's first poll.
     registry = changelog.registry
     assert {s: len(registry.known(s)) for s in ("hr_docs", "hr_api", "hr_db", "identity")} == {
@@ -53,7 +53,13 @@ def test_round_zero_loads_every_source_once(
     assert log.cursor == 57  # the inspector's group has read every event
     assert {g.group: g.lag for g in changelog.bus.stats().groups} == {
         "inspector": 0,
-        "registry": 0,
+        "t2_diff": 0,
+    }
+    assert loop.decisions.counts() == {
+        DiffAction.PROCESS: 57,  # everything is new
+        DiffAction.ACL_ONLY: 0,
+        DiffAction.SKIP: 0,
+        DiffAction.PURGE: 0,
     }
     assert len(changelog.rawstore.versions("hr_docs:HR-PL-04")) == 1
     assert loop.run_round() == 0  # nothing changed
@@ -69,6 +75,11 @@ def test_round_zero_loads_every_source_once(
     assert gone is not None
     assert gone.deleted
     assert "employees/E-1012" not in registry.known("hr_api")
+    # T2: the revocation took the fast lane; the delete was purged with its original.
+    revocation, purge = loop.decisions.entries(since=loop.decisions.cursor - 2)
+    assert revocation.decision.action is DiffAction.ACL_ONLY
+    assert (purge.decision.action, purge.purged) == (DiffAction.PURGE, 1)
+    assert changelog.rawstore.versions("hr_api:employees/E-1012") == []
 
 
 def test_a_failing_source_does_not_stop_the_others(
@@ -139,6 +150,35 @@ def test_a_failing_consumer_is_retried_next_round_and_loses_nothing(
     monkeypatch.undo()
     loop.run_round()
     assert log.cursor == 57  # every event was still pending, none was skipped
+
+
+def test_a_failing_t2_round_records_nothing_and_is_retried_in_full(
+    clients: tuple[TestClient, TestClient, TestClient],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If T2 can't hand a decision on, it records nothing, so the retry is not mistaken
+    for a repeat and skipped."""
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    loop = SyncLoop(connectors, changelog, EventLog())
+
+    def broken(decision: object, purged: int = 0) -> None:
+        raise ValueError("the decision log failed")
+
+    monkeypatch.setattr(loop.decisions, "append", broken)
+    loop.run_round()
+    assert any("consumer group t2_diff" in error for error in loop.errors)
+    assert changelog.registry.records() == []
+    monkeypatch.undo()
+    loop.run_round()
+    counts = loop.decisions.counts()
+    assert counts[DiffAction.PROCESS] == 57  # every item processed, none lost
+    # With nothing recorded, the HR listing reported the 17 records the delta had
+    # already sent; T2 skipped those copies as repeats.
+    assert counts[DiffAction.SKIP] == 17
 
 
 @pytest.mark.parametrize(

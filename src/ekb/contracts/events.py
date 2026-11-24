@@ -45,6 +45,8 @@ class ChangeEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     schema_version: int = 2
+    original_lifetime: int = 0
+    """Assigned at publication. A delete closes this lifetime of stored originals."""
     source: str
     source_id: str
     op: ChangeOp

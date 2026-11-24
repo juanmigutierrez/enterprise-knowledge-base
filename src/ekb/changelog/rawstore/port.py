@@ -1,7 +1,7 @@
 """Port for 3 · Change log: the raw store. Every option implements :class:`RawStore`.
 
-The raw store keeps the exact bytes each source sent, one object per item and
-version, and never changes them. Why keep originals at all, when the source
+The raw store keeps the exact bytes each source sent, one object per version
+within an item's lifetime, and never changes them. Why keep originals at all, when the source
 still has them?
 
 - **Later steps read the copy, not the source.** T3 parses the stored bytes
@@ -16,8 +16,8 @@ still has them?
 (``(document_key, version, bytes) -> pointer``), so a raw store is handed to
 the connectors as is. The pointer it returns is what an upsert event carries.
 
-**Deletes.** :meth:`purge` removes every stored version of an item. T2 calls
-it when it processes a delete (S4); until then a deleted item's originals stay.
+The change log assigns each original a document lifetime. Publishing a delete
+closes that lifetime. T2 can remove its originals even after a retry.
 """
 
 from __future__ import annotations
@@ -47,16 +47,21 @@ class OriginalNotFoundError(LookupError):
 class ConflictingOriginalError(ValueError):
     """Different bytes for a version already stored.
 
-    A version must name one content: T2 decides "unchanged" from it, so two
-    contents under one version would make it skip a real change.
+    A version must name one content: a pointer names a version, so a second
+    content under the same version would leave its event pointing at the
+    first one's bytes, and the later steps would read the wrong text.
     """
 
 
 @runtime_checkable
 class RawStore(Protocol):
-    """Immutable, versioned originals: one object per ``(document_key, version)``."""
+    """Immutable originals keyed by document, lifetime and source version."""
 
-    def put(self, document_key: str, version: str, original: bytes) -> str:
+    def pointer_for(self, document_key: str, version: str, *, lifetime: int = 0) -> str:
+        """Address for this version in this lifetime, including before storage."""
+        ...
+
+    def put(self, document_key: str, version: str, original: bytes, *, lifetime: int = 0) -> str:
         """Store the bytes and return their pointer.
 
         Storing the same bytes again returns the same pointer (a repeated event
@@ -73,6 +78,9 @@ class RawStore(Protocol):
         """Every version stored for an item, oldest first."""
         ...
 
-    def purge(self, document_key: str) -> int:
-        """Remove every version of an item; return how many were removed."""
+    def purge(self, document_key: str, *, lifetime: int | None = None) -> int:
+        """Remove originals in this lifetime, or all lifetimes when omitted.
+
+        Repeating a lifetime purge returns zero once its originals are gone.
+        """
         ...

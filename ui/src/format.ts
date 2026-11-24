@@ -1,4 +1,4 @@
-import type { AclView, ChangeOp } from "./api/client";
+import type { AclView, ChangeOp, DiffAction } from "./api/client";
 
 export function readers(acl: AclView): string {
     const names = [...acl.groups, ...acl.users.map((user) => `user:${user}`)];
@@ -31,3 +31,15 @@ export const OP_LABEL: Record<ChangeOp, string> = {
     delete: "delete",
     acl_change: "acl change",
 };
+
+export const ACTION_LABEL: Record<DiffAction, string> = {
+    process: "process",
+    acl_only: "acl only",
+    skip: "skip",
+    purge: "purge",
+};
+
+/** `1.1 → 2.1`, or `new → 1.1` when T2 had never processed the item. */
+export function versionStep(previous: string | null, version: string): string {
+    return `${previous ?? "new"} → ${version}`;
+}

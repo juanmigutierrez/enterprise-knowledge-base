@@ -21,6 +21,7 @@ from ekb.app.demos.s1c import run_s1c
 from ekb.app.demos.s1d import run_s1d
 from ekb.app.demos.s3 import run_s3_live, run_s3_replay
 from ekb.app.demos.t1 import run_t1, run_t1_all
+from ekb.app.demos.t2 import run_t2_demo
 from tests.conftest import REPO_ROOT
 
 Story = Callable[..., None]
@@ -118,6 +119,7 @@ def test_demos_are_repeatable_against_the_same_running_mock(
         ("t1", "full listing sync() -> 0 events"),
         ("t1 --all", "Unmapped people reported during the run: none."),
         ("s3", "Same as the registry: True."),
+        ("t2", "T2 decided 19 events: process 14, acl_only 1, skip 2, purge 2."),
     ],
 )
 def test_cli_runs_each_demo_end_to_end(
@@ -129,7 +131,7 @@ def test_cli_runs_each_demo_end_to_end(
     assert expected in result.output
 
 
-@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3"])
+@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2"])
 def test_cli_reports_an_unreachable_mock_cleanly(step: str) -> None:
     result = CliRunner().invoke(app, ["demo", step, "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
@@ -235,3 +237,39 @@ def test_s3_publishes_records_redelivers_and_replays_without_the_source() -> Non
     assert "16 events replayed; 14 originals read from the raw store" in output
     assert "Rebuilt: 11 live pages, 1 tombstone. Same as the registry: True." in output
     assert "Consumer groups: registry pending 0, reindex pending 0." in output
+
+
+def _t2(runs: int = 1) -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        for _ in range(runs):
+            lines.clear()
+            changelog = run_t2_demo(docs, idp, echo=lines.append)
+            assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    assert changelog.rawstore.versions("hr_docs:HR-PL-99") == []
+    return "\n".join(lines)
+
+
+def test_t2_skips_repeats_fast_tracks_a_revocation_and_purges_deletes() -> None:
+    output = _t2(runs=2)  # a second run starts clean
+    assert "T2: {'process': 12} (reason: 'new: never processed')" in output
+    # Reported twice: the webhook's copy is processed, the listing's copy is a repeat.
+    assert "p0@6   upsert     HR-PL-04  v2.1  -> process  content changed: hash " in output
+    assert "p0@7   upsert     HR-PL-04  v2.1  -> skip     repeat: v2.1 was already processed" in (
+        output
+    )
+    # Same text, new version: skipped, and the listing stays quiet.
+    assert "HR-PL-01  v2.1  -> skip     new version, same content and readers as v1.1" in output
+    assert "so the full listing stays quiet: sync() -> 0 events." in output
+    # Revocation: the fast lane.
+    assert "acl_change HR-PL-05  v1.2  -> acl_only readers changed (-hr-team)" in output
+    # Delete with a queued re-creation: the old original goes, the new one stays.
+    assert "HR-PL-99's originals in the raw store: 1.1 before, 1.1, 2.1" in output
+    assert "delete     HR-PL-99  v1.1  -> purge    deleted in the source" in output
+    assert "remove it from every store; 1 original purged" in output
+    assert "upsert     HR-PL-99  v2.1  -> process  back after a delete (v1.1)" in output
+    assert "Originals left: 2.1." in output
+    assert "Originals left: none. Registry: tombstone" in output
+    assert "T2 decided 19 events: process 14, acl_only 1, skip 2, purge 2." in output
+    assert "With it, 14 do: 3 runs avoided." in output
+    assert "Consumer groups: t2_diff pending 0." in output

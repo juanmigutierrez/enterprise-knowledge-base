@@ -123,6 +123,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t2/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** T2 Decisions */
+        get: operations["t2_decisions_api_t2_decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -154,6 +171,69 @@ export interface components {
          * @enum {string}
          */
         ChangeOp: "upsert" | "delete" | "acl_change";
+        /**
+         * DecisionPage
+         * @description Decisions after a cursor (filtered), the next cursor, and the totals (unfiltered).
+         */
+        DecisionPage: {
+            counts: components["schemas"]["DiffCounts"];
+            /** Cursor */
+            cursor: number;
+            /** Decisions */
+            decisions: components["schemas"]["DecisionView"][];
+        };
+        /**
+         * DecisionView
+         * @description One T2 decision: the event, what it needs, and why (S4).
+         */
+        DecisionView: {
+            acl: components["schemas"]["AclView"];
+            action: components["schemas"]["DiffAction"];
+            /** Changed By */
+            changed_by: string | null;
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /** Document Key */
+            document_key: string;
+            op: components["schemas"]["ChangeOp"];
+            /** Previous Version */
+            previous_version: string | null;
+            /** Purged */
+            purged: number;
+            /** Reason */
+            reason: string;
+            /** Seq */
+            seq: number;
+            /** Source */
+            source: string;
+            /** Source Id */
+            source_id: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * DiffAction
+         * @description What the steps after T2 must do with one event.
+         * @enum {string}
+         */
+        DiffAction: "process" | "acl_only" | "skip" | "purge";
+        /**
+         * DiffCounts
+         * @description How many decisions of each kind T2 has made since the inspector started.
+         */
+        DiffCounts: {
+            /** Acl Only */
+            acl_only: number;
+            /** Process */
+            process: number;
+            /** Purge */
+            purge: number;
+            /** Skip */
+            skip: number;
+        };
         /**
          * DocumentView
          * @description An item's current state: its latest event, and how many it has had.
@@ -512,6 +592,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceView"][];
+                };
+            };
+        };
+    };
+    t2_decisions_api_t2_decisions_get: {
+        parameters: {
+            query?: {
+                since?: number;
+                source?: string | null;
+                action?: components["schemas"]["DiffAction"] | null;
+                document_key?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

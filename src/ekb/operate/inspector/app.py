@@ -8,6 +8,8 @@ GET /api/events[?since=&source=&document_key=]  events after a cursor (live poll
 GET /api/changelog                              bus partitions and consumer groups (S3)
 GET /api/registry[?source=]                     the document registry's records (S3)
 GET /api/originals?document_key=                an item's stored originals, metadata only (S3)
+GET /api/t2/decisions[?since=&source=&action=   T2's decisions and totals (S4)
+                     &document_key=]
 ==============================================  =====================================
 
 Every route is a GET: a test fails if a write route appears. The factory
@@ -24,10 +26,13 @@ from fastapi import FastAPI, Query
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
-from ekb.contracts import ChangeOp
-from ekb.operate.inspector.log import EventLog
+from ekb.contracts import ChangeOp, DiffAction
+from ekb.operate.inspector.log import DecisionLog, EventLog
 from ekb.operate.inspector.models import (
     ChangeLogView,
+    DecisionPage,
+    DecisionView,
+    DiffCounts,
     DocumentView,
     EventPage,
     EventView,
@@ -52,6 +57,7 @@ def create_inspector_app(
     bus: EventBus,
     registry: DocumentRegistry,
     rawstore: RawStore,
+    decisions: DecisionLog,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -129,6 +135,23 @@ def create_inspector_app(
     @app.get("/api/originals")
     def originals(document_key: str) -> list[OriginalView]:
         return [OriginalView.of(o) for o in rawstore.versions(document_key)]
+
+    @app.get("/api/t2/decisions")
+    def t2_decisions(
+        since: Annotated[int, Query(ge=0)] = 0,
+        source: str | None = None,
+        action: DiffAction | None = None,
+        document_key: str | None = None,
+    ) -> DecisionPage:
+        cursor = decisions.cursor
+        entries = decisions.entries(
+            since=since, source=source, action=action, document_key=document_key
+        )
+        return DecisionPage(
+            decisions=[DecisionView.of(e) for e in entries if e.seq <= cursor],
+            cursor=cursor,
+            counts=DiffCounts.of(decisions.counts(upto=cursor)),
+        )
 
     return app
 

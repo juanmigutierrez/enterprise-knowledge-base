@@ -7,8 +7,9 @@ It builds a small live system in one process:
    bus, originals to the raw store, the full listings against the registry;
 3. loads each source once, then keeps them in sync: webhooks as they arrive,
    polling and CDC every few seconds, the full listings less often. After each
-   group of connectors the stand-in worker records the new events in the
-   registry, and the inspector's own consumer group copies them into its log;
+   group of connectors T2 (S4) decides every new event, purges deleted items'
+   originals and records the registry, keeping its decisions for the UI; the
+   inspector's own consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``).
 
 Change something in a mock's ``/docs`` page and watch the event appear.
@@ -35,6 +36,7 @@ from fastapi import FastAPI
 from ekb.app.changelog import ChangeLog
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
+from ekb.app.diff import T2_GROUP, diff_step, run_t2
 from ekb.changelog.bus.consume import drain
 from ekb.connect.docs_api import DocsApi
 from ekb.connect.hr_api import HrApi
@@ -57,8 +59,9 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
-from ekb.operate.inspector.log import EventLog
+from ekb.operate.inspector.log import DecisionLog, EventLog
 from ekb.platform.config import load_settings
+from ekb.process.t2_diff.step import DiffResult, DiffStep
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +82,9 @@ class Connectors:
 def build_connectors(
     docs: httpx.Client, hr: httpx.Client, idp: httpx.Client, db_path: Path, changelog: ChangeLog
 ) -> Connectors:
-    originals = changelog.rawstore.put
+    originals = changelog.store_original
     people = PersonMap(load_people(IdentityApi(idp), HrApi(hr)))
-    sink = changelog.bus.publish
+    sink = changelog.publish
     webhook = DocsWebhookConnector(
         DocsApi(docs), sink, originals, people, known=changelog.known("hr_docs")
     )
@@ -116,24 +119,35 @@ class SyncLoop:
     connectors: Connectors
     changelog: ChangeLog
     log: EventLog
+    decisions: DecisionLog = field(default_factory=DecisionLog)
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
+    t2: DiffStep = field(init=False)
+
+    def __post_init__(self) -> None:
+        def keep(result: DiffResult) -> None:
+            self.decisions.append(result.decision, result.purged)
+
+        self.t2 = diff_step(self.changelog, downstream=keep)
 
     def run_round(self) -> int:
         # Frequent ones first: on round 0 the HR delta loads every record, so the HR
         # listing that follows finds nothing to add, and the docs listing loads the pages.
-        # The registry records each group's events before the listings compare with it.
+        # T2 records each group's events before the listings compare with the registry.
         emitted = self._sync(self.connectors.frequent)
-        self._consume("registry", self.changelog.record_processed)
+        self._consume(T2_GROUP, self._run_t2)
         if self.rounds % self.listing_every == 0:
             emitted += self._sync(self.connectors.listings)
-            self._consume("registry", self.changelog.record_processed)
+            self._consume(T2_GROUP, self._run_t2)
         self._consume(
             INSPECTOR_GROUP, lambda: drain(self.changelog.bus, INSPECTOR_GROUP, self.log.append)
         )
         self.rounds += 1
         return emitted
+
+    def _run_t2(self) -> int:
+        return run_t2(self.changelog, self.t2)
 
     def _sync(self, connectors: list[Connector]) -> int:
         emitted = 0
@@ -190,15 +204,17 @@ def inspector(
     if not math.isfinite(interval) or interval <= 0:
         raise typer.BadParameter("must be finite and positive", param_hint="--interval")
     if export_openapi is not None:
-        schema = openapi_json(_create_app(EventLog(), ChangeLog.in_memory(), LOCAL_PROFILE))
+        schema = openapi_json(
+            _create_app(EventLog(), DecisionLog(), ChangeLog.in_memory(), LOCAL_PROFILE)
+        )
         export_openapi.write_text(schema, encoding="utf-8", newline="\n")
         typer.echo(f"wrote {export_openapi}")
         return
     profile = load_settings().profile
-    log = EventLog()
+    log, decisions = EventLog(), DecisionLog()
     changelog = ChangeLog.in_memory()
     try:
-        app = _create_app(log, changelog, profile)
+        app = _create_app(log, decisions, changelog, profile)
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(code=2) from exc
@@ -215,7 +231,7 @@ def inspector(
         hook = call(docs, "POST", "/subscriptions", json={"url": receiver.url + DOCS_WEBHOOK_PATH})
         stack.callback(lambda: call(docs, "DELETE", f"/subscriptions/{hook['id']}"))
 
-        loop = SyncLoop(connectors, changelog, log, listing_every=listing_every)
+        loop = SyncLoop(connectors, changelog, log, decisions, listing_every=listing_every)
         loaded = loop.run_round()
         stack.enter_context(loop.running(interval))
 
@@ -223,6 +239,8 @@ def inspector(
         typer.echo(f"Loaded {loaded} events from 4 sources; people mapped {mapped}/{total}.")
         partitions = changelog.bus.partitions
         typer.echo(f"Change log: in-memory bus ({partitions} partitions), registry and raw store.")
+        counts = ", ".join(f"{a.value} {n}" for a, n in decisions.counts().items())
+        typer.echo(f"T2 decisions so far: {counts}.")
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -232,11 +250,14 @@ def inspector(
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
 
 
-def _create_app(log: EventLog, changelog: ChangeLog, profile: str) -> FastAPI:
+def _create_app(
+    log: EventLog, decisions: DecisionLog, changelog: ChangeLog, profile: str
+) -> FastAPI:
     return create_inspector_app(
         log,
         profile=profile,
         bus=changelog.bus,
         registry=changelog.registry,
         rawstore=changelog.rawstore,
+        decisions=decisions,
     )

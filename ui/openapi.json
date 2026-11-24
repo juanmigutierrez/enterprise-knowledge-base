@@ -70,6 +70,158 @@
         "title": "ChangeOp",
         "type": "string"
       },
+      "DecisionPage": {
+        "description": "Decisions after a cursor (filtered), the next cursor, and the totals (unfiltered).",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/DiffCounts"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionView"
+            },
+            "title": "Decisions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "decisions",
+          "cursor",
+          "counts"
+        ],
+        "title": "DecisionPage",
+        "type": "object"
+      },
+      "DecisionView": {
+        "description": "One T2 decision: the event, what it needs, and why (S4).",
+        "properties": {
+          "acl": {
+            "$ref": "#/components/schemas/AclView"
+          },
+          "action": {
+            "$ref": "#/components/schemas/DiffAction"
+          },
+          "changed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed By"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "op": {
+            "$ref": "#/components/schemas/ChangeOp"
+          },
+          "previous_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Version"
+          },
+          "purged": {
+            "title": "Purged",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "decided_at",
+          "document_key",
+          "source",
+          "source_id",
+          "op",
+          "version",
+          "previous_version",
+          "action",
+          "reason",
+          "acl",
+          "changed_by",
+          "purged"
+        ],
+        "title": "DecisionView",
+        "type": "object"
+      },
+      "DiffAction": {
+        "description": "What the steps after T2 must do with one event.",
+        "enum": [
+          "process",
+          "acl_only",
+          "skip",
+          "purge"
+        ],
+        "title": "DiffAction",
+        "type": "string"
+      },
+      "DiffCounts": {
+        "description": "How many decisions of each kind T2 has made since the inspector started.",
+        "properties": {
+          "acl_only": {
+            "title": "Acl Only",
+            "type": "integer"
+          },
+          "process": {
+            "title": "Process",
+            "type": "integer"
+          },
+          "purge": {
+            "title": "Purge",
+            "type": "integer"
+          },
+          "skip": {
+            "title": "Skip",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "process",
+          "acl_only",
+          "skip",
+          "purge"
+        ],
+        "title": "DiffCounts",
+        "type": "object"
+      },
       "DocumentView": {
         "description": "An item's current state: its latest event, and how many it has had.",
         "properties": {
@@ -790,6 +942,95 @@
           }
         },
         "summary": "Sources"
+      }
+    },
+    "/api/t2/decisions": {
+      "get": {
+        "operationId": "t2_decisions_api_t2_decisions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DiffAction"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "document_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Document Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "T2 Decisions"
       }
     }
   }
