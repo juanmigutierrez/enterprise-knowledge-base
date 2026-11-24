@@ -1,10 +1,29 @@
-# Recommended model settings (decisions.md D15). Needs AWS credentials in the
-# environment; infrastructure is still local unless the aws profile is used.
-provider: bedrock
+# The production design's models (decisions.md D15, architecture Part A): one model
+# per task on Bedrock. Not run in the POC, which uses free tiers for development
+# and "production" alike (plan.md §4.2 assumptions); it needs AWS credentials and
+# the aws extra (langchain-aws). Infrastructure stays local unless the aws profile is used.
 steps:
-  t4_chunk:     { option: structure_aware, params: { max_tokens: 400, context_header: model, model: claude-haiku-5-5 } }
-  t5_classify:  { option: model_plus_rules, params: { model: claude-haiku-5-5 } }
-  t6_entities:  { option: cascade, params: { first: claude-haiku-5-5, escalate_to: claude-sonnet-5-5 } }
+  t4_chunk:     { option: structure_aware, params: { max_tokens: 400, context_header: model } }
+  t5_classify:  { option: model_plus_rules }
+  t6_entities:  { option: cascade }
   t7_embed:     { option: cohere_embed_v4, params: { dimensions: 1024, dtype: int8 } }
-  q1_plan:      { option: rewrite_when_needed, params: { model: claude-haiku-5-5 } }
+  q1_plan:      { option: rewrite_when_needed }
   q3_retrieve:  { option: hybrid_rrf, params: { rerank: cohere_rerank_3_5, top_k: 5 } }
+
+gateway:
+  providers:
+    bedrock_converse: { env: { region_name: AWS_REGION } }   # AWS credential chain, no key
+  models:
+    # Prices from D15 (USD per million tokens); Haiku 5.5 has an EU profile,
+    # Sonnet 5.5 and Opus 5.5 are served through the global one.
+    "bedrock_converse:eu.anthropic.claude-haiku-5-5":      { price: { input: 0.10, output: 0.50 } }
+    "bedrock_converse:global.anthropic.claude-sonnet-5-5": { price: { input: 3.00, output: 15.00 } }
+    "bedrock_converse:global.anthropic.claude-opus-5-5":   { price: { input: 4.00, output: 20.00 } }
+  tasks:
+    context_header: &haiku ["bedrock_converse:eu.anthropic.claude-haiku-5-5"]
+    classify:       *haiku
+    entities:       *haiku
+    plan_query:     *haiku
+    entities_hard:  ["bedrock_converse:global.anthropic.claude-sonnet-5-5"]
+    answer:         ["bedrock_converse:global.anthropic.claude-sonnet-5-5"]
+    judge:          ["bedrock_converse:global.anthropic.claude-opus-5-5"]

@@ -6,6 +6,9 @@ import type { components, operations } from "./schema";
 type Schemas = components["schemas"];
 export type AclView = Schemas["AclView"];
 export type BlockView = Schemas["BlockView"];
+export type CallPage = Schemas["CallPage"];
+export type CallTotalsView = Schemas["CallTotalsView"];
+export type CallView = Schemas["CallView"];
 export type ChangeLogView = Schemas["ChangeLogView"];
 export type ChunkedDocumentView = Schemas["ChunkedDocumentView"];
 export type ChunkListView = Schemas["ChunkListView"];
@@ -17,6 +20,10 @@ export type DiffCounts = Schemas["DiffCounts"];
 export type DocumentView = Schemas["DocumentView"];
 export type EventPage = Schemas["EventPage"];
 export type EventView = Schemas["EventView"];
+export type GatewayProviderView = Schemas["GatewayProviderView"];
+export type GatewayQuotaView = Schemas["GatewayQuotaView"];
+export type GatewayRouteView = Schemas["GatewayRouteView"];
+export type GatewayView = Schemas["GatewayView"];
 export type GroupView = Schemas["GroupView"];
 export type OriginalView = Schemas["OriginalView"];
 export type ParsedDocumentView = Schemas["ParsedDocumentView"];
@@ -52,6 +59,9 @@ type ChunksQuery = NonNullable<
 >;
 type ChunkedDocumentQuery =
     operations["t4_chunks_document_api_t4_chunks_document_get"]["parameters"]["query"];
+type GatewayCallsQuery = NonNullable<
+    operations["gateway_calls_api_gateway_calls_get"]["parameters"]["query"]
+>;
 
 type Query = Record<string, string | number | null | undefined>;
 
@@ -102,4 +112,7 @@ export const api = {
         get<ChunkListView>("/api/t4/chunks", query),
     t4Document: (query: ChunkedDocumentQuery) =>
         getOrNull<ChunkedDocumentView>("/api/t4/chunks/document", query),
+    gateway: () => get<GatewayView>("/api/gateway"),
+    gatewayCalls: (query: GatewayCallsQuery = {}) =>
+        get<CallPage>("/api/gateway/calls", query),
 };

@@ -68,7 +68,7 @@ Full diagrams: `architecture.md`. Reasons for each choice: `decisions.md`.
 
 **Use case:** HR assistant. Employees ask about policies, procedures and benefits in natural language; answers are cited, respect the asker's permissions, and reflect edits and deletions in the source without manual steps.
 
-**Simplifying assumptions to state:** mocked connectors for four source types (docs tool, record API, database, identity provider), synthetic HR data, one region, small data volume, local Docker Compose only, optional Bedrock for models.
+**Simplifying assumptions to state:** mocked connectors for four source types (docs tool, record API, database, identity provider), synthetic HR data, one region, small data volume, local Docker Compose only. Models come from free API tiers (Google AI Studio, Groq, Mistral, OpenRouter) through the model gateway, in development and in the POC's production alike; the synthetic data is assumed fine to send to them (decided 24 November 2026, D15). The production design keeps Bedrock.
 
 #### How each step is built
 
@@ -105,7 +105,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S4 | 4 · **T2** Diff | Skip unchanged, ACL fast lane, delete → purge | How the system avoids re-processing and handles deletes | `ekb demo t2`: same doc twice → second skipped; ACL change → fast lane · UI: T2 decision panel | 30 min | ✅ |
 | S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ✅ |
 | S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy · UI: chunks panel | 30 min | ✅ |
-| S7 | Platform · Model gateway | Provider switch (fake / Ollama / Bedrock), content-hash cache, cost log | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged · UI: model calls and cost panel | 40 min | ⬜ |
+| S7 | Platform · Model gateway | Free-tier providers through LangChain (Google AI Studio, Groq, Mistral, OpenRouter; fake offline; Ollama optional), per-task failover on quotas, content-hash cache, cost log, spend cap | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged · UI: model calls and cost panel | 40 min | ✅ |
 | S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ⬜ |
 | S9 | 4 · **T6** Entities | Exact match against the people and teams from the HR record API (S1b) (model cascade later) | How documents get linked to people and teams | `ekb demo t6` · UI: entities panel | 30 min | ⬜ |
 | S10 | 4 · **T7** Embed | Ollama bge-m3 option next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ⬜ |
@@ -138,12 +138,12 @@ A step is never started before the previous one is pushed. Exception, decided on
 
 ## 6. Next step
 
-S6 is complete. See the [T4 chunking walkthrough](walkthrough/S06-t4-chunk.md).
+S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
+- Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.
+- OpenRouter and the other free tiers are recorded in D15 as an exception to the "AWS or open source only" constraint, for the POC only.
+- LangChain's chat models make the calls; the gateway's own code keeps routing, the cache, quotas, the spend cap and the cost log.
 
-Next is **S7** (model gateway) with `/plan-task S7`, then S8 adds the context header through it. Agreed on 24 November 2026, to be settled in S7's plan:
-- Start with a free provider, so other models can be compared later without code changes.
-- Add **OpenRouter** as a development-only provider next to Ollama and Bedrock (it serves the same Claude Haiku 5.5 as the design). It is an exception to the "AWS or open source only" constraint, so record it in D15.
-- Decide in S7's plan whether model swapping uses **LangChain** (or a similar library) or the gateway's own thin port with one option per provider.
+The next step is **S8** (context header + T5 classify) with `/plan-task S8`, the gateway's first real caller. Its plan must also wire `forget(document_key)` to T2's purge.
 
 Idea for later (T4, card 4.2): a chunk size that adapts to the text instead of one limit for every document.
 

@@ -14,6 +14,8 @@ GET /api/t3/parsed[?source=]                    parsed documents, and records no
 GET /api/t3/parsed/document?document_key=       one parsed document's blocks and text (S5)
 GET /api/t4/chunks[?source=]                    chunked documents and their sizes (S6)
 GET /api/t4/chunks/document?document_key=       one document's chunks (S6)
+GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
+GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================
 
 Every route is a GET: a test fails if a write route appears. The factory
@@ -21,6 +23,7 @@ refuses any profile but ``local``.
 
 Deleted content is never returned: T3's and T4's output of an item whose
 lifetime a delete closed is hidden at once, even before T2's purge drops it.
+The gateway's cost log holds no prompt or reply at all, only hashes and numbers.
 """
 
 from __future__ import annotations
@@ -35,8 +38,12 @@ from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
 from ekb.contracts import ChangeOp, DiffAction
+from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.models import (
+    CallPage,
+    CallTotalsView,
+    CallView,
     ChangeLogView,
     ChunkedDocumentView,
     ChunkListView,
@@ -47,6 +54,7 @@ from ekb.operate.inspector.models import (
     DocumentView,
     EventPage,
     EventView,
+    GatewayView,
     OriginalView,
     ParsedDocumentView,
     ParsedListView,
@@ -55,6 +63,7 @@ from ekb.operate.inspector.models import (
     RecordView,
     SourceView,
 )
+from ekb.platform.gateway.usage import totals
 
 LOCAL_PROFILE = "local"
 HOST = "127.0.0.1"  # never another interface: the inspector shows everything to anyone
@@ -76,6 +85,7 @@ def create_inspector_app(
     parsed: ParsedStore,
     chunks: ChunkStore,
     current_lifetime: Callable[[str], int],
+    gateway: GatewayPanel | None = None,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -216,6 +226,26 @@ def create_inspector_app(
                 "or deleted",
             )
         return ChunkedDocumentView.of(entry)
+
+    panel = gateway or GatewayPanel()
+
+    @app.get("/api/gateway")
+    def gateway_overview() -> GatewayView:
+        return GatewayView.of(panel)
+
+    @app.get("/api/gateway/calls")
+    def gateway_calls(since: Annotated[int, Query(ge=0)] = 0, task: str | None = None) -> CallPage:
+        records = panel.records()
+        calls = [
+            CallView.of(seq, record)
+            for seq, record in enumerate(records, start=1)
+            if seq > since and (task is None or record.task == task)
+        ]
+        return CallPage(
+            calls=calls,
+            cursor=len(records),
+            totals=[CallTotalsView.of(row) for row in totals(records)],
+        )
 
     return app
 

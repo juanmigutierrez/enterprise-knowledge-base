@@ -82,6 +82,7 @@ This is what makes the option evaluation plan possible without rewriting code pe
 | Layers only depend downward: evaluation → app → stages (connect, process, access, operate) → infrastructure (changelog, stores) → platform → contracts | `import-linter` layers contract, in CI and pre-commit |
 | Steps T2–T8 never import each other; same for Q1–Q4 and for the stores | `import-linter` independence contracts |
 | Every option implements its port | `tests/contract/` |
+| Only the gateway's LangChain option imports LangChain; steps call the gateway (S7) | `import-linter` forbidden contract |
 | A change event is valid (an upsert points to the original; a delete carries no content) | Pydantic validator in `contracts/events.py` + unit tests |
 | No chunk is publishable before ACL, sensitivity and vector are set | `Chunk.publishable` in `contracts/knowledge.py`; publication test (card 4.14) |
 | Formatting, lint, security lint (bandit rules), strict types | ruff, mypy strict |

@@ -11,19 +11,32 @@ dependencies = [
   # The webhook receiver (S2), and later the inspector and Knowledge API, are HTTP services.
   "fastapi>=0.115",
   "httpx>=0.27",
+  # Model gateway (S7): LangChain chat models for the free-tier providers (D15).
+  # Only ekb.platform.gateway.options.langchain imports them; steps call the gateway.
+  "filelock>=4.3",
+  "langchain-core>=1.8",
+  "langchain-google-genai>=4.5",
+  "langchain-groq>=1.2",
+  "langchain-mistralai>=1.2",
+  "langchain-openrouter>=0.3",
   # T3 (S5): CommonMark + tables for the docs tool's Markdown pages.
   "markdown-it-py>=4.0",
   "pydantic>=2.9",
   "pyyaml>=6.0",
   "typer>=0.12",
+  # Model gateway (S7): free quotas reset at midnight in the provider's time zone,
+  # and Windows has no time-zone database of its own.
+  "tzdata>=2025.1",
   "uvicorn>=0.32",
 ]
 
 [project.optional-dependencies]
+# Local models (S7), only on a machine that can run them: `uv sync --extra ollama`.
+ollama = ["langchain-ollama>=1.2"]
 # Filled in as options are implemented. Example:
 # kafka    = ["confluent-kafka>=2.6"]
 # search   = ["opensearch-py>=3.0"]
-# aws      = ["boto3>=1.35"]
+# aws      = ["boto3>=1.35", "langchain-aws"]  # Bedrock, the production design (D15)
 # docling  = ["docling>=2.0"]
 
 [project.scripts]
@@ -164,3 +177,10 @@ modules = [
 name = "Connector options can share helpers and cannot depend on sibling options"
 type = "independence"
 modules = ["ekb.connect.options.*"]
+
+[[tool.importlinter.contracts]]
+name = "Only the gateway's LangChain option imports LangChain; everything else calls the gateway (S7)"
+type = "forbidden"
+source_modules = ["ekb"]
+forbidden_modules = ["langchain_core"]
+ignore_imports = ["ekb.platform.gateway.options.langchain -> langchain_core"]

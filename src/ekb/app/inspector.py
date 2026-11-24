@@ -11,7 +11,9 @@ It builds a small live system in one process:
    originals and records the registry, keeping its decisions for the UI. T3
    (S5) parses what T2 sends on and T4 (S6) chunks it; both forget what T2
    purges. The inspector's own consumer group copies the events into its log;
-4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``).
+4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``), with the
+   model gateway's panel (S7): its routes, free quotas and the cost log that
+   ``ekb demo gateway`` and, from S8, the pipeline write to.
 
 Change something in a mock's ``/docs`` page and watch the event appear.
 """
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import sqlite3
 import tempfile
 import threading
@@ -39,6 +42,7 @@ from ekb.app.chunk import Processed, chunk_after_t3, chunk_step
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
 from ekb.app.diff import T2_GROUP, diff_step, run_t2
+from ekb.app.gateway import build_cost_log, max_spend, provider_status
 from ekb.app.parse import parse_after_t2, parse_step
 from ekb.changelog.bus.consume import drain
 from ekb.connect.docs_api import DocsApi
@@ -62,8 +66,9 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
+from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
-from ekb.platform.config import load_settings
+from ekb.platform.config import Settings, load_settings
 from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.step import ParseStep
 from ekb.process.t4_chunk.step import ChunkStep
@@ -247,11 +252,20 @@ def inspector(
         export_openapi.write_text(schema, encoding="utf-8", newline="\n")
         typer.echo(f"wrote {export_openapi}")
         return
-    profile = load_settings().profile
+    settings = load_settings()
+    profile = settings.profile
     log, decisions, parsed, chunks = EventLog(), DecisionLog(), ParsedStore(), ChunkStore()
     changelog = ChangeLog.in_memory()
     try:
-        app = _create_app(log, decisions, parsed, changelog, profile, chunks=chunks)
+        app = _create_app(
+            log,
+            decisions,
+            parsed,
+            changelog,
+            profile,
+            chunks=chunks,
+            gateway=gateway_panel(settings),
+        )
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(code=2) from exc
@@ -298,6 +312,18 @@ def inspector(
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
 
 
+def gateway_panel(settings: Settings) -> GatewayPanel:
+    """The gateway as the inspector shows it: its routes, which keys are set (not the
+    keys), and the cost log the demo and the pipeline write to."""
+    config = settings.gateway
+    return GatewayPanel(
+        config=config,
+        log=build_cost_log(config.cost_log),
+        providers=provider_status(config),
+        max_spend_usd=max_spend(config, os.environ),
+    )
+
+
 def _create_app(
     log: EventLog,
     decisions: DecisionLog,
@@ -306,6 +332,7 @@ def _create_app(
     profile: str,
     *,
     chunks: ChunkStore,
+    gateway: GatewayPanel | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -317,4 +344,5 @@ def _create_app(
         parsed=parsed,
         chunks=chunks,
         current_lifetime=changelog.current_lifetime,
+        gateway=gateway,
     )

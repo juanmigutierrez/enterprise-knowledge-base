@@ -388,3 +388,64 @@ pre.code {
     border-radius: 999px;
     padding: 0 6px;
 }
+
+/* Model gateway (S7): one badge per call outcome; each task's chain of models. */
+.out {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    border: 1px solid transparent;
+}
+.out-ok {
+    background: var(--upsert);
+    color: #fff;
+}
+.out-hit {
+    border-color: var(--line);
+    color: var(--muted);
+}
+.out-rate_limited {
+    background: var(--acl);
+    color: #fff;
+}
+.out-unavailable {
+    background: var(--delete);
+    color: #fff;
+}
+.out-invalid {
+    border-color: var(--delete);
+    color: var(--delete);
+}
+aside h3 {
+    margin: 12px 0 6px;
+    font-size: 13px;
+}
+aside h3:first-child {
+    margin-top: 0;
+}
+.routes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.route {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.chain {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.cand {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 6px;
+}
+.cand.off {
+    color: var(--muted);
+    text-decoration: line-through;
+}

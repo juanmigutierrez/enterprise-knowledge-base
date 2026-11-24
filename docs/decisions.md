@@ -169,30 +169,40 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 - **Why:** The same queries, mappings and permission filters as production, so retrieval behaviour carries over.
 - **Trade-off:** Heavier (~1–2 GB RAM) than Postgres.
 
-### D15. Models: one model per task on Bedrock, with Ollama as the free default
+### D15. Models: one model per task behind a gateway; free tiers in the POC, Bedrock in production *(revised 24 November 2026, S7)*
 
-- **Decision:** A provider switch in config (`PROVIDER=ollama | bedrock`). Ollama is the default so reviewers can run the POC offline for free; Bedrock is the recommended setting.
+- **Decision, production (unchanged):** one model per task on Bedrock, the table below. Architecture Part A stays as designed.
+- **Decision, POC (S7):** every model call goes through the model gateway (`ekb.platform.gateway`). Each task has an ordered list of candidates on free API tiers: Google AI Studio (Gemini Flash-Lite, Gemini Flash), Groq (gpt-oss 20B / 120B), Mistral (Small / Large) and OpenRouter (`openrouter/free`). The gateway skips a candidate with no key, past its free quota or recently rate-limited, so a used-up quota moves the call to the next one. The POC uses the same free tiers for development and for its "production". `fake` serves the `ci` profile. Ollama stays an optional provider (`uv sync --extra ollama`), off by default, because the development machine has integrated graphics and the configured local model is not installed. A smaller local model completed the feasibility run below.
+- **POC assumption:** the data is synthetic and assumed fine to send to these providers (plan §4.2). Real employee data would need a paid tier with a data processing agreement, no training on the data and EU processing, which is what Bedrock gives production. Google's own terms allow only paid services for applications available to users in the EEA.
+- **Exception recorded:** OpenRouter, Google AI Studio, Groq and Mistral are outside the "AWS or open source only" constraint. Allowed in the POC only, under the assumption above.
+- **How models are called: LangChain chat models, behind our own gateway.** LangChain gives one interface to every provider (a new provider is its `langchain-*` package and one line; a new model is configuration), structured output and standard token counts. What the gateway decides stays ours: per-task routing from config, the content-hash cache (with the prompt version, and `forget(document_key)` for deletes), quota counting and failover, the spend cap and the cost log. LangChain's own cache is not used: it keys on the prompt and model settings only, cannot drop a deleted document's replies and does not log hits. LangChain's retries are off; the gateway decides what follows a failure. Only `ekb.platform.gateway.options.langchain` imports LangChain (import-linter contract).
+- **Default selection evidence.** The local hardware run and live gateway demo support keeping the free-tier routes as the POC default and Ollama optional. Cards 4.3 and 4.9 will compare answer quality. [S7 hardware feasibility result](../evaluation/results/2026-11-25-4.3-gateway-hardware.md)
 
-| Task | Model | Why |
-|---|---|---|
-| T4 context header per chunk | Claude Haiku 5.5 | High volume, simple task |
-| T5 classification (department, sensitivity, PII) | Haiku 5.5 + Presidio rules | Cheap; rules catch structured PII |
-| T6 entity extraction and resolution | Haiku first, Sonnet 5.5 for hard cases | Mistakes pollute the graph |
-| T7 embeddings | Cohere Embed v4 | Multilingual; same as production |
-| Q1 query planning | Haiku 5.5 | Latency |
-| Q3 reranking | Cohere Rerank 3.5 | Large precision gain for little cost |
-| HR assistant answers | Sonnet 5.5 | Quality users see |
-| Evaluation judge | Opus 5.5, or Sonnet if they agree | Judge stronger than what it grades |
+| Task (gateway task) | Production model | POC candidates, in order | Why |
+|---|---|---|---|
+| T4 context header per chunk (`context_header`) | Claude Haiku 5.5 | Gemini Flash-Lite → gpt-oss-20b → Mistral Small → OpenRouter free | High volume, simple task |
+| T5 classification (`classify`) | Haiku 5.5 + Presidio rules | same as T4 | Cheap; rules catch structured PII |
+| T6 entity extraction and resolution (`entities`, `entities_hard`) | Haiku first, Sonnet 5.5 for hard cases | light chain, then Gemini Flash → gpt-oss-120b → Mistral Large → OpenRouter free | Mistakes pollute the graph |
+| T7 embeddings | Cohere Embed v4 | decided in S10 (no local model) | Multilingual; same as production |
+| Q1 query planning (`plan_query`) | Haiku 5.5 | light chain | Latency |
+| Q3 reranking | Cohere Rerank 3.5 | decided in S13 | Large precision gain for little cost |
+| HR assistant answers (`answer`) | Sonnet 5.5 | strong chain | Quality users see |
+| Evaluation judge (`judge`) | Opus 5.5, or Sonnet if they agree | strong chain | Judge stronger than what it grades |
 
-- **Prices (Nov 2026, per million tokens, input / output):** Haiku 5.5 $0.10 / $0.50 (Anthropic list price); Sonnet 5.5 $2 / $10 on Anthropic's API, possibly $3 / $15 on Bedrock (we budget with $3 / $15); Opus 5.5 $4 / $20; Cohere Embed v4 $0.12 input; Cohere Rerank 3.5 $2 per 1,000 queries; Bedrock batch inference −50%.
-- **Rejected:** GitHub Models (retired 30 July 2026); GitHub Copilot SDK (an agent runtime, not a chat or embedding API; uses the Copilot quota); ChatGPT Plus (includes no API credits); OpenCode Go / Zen and third-party open-weight hosts such as DeepInfra or Together (cheap, but data leaves AWS and reviewers would need accounts).
-- **Trade-off:** Sonnet 5.5 is available on Bedrock through the Global inference profile, so requests may be processed outside the EU. Acceptable with synthetic POC data; production with EU employee data needs the EU profile. Haiku 5.5 does have an EU profile.
+- **Prices (Nov 2026, per million tokens, input / output):** Haiku 5.5 $0.10 / $0.50 (Anthropic list price); Sonnet 5.5 $2 / $10 on Anthropic's API, possibly $3 / $15 on Bedrock (we budget with $3 / $15); Opus 5.5 $4 / $20; Cohere Embed v4 $0.12 input; Cohere Rerank 3.5 $2 per 1,000 queries; Bedrock batch inference −50%. The free tiers cost $0 and are limited by requests per minute and per day instead.
+- **Rejected:**
+  - **LiteLLM**, a gateway library covering much of the same ground: its PyPI releases were compromised twice in 2026 (1.82.7 and 1.82.8 in March, through the Trivy attack; 1.107.0 in October).
+  - **Our own HTTP client per provider:** smaller, but every new provider would be new code to write and test.
+  - **LangChain's `init_chat_model`:** it needs the `langchain` package, which pulls in LangGraph; the provider table in the LangChain option does the same in a few lines.
+  - GitHub Models (retired 30 July 2026); GitHub Copilot SDK (an agent runtime, not a chat or embedding API; uses the Copilot quota); ChatGPT Plus (includes no API credits); Cerebras (its no-card free tier ended on 21 July 2026).
+  - For production: OpenCode Go / Zen and third-party open-weight hosts such as DeepInfra or Together (cheap, but data leaves AWS).
+- **Trade-off:** Free tiers have no SLA, small daily caps, and models that rotate out. Failover can answer the same kind of call with different models on different days; the cost log records which, and experiments (S18) pin one model with no fallback. Reviewers need free API keys to see real model output; everything else, and every test, runs offline on the fake model. In production, Sonnet 5.5 on Bedrock is served through the Global inference profile, so requests may be processed outside the EU. That is acceptable with synthetic data; production with EU employee data needs the EU profile. Haiku 5.5 does have an EU profile.
 - **Revisit:** If bulk enrichment dominates production cost, re-evaluate open-weight models (gpt-oss on Bedrock, or third-party hosts if the AWS rule is relaxed).
 
 ### D16. Cost optimizations — target **$10–25** for the whole POC build
 
 - **Decision:** Apply these without lowering accuracy:
-  1. **Cache every model call by content hash** (model + prompt version + input) → re-ingestion during development is almost free.
+  1. **Cache every model call by content hash** (model + prompt version + input) → re-ingestion during development is almost free. *Built in S7: a SQLite cache keyed on provider, model, model settings, prompt version and the full request.*
   2. **Prompt caching in T4:** the document is a cached prefix, then each chunk.
   3. **Bedrock batch inference** (−50%) for ingestion and evaluation.
   4. **One call per document** returning context headers + classification + entities as JSON, instead of one call per chunk.
@@ -205,7 +215,7 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
   11. **Rerank, then send only the top 5 chunks** to the answering model.
   12. **Calibrate the judge:** use Sonnet if it agrees with Opus on 20 questions; Opus only where they disagree.
   13. **Freeze the test questions**; develop on ~30 documents and run the full corpus only at milestones.
-  14. **Guardrails on spend:** AWS Budgets alert at about $20; cost per step logged from token counts in traces.
+  14. **Guardrails on spend:** AWS Budgets alert at about $20; cost per step logged from token counts in traces. *S7: the gateway's cost log records every call's tokens and cost, and paid calls stop at `EKB_MAX_SPEND_USD`.*
 - **Accuracy guard:** every optimization is an experiment. Run the frozen test set before and after, and keep the change only if scores stay within an agreed tolerance.
 - **Estimate:** without optimizations about $30–100 for the build (~300 HR documents, ~1,500 chunks, 100 test questions, ~5 ingestions, ~10 evaluation runs); with them about **$10–25**.
 

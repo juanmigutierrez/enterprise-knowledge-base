@@ -18,7 +18,12 @@ from ekb.changelog.bus.port import BusStats
 from ekb.changelog.rawstore.port import StoredOriginal
 from ekb.changelog.registry.port import DocumentRecord
 from ekb.contracts import Acl, Block, BlockKind, ChangeEvent, ChangeOp, Chunk, DiffAction
+from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkEntry, LoggedDecision, LoggedEvent, ParsedEntry
+from ekb.platform.gateway.config import split_ref
+from ekb.platform.gateway.models import CallRecord, Outcome
+from ekb.platform.gateway.status import ProviderStatus
+from ekb.platform.gateway.usage import QuotaUsage, Totals, all_quota_usage, spent_usd
 
 
 class _View(BaseModel):
@@ -427,3 +432,166 @@ class ChunkedDocumentView(_View):
             summary=ChunkSummaryView.of(entry),
             chunks=[ChunkView.of(chunk) for chunk in entry.chunks],
         )
+
+
+# ----------------------------------------------------------- model gateway (S7)
+
+
+class GatewayProviderView(_View):
+    """A provider some task uses, and whether its key is set (never the key)."""
+
+    provider: str
+    key_env: str | None
+    ready: bool
+    models: list[str]
+
+    @classmethod
+    def of(cls, status: ProviderStatus) -> GatewayProviderView:
+        return cls(
+            provider=status.provider,
+            key_env=status.key_env,
+            ready=status.ready,
+            models=list(status.models),
+        )
+
+
+class GatewayRouteView(_View):
+    """A task and its candidates, tried in order."""
+
+    task: str
+    candidates: list[str]
+
+
+class GatewayModelView(_View):
+    ref: str
+    """``provider:model``, as the configuration and the cost log name it."""
+    provider: str
+    model: str
+    input_usd_per_million: float
+    output_usd_per_million: float
+    free: bool
+    quota: str | None
+
+
+class GatewayQuotaView(_View):
+    """Where one free-tier quota stands now, counted from the cost log."""
+
+    name: str
+    per_minute: int | None
+    per_day: int | None
+    resets: str
+    """The time zone whose midnight starts a new day for this quota."""
+    used_last_minute: int
+    used_today: int
+    resets_at: datetime
+
+    @classmethod
+    def of(cls, usage: QuotaUsage) -> GatewayQuotaView:
+        return cls(
+            name=usage.name,
+            per_minute=usage.per_minute,
+            per_day=usage.per_day,
+            resets=usage.resets,
+            used_last_minute=usage.used_last_minute,
+            used_today=usage.used_today,
+            resets_at=usage.resets_at,
+        )
+
+
+class GatewayView(_View):
+    """The gateway's configuration and where its quotas and spend stand (S7)."""
+
+    cache: str
+    cost_log: str
+    max_spend_usd: float
+    spent_usd: float | None
+    """On paid models, over the cost log's whole life."""
+    providers: list[GatewayProviderView]
+    routes: list[GatewayRouteView]
+    models: list[GatewayModelView]
+    quotas: list[GatewayQuotaView]
+
+    @classmethod
+    def of(cls, panel: GatewayPanel) -> GatewayView:
+        config, records = panel.config, panel.records()
+        used = set(config.used_models())
+        models = []
+        for ref in sorted(used):
+            provider, model = split_ref(ref)
+            spec = config.models[ref]
+            models.append(
+                GatewayModelView(
+                    ref=ref,
+                    provider=provider,
+                    model=model,
+                    input_usd_per_million=spec.price.input,
+                    output_usd_per_million=spec.price.output,
+                    free=spec.price.free,
+                    quota=spec.quota,
+                )
+            )
+        quotas = {config.models[ref].quota for ref in used}
+        return cls(
+            cache=config.cache.option,
+            cost_log=config.cost_log.option,
+            max_spend_usd=panel.max_spend_usd,
+            spent_usd=spent_usd(records),
+            providers=[GatewayProviderView.of(p) for p in panel.providers],
+            routes=[
+                GatewayRouteView(task=task, candidates=list(chain))
+                for task, chain in sorted(config.tasks.items())
+            ],
+            models=models,
+            quotas=[
+                GatewayQuotaView.of(u)
+                for u in all_quota_usage(config, records, panel.clock())
+                if u.name in quotas
+            ],
+        )
+
+
+class CallView(_View):
+    """One line of the cost log: a cache hit or one attempt at one model. No text."""
+
+    seq: int
+    """Its line in the cost log, 1, 2, 3 ..."""
+    at: datetime
+    task: str
+    candidate: str
+    prompt_version: str
+    key: str
+    outcome: Outcome
+    quota: str | None
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float | None
+    latency_ms: int
+    document_key: str | None
+    error: str | None
+
+    @classmethod
+    def of(cls, seq: int, record: CallRecord) -> CallView:
+        return cls(seq=seq, **record.model_dump())
+
+
+class CallTotalsView(_View):
+    """Calls of one task to one model, over the whole cost log."""
+
+    task: str
+    candidate: str
+    requests: int
+    hits: int
+    failures: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float | None
+
+    @classmethod
+    def of(cls, row: Totals) -> CallTotalsView:
+        return cls(**row.model_dump())
+
+
+class CallPage(_View):
+    calls: list[CallView]
+    cursor: int
+    totals: list[CallTotalsView]

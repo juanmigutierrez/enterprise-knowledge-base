@@ -5,10 +5,11 @@ import { DiffScreen } from "./components/DiffScreen";
 import { DocumentsScreen } from "./components/DocumentsScreen";
 import { EventsPanel } from "./components/EventsPanel";
 import { ChunkScreen } from "./components/ChunkScreen";
+import { GatewayScreen } from "./components/GatewayScreen";
 import { ParseScreen } from "./components/ParseScreen";
 import { usePolling } from "./usePolling";
 
-type Tab = "documents" | "events" | "changelog" | "t2" | "t3" | "t4";
+type Tab = "documents" | "events" | "changelog" | "t2" | "t3" | "t4" | "gateway";
 
 const TABS: Record<Tab, string> = {
     documents: "Documents",
@@ -17,6 +18,7 @@ const TABS: Record<Tab, string> = {
     t2: "T2 Diff",
     t3: "T3 Parse",
     t4: "T4 Chunk",
+    gateway: "Model gateway",
 };
 
 export function App() {
@@ -63,6 +65,7 @@ export function App() {
                 {tab === "t2" && <DiffScreen sources={names} />}
                 {tab === "t3" && <ParseScreen sources={names} />}
                 {tab === "t4" && <ChunkScreen sources={names} />}
+                {tab === "gateway" && <GatewayScreen />}
             </main>
         </div>
     );

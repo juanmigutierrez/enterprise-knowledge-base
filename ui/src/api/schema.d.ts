@@ -55,6 +55,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/gateway": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gateway Overview */
+        get: operations["gateway_overview_api_gateway_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/gateway/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gateway Calls */
+        get: operations["gateway_calls_api_gateway_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -241,6 +275,77 @@ export interface components {
             section: string[];
             /** Text */
             text: string;
+        };
+        /** CallPage */
+        CallPage: {
+            /** Calls */
+            calls: components["schemas"]["CallView"][];
+            /** Cursor */
+            cursor: number;
+            /** Totals */
+            totals: components["schemas"]["CallTotalsView"][];
+        };
+        /**
+         * CallTotalsView
+         * @description Calls of one task to one model, over the whole cost log.
+         */
+        CallTotalsView: {
+            /** Candidate */
+            candidate: string;
+            /** Cost Usd */
+            cost_usd: number | null;
+            /** Failures */
+            failures: number;
+            /** Hits */
+            hits: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Requests */
+            requests: number;
+            /** Task */
+            task: string;
+        };
+        /**
+         * CallView
+         * @description One line of the cost log: a cache hit or one attempt at one model. No text.
+         */
+        CallView: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Candidate */
+            candidate: string;
+            /** Cost Usd */
+            cost_usd: number | null;
+            /** Document Key */
+            document_key: string | null;
+            /** Error */
+            error: string | null;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Key */
+            key: string;
+            /** Latency Ms */
+            latency_ms: number;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "hit" | "ok" | "rate_limited" | "unavailable" | "invalid";
+            /** Output Tokens */
+            output_tokens: number;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Quota */
+            quota: string | null;
+            /** Seq */
+            seq: number;
+            /** Task */
+            task: string;
         };
         /**
          * ChangeLogView
@@ -466,6 +571,92 @@ export interface components {
             source_id: string;
             /** Version */
             version: string;
+        };
+        /** GatewayModelView */
+        GatewayModelView: {
+            /** Free */
+            free: boolean;
+            /** Input Usd Per Million */
+            input_usd_per_million: number;
+            /** Model */
+            model: string;
+            /** Output Usd Per Million */
+            output_usd_per_million: number;
+            /** Provider */
+            provider: string;
+            /** Quota */
+            quota: string | null;
+            /** Ref */
+            ref: string;
+        };
+        /**
+         * GatewayProviderView
+         * @description A provider some task uses, and whether its key is set (never the key).
+         */
+        GatewayProviderView: {
+            /** Key Env */
+            key_env: string | null;
+            /** Models */
+            models: string[];
+            /** Provider */
+            provider: string;
+            /** Ready */
+            ready: boolean;
+        };
+        /**
+         * GatewayQuotaView
+         * @description Where one free-tier quota stands now, counted from the cost log.
+         */
+        GatewayQuotaView: {
+            /** Name */
+            name: string;
+            /** Per Day */
+            per_day: number | null;
+            /** Per Minute */
+            per_minute: number | null;
+            /** Resets */
+            resets: string;
+            /**
+             * Resets At
+             * Format: date-time
+             */
+            resets_at: string;
+            /** Used Last Minute */
+            used_last_minute: number;
+            /** Used Today */
+            used_today: number;
+        };
+        /**
+         * GatewayRouteView
+         * @description A task and its candidates, tried in order.
+         */
+        GatewayRouteView: {
+            /** Candidates */
+            candidates: string[];
+            /** Task */
+            task: string;
+        };
+        /**
+         * GatewayView
+         * @description The gateway's configuration and where its quotas and spend stand (S7).
+         */
+        GatewayView: {
+            /** Cache */
+            cache: string;
+            /** Cost Log */
+            cost_log: string;
+            /** Max Spend Usd */
+            max_spend_usd: number;
+            /** Models */
+            models: components["schemas"]["GatewayModelView"][];
+            /** Providers */
+            providers: components["schemas"]["GatewayProviderView"][];
+            /** Quotas */
+            quotas: components["schemas"]["GatewayQuotaView"][];
+            /** Routes */
+            routes: components["schemas"]["GatewayRouteView"][];
+            /** Spent Usd */
+            spent_usd: number | null;
         };
         /**
          * GroupView
@@ -706,6 +897,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gateway_overview_api_gateway_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayView"];
+                };
+            };
+        };
+    };
+    gateway_calls_api_gateway_calls_get: {
+        parameters: {
+            query?: {
+                since?: number;
+                task?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPage"];
                 };
             };
             /** @description Validation Error */

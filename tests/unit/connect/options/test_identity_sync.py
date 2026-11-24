@@ -14,6 +14,7 @@ from ekb.connect.normalize.common import UnknownChangeKindError
 from ekb.connect.options.identity_sync import IdentitySyncConnector, UserVanishedError
 from ekb.connect.people import PersonMap
 from ekb.contracts import Acl, ChangeEvent, ChangeOp
+from tests.http import as_httpx
 from tests.unit.connect.conftest import Originals
 
 LISTED = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
@@ -24,7 +25,7 @@ def sync(
     idp: TestClient, events: list[ChangeEvent], originals: Originals, people: PersonMap
 ) -> IdentitySyncConnector:
     return IdentitySyncConnector(
-        IdentityApi(idp), events.append, originals, people, clock=lambda: LISTED
+        IdentityApi(as_httpx(idp)), events.append, originals, people, clock=lambda: LISTED
     )
 
 
@@ -74,7 +75,9 @@ def test_a_change_during_the_first_listing_is_not_lost(
             idp.delete("/scim/v2/Groups/it-employees/members/alice")
             return users
 
-    connector = IdentitySyncConnector(ChangeWhileListing(idp), events.append, originals, people)
+    connector = IdentitySyncConnector(
+        ChangeWhileListing(as_httpx(idp)), events.append, originals, people
+    )
     assert connector.sync() == 13  # 12 listed + the change replayed from the feed
     last = events[-1]
     assert (last.source_id, last.version) == ("users/alice", "1")

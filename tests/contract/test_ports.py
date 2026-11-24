@@ -6,6 +6,7 @@ automatically. When a new port is written, add it to ``PORTS``.
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -22,6 +23,7 @@ from ekb.connect.identity_api import IdentityApi
 from ekb.connect.people import People, PersonMap
 from ekb.connect.port import Connector
 from ekb.platform import registry
+from ekb.platform.gateway.port import CostLog, ModelClient, ResponseCache
 from ekb.process.t2_diff.port import Differ
 from ekb.process.t3_parse.port import Parser
 from ekb.process.t4_chunk.port import Chunker
@@ -36,6 +38,9 @@ PORTS: dict[str, type] = {
     "t3_parse": Parser,
     "t4_chunk": Chunker,
     "t7_embed": Embedder,
+    "model_client": ModelClient,
+    "model_cache": ResponseCache,
+    "cost_log": CostLog,
 }
 
 # Building a connector opens no connection, so clients with dummy URLs will do.
@@ -54,6 +59,10 @@ TEST_PARAMS: dict[tuple[str, str], dict[str, object]] = {
     ("connect", "hr_api_full_listing"): {**_COMMON, "api": HrApi(_CLIENT), "known": dict},
     ("connect", "hr_db_cdc"): {**_COMMON, "reader": CdcReader(Path("missing.sqlite"))},
     ("connect", "identity_sync"): {**_COMMON, "api": IdentityApi(_CLIENT)},
+    # Building a client sends nothing; a cache in memory; a log path that is never written.
+    ("model_client", "langchain"): {"provider": "groq", "model": "openai/gpt-oss-20b"},
+    ("model_cache", "sqlite"): {"path": ":memory:"},
+    ("cost_log", "jsonl"): {"path": str(Path(tempfile.gettempdir()) / "ekb-contract.jsonl")},
 }
 
 load_options()

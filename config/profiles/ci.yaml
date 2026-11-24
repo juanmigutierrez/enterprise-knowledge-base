@@ -1,6 +1,5 @@
 # CI: no models, no network, deterministic. Used by unit and integration tests
 # so permission and deletion gates run on every pull request for free.
-provider: fake
 steps:
   t3_parse:     { option: plain_text }
   t4_chunk:     { option: fixed, params: { max_tokens: 400, context_header: none } }
@@ -9,3 +8,21 @@ steps:
   t7_embed:     { option: fake, params: { dimensions: 32 } }
   q1_plan:      { option: none }
   q3_retrieve:  { option: hybrid_rrf, params: { rerank: none, top_k: 5 } }
+
+# Every task goes to the offline fake model; nothing is kept between runs.
+gateway:
+  cache:    { option: in_memory }
+  cost_log: { option: in_memory }
+  quotas:
+    fake: { per_minute: 1000, per_day: 100000, resets: UTC }
+  models:
+    "fake:fake-small": { quota: fake }
+    "fake:fake-large": { quota: fake }
+  tasks:
+    context_header: &fake ["fake:fake-small", "fake:fake-large"]
+    classify:       *fake
+    entities:       *fake
+    plan_query:     *fake
+    entities_hard:  *fake
+    answer:         *fake
+    judge:          *fake
