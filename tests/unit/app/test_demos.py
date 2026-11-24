@@ -25,6 +25,7 @@ from ekb.app.demos.t2 import run_t2_demo
 from ekb.app.demos.t3 import run_t3_demo
 from ekb.app.demos.t4 import run_t4_demo
 from tests.conftest import REPO_ROOT
+from tests.http import as_httpx
 
 Story = Callable[..., None]
 
@@ -83,7 +84,7 @@ def test_s1c_replays_a_deactivation_during_initial_listing() -> None:
                 service.state.store.deactivate("bob")
             lines.append(line)
 
-        run_s1c(client, echo=echo)
+        run_s1c(as_httpx(client), echo=echo)
     assert any("user.deactivated" in line and "bob" in line for line in lines)
 
 
@@ -156,7 +157,7 @@ def _t1(runs: int = 1) -> str:
     with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
         for _ in range(runs):
             lines.clear()
-            run_t1(docs, idp, echo=lines.append)
+            run_t1(as_httpx(docs), as_httpx(idp), echo=lines.append)
     return "\n".join(lines)
 
 
@@ -177,7 +178,7 @@ def test_t1_turns_four_changes_into_four_events_and_the_listing_catches_a_lost_d
 
 def test_t1_leaves_no_subscription_behind() -> None:
     with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
-        run_t1(docs, idp, echo=lambda line: None)
+        run_t1(as_httpx(docs), as_httpx(idp), echo=lambda line: None)
         assert docs.get("/subscriptions").json() == []
 
 
@@ -190,7 +191,7 @@ def test_t1_all_shows_four_sources_in_one_shape(tmp_path: Path) -> None:
         TestClient(hr_api_app()) as hr,
         TestClient(idp_app()) as idp,
     ):
-        run_t1_all(docs, hr, idp, db_path, echo=lines.append)
+        run_t1_all(as_httpx(docs), as_httpx(hr), as_httpx(idp), db_path, echo=lines.append)
     output = "\n".join(lines)
     assert "(by full name): 12/12" in output
     assert "Gaps: none." in output
@@ -212,7 +213,7 @@ def _s3(runs: int = 1) -> str:
     with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
         for _ in range(runs):
             lines.clear()
-            changelog = run_s3_live(docs, idp, echo=lines.append)
+            changelog = run_s3_live(as_httpx(docs), as_httpx(idp), echo=lines.append)
             assert docs.get("/subscriptions").json() == []  # no subscription left behind
     run_s3_replay(changelog, "The docs tool has been stopped.", echo=lines.append)
     return "\n".join(lines)
@@ -250,7 +251,7 @@ def _t2(runs: int = 1) -> str:
     with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
         for _ in range(runs):
             lines.clear()
-            changelog = run_t2_demo(docs, idp, echo=lines.append)
+            changelog = run_t2_demo(as_httpx(docs), as_httpx(idp), echo=lines.append)
             assert docs.get("/subscriptions").json() == []  # no subscription left behind
     assert changelog.rawstore.versions("hr_docs:HR-PL-99") == []
     return "\n".join(lines)
@@ -286,7 +287,7 @@ def _t3(runs: int = 1, **options: str) -> str:
     with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
         for _ in range(runs):
             lines.clear()
-            story = run_t3_demo(docs, idp, echo=lines.append, **options)
+            story = run_t3_demo(as_httpx(docs), as_httpx(idp), echo=lines.append, **options)
             assert docs.get("/subscriptions").json() == []  # no subscription left behind
     assert "hr_docs:HR-PL-99" not in story.latest
     return "\n".join(lines)

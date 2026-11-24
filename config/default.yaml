@@ -1,11 +1,10 @@
-# Which option each step uses, and its parameters.
-# This file is the "local" profile: free, offline, runs with `docker compose up`.
+# Which option each step uses, and its parameters, plus the model gateway.
+# This file is the "local" profile: free, runs with `docker compose up`; models come
+# from free API tiers (S7, D15), with keys in .env (see .env.example).
 # Starting choices come from docs/option-evaluation.md; each is replaced only
 # when an experiment in evaluation/experiments/ shows a better option.
 #
 # Layering: config/default.yaml  <-  config/profiles/$EKB_PROFILE.yaml
-
-provider: ollama
 
 steps:
   # 2 · Connect
@@ -37,3 +36,66 @@ steps:
   q2_prefilter:  { option: acl_and_cedar, card: "4.13" }
   q3_retrieve:   { option: hybrid_rrf, params: { rerank: bge_reranker, top_k: 5 }, card: "4.5 / 4.6 / 4.7" }
   q4_postcheck:  { option: source_recheck, card: "4.13" }
+
+# Model gateway (S7, decisions.md D15). Every model call names a task; the gateway
+# tries the task's candidates in order, skipping any without a key in .env, past its
+# free quota, or recently rate-limited. Replies are cached by content hash; every
+# call is logged with tokens and cost (never the text).
+gateway:
+  cache:    { option: sqlite, params: { path: .cache/ekb/model-cache.sqlite } }
+  cost_log: { option: jsonl,  params: { path: .cache/ekb/model-calls.jsonl } }
+  max_spend_usd: 25     # paid models only; EKB_MAX_SPEND_USD overrides
+  timeout_s: 60
+  max_wait_s: 20        # wait this long for a per-minute slot, then try the next model
+  cooldown_s: 600       # after a 429, leave that quota alone this long
+
+  providers:            # keys come from the environment, never from this file
+    google_genai: { key_env: GOOGLE_API_KEY }
+    groq:         { key_env: GROQ_API_KEY }
+    mistralai:    { key_env: MISTRAL_API_KEY }
+    openrouter:   { key_env: OPENROUTER_API_KEY }
+    ollama:       { env: { base_url: OLLAMA_URL } }   # optional: uv sync --extra ollama
+    fake:         {}
+
+  # Free-tier limits. Starting values: your real ones are on each console's limits
+  # page (AI Studio: per project and model; Groq: per organization and model).
+  quotas:
+    google_flash_lite: { per_minute: 15, per_day: 1000, resets: America/Los_Angeles }
+    google_flash:      { per_minute: 10, per_day: 250,  resets: America/Los_Angeles }
+    groq_gpt_oss_20b:  { per_minute: 30, per_day: 1000, resets: UTC }
+    groq_gpt_oss_120b: { per_minute: 30, per_day: 1000, resets: UTC }
+    mistral_free:      { per_minute: 60, resets: UTC }              # about 1 request a second
+    openrouter_free:   { per_minute: 20, per_day: 50,   resets: UTC } # all :free models together
+
+  # Every model a task may use. Free tiers cost 0; a paid model must state its price
+  # (USD per million tokens) or the settings do not load.
+  models:
+    "google_genai:gemini-3.5-flash-lite": { quota: google_flash_lite }
+    "google_genai:gemini-3.8-flash":      { quota: google_flash }
+    "groq:openai/gpt-oss-20b":            { quota: groq_gpt_oss_20b,  params: { reasoning_effort: low } }
+    "groq:openai/gpt-oss-120b":           { quota: groq_gpt_oss_120b, params: { reasoning_effort: low } }
+    "mistralai:mistral-small-latest":     { quota: mistral_free }
+    "mistralai:mistral-large-latest":     { quota: mistral_free }
+    "openrouter:openrouter/free":         { quota: openrouter_free }
+    # Not in any task by default; one line in `tasks` switches to them.
+    "openrouter:anthropic/claude-haiku-5.5": { price: { input: 0.10, output: 0.50 } }  # paid
+    "ollama:gemma4:e4b": {}                                                            # local
+
+  # Task -> candidates, tried in order (D15). High-volume tasks start on the light
+  # models; the harder ones on the stronger models of the same providers.
+  tasks:
+    context_header: &light
+      - "google_genai:gemini-3.5-flash-lite"
+      - "groq:openai/gpt-oss-20b"
+      - "mistralai:mistral-small-latest"
+      - "openrouter:openrouter/free"
+    classify:       *light
+    entities:       *light
+    plan_query:     *light
+    entities_hard: &strong
+      - "google_genai:gemini-3.8-flash"
+      - "groq:openai/gpt-oss-120b"
+      - "mistralai:mistral-large-latest"
+      - "openrouter:openrouter/free"
+    answer:         *strong
+    judge:          *strong

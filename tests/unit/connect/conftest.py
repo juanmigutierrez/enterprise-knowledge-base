@@ -1,7 +1,8 @@
 """Connector tests run against the real mocks, in-process.
 
-A ``TestClient`` is an ``httpx.Client``, so the connector talks to the mock
-exactly as it would over the network. Webhook delivery is captured instead of
+A ``TestClient`` has the API of an ``httpx.Client`` (it is an ``httpx2`` one
+since S7; see ``tests/http.py``), so the connector talks to the mock exactly as
+it would over the network. Webhook delivery is captured instead of
 POSTed, so each test decides when notifications reach the connector.
 """
 
@@ -22,6 +23,7 @@ from ekb.connect.hr_api import HrApi
 from ekb.connect.identity_api import IdentityApi
 from ekb.connect.people import PersonMap, load_people
 from ekb.contracts import ChangeEvent
+from tests.http import as_httpx
 
 NEW_PAGE = {
     "id": "HR-PL-11",
@@ -81,7 +83,7 @@ def mock_store(docs: TestClient) -> DocsStore:
 
 @pytest.fixture
 def api(docs: TestClient) -> DocsApi:
-    return DocsApi(docs)
+    return DocsApi(as_httpx(docs))
 
 
 @pytest.fixture
@@ -109,4 +111,4 @@ def hr() -> Iterator[TestClient]:
 @pytest.fixture
 def people(idp: TestClient, hr: TestClient) -> PersonMap:
     """The real mapping: identity provider users matched to HR employees by full name."""
-    return PersonMap(load_people(IdentityApi(idp), HrApi(hr)))
+    return PersonMap(load_people(IdentityApi(as_httpx(idp)), HrApi(as_httpx(hr))))

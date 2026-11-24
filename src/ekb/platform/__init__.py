@@ -2,7 +2,8 @@
 
 - ``registry``: the option plug-in system (one implementation per option).
 - ``config``: loads which option each step uses (config/*.yaml).
+- ``gateway``: the model gateway (S7): every model call is routed, cached,
+  guarded against quotas and spend, and logged here.
 
-Planned here as the POC grows: the model gateway (provider switch,
-content-hash cache, cost logging) and telemetry helpers.
+Planned here as the POC grows: telemetry helpers.
 """

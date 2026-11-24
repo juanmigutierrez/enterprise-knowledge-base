@@ -84,6 +84,206 @@
         "title": "BlockView",
         "type": "object"
       },
+      "CallPage": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallView"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "totals": {
+            "items": {
+              "$ref": "#/components/schemas/CallTotalsView"
+            },
+            "title": "Totals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "calls",
+          "cursor",
+          "totals"
+        ],
+        "title": "CallPage",
+        "type": "object"
+      },
+      "CallTotalsView": {
+        "description": "Calls of one task to one model, over the whole cost log.",
+        "properties": {
+          "candidate": {
+            "title": "Candidate",
+            "type": "string"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "failures": {
+            "title": "Failures",
+            "type": "integer"
+          },
+          "hits": {
+            "title": "Hits",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "candidate",
+          "requests",
+          "hits",
+          "failures",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd"
+        ],
+        "title": "CallTotalsView",
+        "type": "object"
+      },
+      "CallView": {
+        "description": "One line of the cost log: a cache hit or one attempt at one model. No text.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "candidate": {
+            "title": "Candidate",
+            "type": "string"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "document_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Key"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "hit",
+              "ok",
+              "rate_limited",
+              "unavailable",
+              "invalid"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "quota": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "task",
+          "candidate",
+          "prompt_version",
+          "key",
+          "outcome",
+          "quota",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "latency_ms",
+          "document_key",
+          "error"
+        ],
+        "title": "CallView",
+        "type": "object"
+      },
       "ChangeLogView": {
         "description": "The event bus: how many events each partition holds, and how far each group has read.",
         "properties": {
@@ -625,6 +825,244 @@
           "schema_version"
         ],
         "title": "EventView",
+        "type": "object"
+      },
+      "GatewayModelView": {
+        "properties": {
+          "free": {
+            "title": "Free",
+            "type": "boolean"
+          },
+          "input_usd_per_million": {
+            "title": "Input Usd Per Million",
+            "type": "number"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_usd_per_million": {
+            "title": "Output Usd Per Million",
+            "type": "number"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "quota": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "provider",
+          "model",
+          "input_usd_per_million",
+          "output_usd_per_million",
+          "free",
+          "quota"
+        ],
+        "title": "GatewayModelView",
+        "type": "object"
+      },
+      "GatewayProviderView": {
+        "description": "A provider some task uses, and whether its key is set (never the key).",
+        "properties": {
+          "key_env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Env"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "key_env",
+          "ready",
+          "models"
+        ],
+        "title": "GatewayProviderView",
+        "type": "object"
+      },
+      "GatewayQuotaView": {
+        "description": "Where one free-tier quota stands now, counted from the cost log.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Day"
+          },
+          "per_minute": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Minute"
+          },
+          "resets": {
+            "title": "Resets",
+            "type": "string"
+          },
+          "resets_at": {
+            "format": "date-time",
+            "title": "Resets At",
+            "type": "string"
+          },
+          "used_last_minute": {
+            "title": "Used Last Minute",
+            "type": "integer"
+          },
+          "used_today": {
+            "title": "Used Today",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "per_minute",
+          "per_day",
+          "resets",
+          "used_last_minute",
+          "used_today",
+          "resets_at"
+        ],
+        "title": "GatewayQuotaView",
+        "type": "object"
+      },
+      "GatewayRouteView": {
+        "description": "A task and its candidates, tried in order.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "candidates"
+        ],
+        "title": "GatewayRouteView",
+        "type": "object"
+      },
+      "GatewayView": {
+        "description": "The gateway's configuration and where its quotas and spend stand (S7).",
+        "properties": {
+          "cache": {
+            "title": "Cache",
+            "type": "string"
+          },
+          "cost_log": {
+            "title": "Cost Log",
+            "type": "string"
+          },
+          "max_spend_usd": {
+            "title": "Max Spend Usd",
+            "type": "number"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/GatewayModelView"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/GatewayProviderView"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "quotas": {
+            "items": {
+              "$ref": "#/components/schemas/GatewayQuotaView"
+            },
+            "title": "Quotas",
+            "type": "array"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/GatewayRouteView"
+            },
+            "title": "Routes",
+            "type": "array"
+          },
+          "spent_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spent Usd"
+          }
+        },
+        "required": [
+          "cache",
+          "cost_log",
+          "max_spend_usd",
+          "spent_usd",
+          "providers",
+          "routes",
+          "models",
+          "quotas"
+        ],
+        "title": "GatewayView",
         "type": "object"
       },
       "GroupView": {
@@ -1185,6 +1623,81 @@
           }
         },
         "summary": "Events"
+      }
+    },
+    "/api/gateway": {
+      "get": {
+        "operationId": "gateway_overview_api_gateway_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Gateway Overview"
+      }
+    },
+    "/api/gateway/calls": {
+      "get": {
+        "operationId": "gateway_calls_api_gateway_calls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gateway Calls"
       }
     },
     "/api/health": {

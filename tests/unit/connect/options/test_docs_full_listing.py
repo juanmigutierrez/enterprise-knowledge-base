@@ -14,6 +14,7 @@ from ekb.connect.docs_api import DocsApi, DocsPageSummary
 from ekb.connect.options.docs_full_listing import DocsFullListingConnector
 from ekb.connect.people import PersonMap
 from ekb.contracts import Acl, ChangeEvent, ChangeOp
+from tests.http import as_httpx
 from tests.unit.connect.conftest import NEW_PAGE, Originals
 
 NOTICED = datetime(2026, 11, 24, 2, 0, tzinfo=UTC)
@@ -131,7 +132,7 @@ def test_a_page_deleted_between_listing_and_fetch_is_a_delete(
             return listing
 
     connector = DocsFullListingConnector(
-        ListThenDelete(docs), events.append, originals, people, known=lambda: known
+        ListThenDelete(as_httpx(docs)), events.append, originals, people, known=lambda: known
     )
     connector.sync()
     (event,) = events

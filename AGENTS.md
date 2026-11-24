@@ -39,7 +39,7 @@ If something is ambiguous, not decided in `docs/`, or would need an assumption (
 ## Hard rules
 - Permissions and deletes are gates: no chunk is searchable before T8 has set its ACL and sensitivity, and deleted content must never be returned. Any change touching these needs a test.
 - No secrets in code, config or tests. Configuration goes in `config/*.yaml`, secrets in environment variables.
-- Every model call goes through the platform model gateway (content-hash cache, per-task model, cost log). Never call a model SDK directly.
+- Every model call goes through the platform model gateway (content-hash cache, per-task model, cost log). Never call a model SDK or LangChain directly: only `ekb.platform.gateway.options.langchain` imports LangChain (an import-linter contract).
 - Changing a default in `config/default.yaml` requires an experiment result in `evaluation/results/`.
 - Synthetic data only.
 

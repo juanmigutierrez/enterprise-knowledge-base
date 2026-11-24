@@ -19,6 +19,7 @@ from ekb.app.inspector import SyncLoop, build_connectors
 from ekb.contracts import Acl, ChangeOp, DiffAction
 from ekb.contracts.listing import NeedsOriginal
 from ekb.operate.inspector.log import EventLog
+from tests.http import as_httpx
 from tests.unit.changelog.factories import acl_change
 
 
@@ -38,7 +39,9 @@ def test_round_zero_loads_every_source_once(
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
     log, changelog = EventLog(), ChangeLog.in_memory()
-    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, log, listing_every=2)
     assert loop.run_round() == 12 + 17 + 16 + 12  # pages, HR records, DB rows, users
     # T2 recorded everything before the listings compared with the registry, so the
@@ -88,7 +91,9 @@ def test_t3_parses_what_t2_processes_and_forgets_what_it_purges(
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
     changelog = ChangeLog.in_memory()
-    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
     loop.run_round()
     parsed = loop.parsed
@@ -118,7 +123,9 @@ def test_t4_chunks_what_t3_parses_and_forgets_what_t2_purges(
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
     changelog = ChangeLog.in_memory()
-    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
     loop.run_round()
     chunks = loop.chunks
@@ -151,7 +158,9 @@ def test_a_failing_source_does_not_stop_the_others(
 ) -> None:
     docs, hr, idp = clients
     changelog = ChangeLog.in_memory()  # no database file: the CDC connector fails every round
-    connectors = build_connectors(docs, hr, idp, tmp_path / "missing.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "missing.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, EventLog())
     assert loop.run_round() == 12 + 17 + 12
     assert any("hr_db" in error for error in loop.errors)
@@ -163,7 +172,9 @@ def test_the_loop_runs_in_the_background(
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
     changelog = ChangeLog.in_memory()
-    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, EventLog())
     with loop.running(interval_s=0.01):
         while loop.rounds < 2:
@@ -201,7 +212,9 @@ def test_a_failing_consumer_is_retried_next_round_and_loses_nothing(
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
     log, changelog = EventLog(), ChangeLog.in_memory()
-    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, log)
 
     def broken(_: object) -> None:
@@ -226,7 +239,9 @@ def test_a_failing_t2_round_records_nothing_and_is_retried_in_full(
     docs, hr, idp = clients
     create_database(tmp_path / "hr.sqlite")
     changelog = ChangeLog.in_memory()
-    connectors = build_connectors(docs, hr, idp, tmp_path / "hr.sqlite", changelog)
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
     loop = SyncLoop(connectors, changelog, EventLog())
 
     def broken(decision: object, purged: int = 0) -> None:
@@ -260,9 +275,9 @@ def test_listing_repairs_missing_original_and_tombstones_absent_items(
     listing_index: int,
 ) -> None:
     changelog = ChangeLog.in_memory()
-    listing = build_connectors(*clients, tmp_path / "unused.sqlite", changelog).listings[
-        listing_index
-    ]
+    docs, hr, idp = (as_httpx(client) for client in clients)
+    connectors = build_connectors(docs, hr, idp, tmp_path / "unused.sqlite", changelog)
+    listing = connectors.listings[listing_index]
     listing.sync()
     changelog.record_processed()
     key = f"{source}:{item}"

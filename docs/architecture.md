@@ -129,7 +129,7 @@ flowchart LR
   subgraph PRO["4 · Process (worker containers, same code)"]
     T2[["T2 · Diff vs registry"]]
     T3[["T3 · Parse<br/>Docling"]]
-    T4[["T4 · Chunk + context header<br/>Ollama, or Haiku via Bedrock"]]
+    T4[["T4 · Chunk + context header<br/>free API tiers via the model gateway"]]
     T5[["T5 · Classify<br/>model + Presidio rules"]]
     T6[["T6 · Extract + resolve entities<br/>same cascade"]]
     T7[["T7 · Embed<br/>bge-m3 via Ollama, or Cohere via Bedrock"]]
@@ -197,7 +197,7 @@ flowchart LR
 | T1 Normalize | Source-specific change → one change event | Connectors | Same code |
 | T2 Diff | Event → skip / process / purge / ACL fast lane | Workers + DynamoDB | Same code + DynamoDB Local |
 | T3 Parse | File → clean text with structure | Docling, Bedrock Data Automation | Docling |
-| T4 Chunk + context | Text → chunks with a context header | Claude Haiku 5.5 | Ollama or Bedrock |
+| T4 Chunk + context | Text → chunks with a context header | Claude Haiku 5.5 | Free API tiers via the model gateway (S7) |
 | T5 Classify | Chunk → department, sensitivity, PII flags | Haiku + Presidio | Model + Presidio |
 | T6 Entities | Chunk → canonical entity IDs | Exact match → Haiku → Sonnet | Same cascade |
 | T7 Embed | Chunk → vector (model ID stored) | Cohere Embed v4 | bge-m3 or Bedrock |

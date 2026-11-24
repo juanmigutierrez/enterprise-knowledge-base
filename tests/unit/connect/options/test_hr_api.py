@@ -17,6 +17,7 @@ from ekb.connect.options.hr_api_delta import HrApiDeltaConnector
 from ekb.connect.options.hr_api_full_listing import HrApiFullListingConnector
 from ekb.connect.people import PersonMap
 from ekb.contracts import Acl, ChangeEvent, ChangeOp
+from tests.http import as_httpx
 from tests.unit.connect.conftest import Originals
 
 START = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
@@ -48,7 +49,7 @@ def clock(hr: TestClient) -> Clock:
 def delta(
     hr: TestClient, clock: Clock, events: list[ChangeEvent], originals: Originals, people: PersonMap
 ) -> HrApiDeltaConnector:
-    return HrApiDeltaConnector(HrApi(hr), events.append, originals, people)
+    return HrApiDeltaConnector(HrApi(as_httpx(hr)), events.append, originals, people)
 
 
 MakeListing = Callable[[dict[str, str]], HrApiFullListingConnector]
@@ -60,7 +61,12 @@ def make_listing(
 ) -> MakeListing:
     def build(known: dict[str, str]) -> HrApiFullListingConnector:
         return HrApiFullListingConnector(
-            HrApi(hr), events.append, originals, people, known=lambda: known, clock=lambda: NOTICED
+            HrApi(as_httpx(hr)),
+            events.append,
+            originals,
+            people,
+            known=lambda: known,
+            clock=lambda: NOTICED,
         )
 
     return build
