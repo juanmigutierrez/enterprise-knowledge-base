@@ -7,7 +7,7 @@
 ARG PYTHON_VERSION=3.13
 
 # ---------------------------------------------------------------- builder
-FROM python:${PYTHON_VERSION}-slim AS builder
+FROM python:${PYTHON_VERSION}-slim-trixie AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.13.9 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -30,7 +30,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable ${EXTRAS}
 
 # ---------------------------------------------------------------- runtime
-FROM python:${PYTHON_VERSION}-slim AS runtime
+FROM python:${PYTHON_VERSION}-slim-trixie AS runtime
+
+# CVE-2026-85091 is fixed in Debian 13's deb13u1 revision.
+RUN apt-get update \
+ && apt-get install -y --only-upgrade --no-install-recommends zlib1g \
+ && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge '1:1.3.dfsg+really1.3.1-1+deb13u1' \
+ && rm -rf /var/lib/apt/lists/*
+
+# uv installs all service dependencies in the builder. The service needs
+# neither system pip's vendored libraries nor its bootstrap wheel.
+RUN python -m pip uninstall -y pip \
+ && python -c "import ensurepip, pathlib, shutil; shutil.rmtree(pathlib.Path(ensurepip.__file__).parent)"
 
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app
