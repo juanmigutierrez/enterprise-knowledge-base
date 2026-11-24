@@ -206,3 +206,23 @@ tr.deleted td:first-child {
 .op-acl_change {
     background: var(--acl);
 }
+
+/* Change log: the bus on top, the registry and an item's originals below. */
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+}
+.stack > .pane.compact {
+    height: auto;
+    flex: none;
+}
+.stack > .split {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}
+.pending {
+    color: var(--acl);
+}

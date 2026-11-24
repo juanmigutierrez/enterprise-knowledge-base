@@ -101,7 +101,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S2 | 2 · Connect + **T1** | Connector (webhook-style and full-listing) → normalized `ChangeEvent` | Why every source is reduced to one event shape | `ekb demo t1`: add, edit, delete and revoke access in the source → print the 4 events | 30 min | ✅ |
 | S2a | 2 · Connect + **T1** | Connectors for the other three sources, each an option of the connector port: delta polling + full listing (HR API), CDC reader (database), identity sync (identity provider) → the same `ChangeEvent` | That one event shape covers push, pull, CDC and identity sources, so nothing downstream depends on the source type | `ekb demo t1 --all`: one change in each of the four sources → four events of the same shape, side by side | 45 min | ✅ |
 | S2b | 8 · Inspector UI foundation | Read-only inspector API (FastAPI, **local profile only**) + React + TypeScript app (Vite): **Documents** screen and **Events** panel; TypeScript types generated from the API (OpenAPI → `openapi-typescript`), CI fails if they are stale; UI lint, type check and build in CI | How the data looks at each stage, visually; how front end and back end share one contract | `uv run ekb inspector` + `npm run dev` in `ui/` | 90 min | ✅ |
-| S3 | 3 · Change log | Event bus, document registry, raw store: **in-memory** options | Ordering per document, replay, why originals are stored | `ekb demo s3`: publish, consume, replay · UI: change log panel | 40 min | ⬜ |
+| S3 | 3 · Change log | Event bus, document registry, raw store: **in-memory** options | Ordering per document, replay, why originals are stored | `ekb demo s3`: publish, consume, replay · UI: change log panel | 40 min | ✅ |
 | S4 | 4 · **T2** Diff | Skip unchanged, ACL fast lane, delete → purge | How the system avoids re-processing and handles deletes | `ekb demo t2`: same doc twice → second skipped; ACL change → fast lane · UI: T2 decision panel | 30 min | ⬜ |
 | S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ⬜ |
 | S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy · UI: chunks panel | 30 min | ⬜ |
@@ -138,4 +138,4 @@ A step is never started before the previous one is pushed. Exception, decided on
 
 ## 6. Next step
 
-S2, S2a and S2b are built (🟡) and go to review together (`$cross-review`); then **S3** with `/plan-task S3`. In parallel, decide which design version is the official one (§4.1 task 1).
+S3 is complete. Next is **S4** with `/plan-task S4`. In parallel, decide which design version is the official one (§4.1 task 1).

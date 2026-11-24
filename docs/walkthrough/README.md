@@ -14,3 +14,4 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S2 | [Connect + T1: the docs connector and the one change event](S02-t1-normalize.md) |
 | S2a | [Connect + T1 for every source type](S02a-connectors.md) |
 | S2b | [Inspector UI foundation](S02b-inspector.md) |
+| S3 | [Change log: event bus, document registry, raw store](S03-change-log.md) |

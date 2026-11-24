@@ -25,6 +25,41 @@
         "title": "AclView",
         "type": "object"
       },
+      "ChangeLogView": {
+        "description": "The event bus: how many events each partition holds, and how far each group has read.",
+        "properties": {
+          "end_offsets": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "End Offsets",
+            "type": "array"
+          },
+          "events": {
+            "title": "Events",
+            "type": "integer"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupView"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "partitions": {
+            "title": "Partitions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "partitions",
+          "end_offsets",
+          "events",
+          "groups"
+        ],
+        "title": "ChangeLogView",
+        "type": "object"
+      },
       "ChangeOp": {
         "description": "What happened to the document in the source system.",
         "enum": [
@@ -96,7 +131,7 @@
         "type": "object"
       },
       "EventView": {
-        "description": "One event as received, with the log's arrival number.",
+        "description": "One event as received, with the log's arrival number and its place in the bus.",
         "properties": {
           "acl": {
             "$ref": "#/components/schemas/AclView"
@@ -132,8 +167,16 @@
             "title": "Occurred At",
             "type": "string"
           },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
           "op": {
             "$ref": "#/components/schemas/ChangeOp"
+          },
+          "partition": {
+            "title": "Partition",
+            "type": "integer"
           },
           "person_id": {
             "anyOf": [
@@ -186,6 +229,8 @@
         "required": [
           "seq",
           "received_at",
+          "partition",
+          "offset",
           "document_key",
           "source",
           "source_id",
@@ -202,6 +247,33 @@
         "title": "EventView",
         "type": "object"
       },
+      "GroupView": {
+        "description": "A consumer group: per partition, the offset of its next pending event.",
+        "properties": {
+          "committed": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Committed",
+            "type": "array"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "lag": {
+            "title": "Lag",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group",
+          "committed",
+          "lag"
+        ],
+        "title": "GroupView",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -213,6 +285,143 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "OriginalView": {
+        "description": "One stored version of an item's original: where it is and how big, not its bytes.",
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "pointer": {
+            "title": "Pointer",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "stored_at": {
+            "format": "date-time",
+            "title": "Stored At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pointer",
+          "version",
+          "size",
+          "checksum",
+          "stored_at"
+        ],
+        "title": "OriginalView",
+        "type": "object"
+      },
+      "RecordView": {
+        "description": "One registry record: what the knowledge base last processed for an item.",
+        "properties": {
+          "acl": {
+            "$ref": "#/components/schemas/AclView"
+          },
+          "changed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed By"
+          },
+          "content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Hash"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "events": {
+            "title": "Events",
+            "type": "integer"
+          },
+          "originals": {
+            "title": "Originals",
+            "type": "integer"
+          },
+          "person_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Person Id"
+          },
+          "raw_pointer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Pointer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_key",
+          "source",
+          "source_id",
+          "version",
+          "deleted",
+          "content_hash",
+          "acl",
+          "raw_pointer",
+          "person_id",
+          "changed_by",
+          "updated_at",
+          "events",
+          "originals"
+        ],
+        "title": "RecordView",
         "type": "object"
       },
       "SourceView": {
@@ -305,6 +514,24 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/changelog": {
+      "get": {
+        "operationId": "changelog_api_changelog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeLogView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Changelog"
+      }
+    },
     "/api/documents": {
       "get": {
         "operationId": "documents_api_documents_get",
@@ -448,6 +675,99 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/api/originals": {
+      "get": {
+        "operationId": "originals_api_originals_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "document_key",
+            "required": true,
+            "schema": {
+              "title": "Document Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OriginalView"
+                  },
+                  "title": "Response Originals Api Originals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Originals"
+      }
+    },
+    "/api/registry": {
+      "get": {
+        "operationId": "registry_records_api_registry_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecordView"
+                  },
+                  "title": "Response Registry Records Api Registry Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Registry Records"
       }
     },
     "/api/sources": {

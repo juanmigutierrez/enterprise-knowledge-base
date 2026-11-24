@@ -28,9 +28,10 @@ from ekb.connect.normalize.common import delete_event
 from ekb.connect.people import PersonMap
 from ekb.connect.port import EventSink, OriginalStore
 from ekb.contracts import ChangeEvent
+from ekb.contracts.listing import ListingVersion, NeedsOriginal
 from ekb.platform.registry import register
 
-Known = Callable[[], Mapping[str, str]]
+Known = Callable[[], Mapping[str, ListingVersion]]
 
 
 def _now() -> datetime:
@@ -84,6 +85,11 @@ class HrApiFullListingConnector:
                 )
         for source_id, version in sorted(unseen.items()):
             events.append(
-                delete_event(self._source, source_id, version=version, occurred_at=self._clock())
+                delete_event(
+                    self._source,
+                    source_id,
+                    version=version.version if isinstance(version, NeedsOriginal) else version,
+                    occurred_at=self._clock(),
+                )
             )
         return events
