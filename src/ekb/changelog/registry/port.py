@@ -9,8 +9,9 @@ readers, pointer to the original). Two parts of the system ask it questions:
 - **The full listings** (S2, S2a) compare a source with :meth:`known`: an item
   the registry knows but the source no longer lists has been deleted (D3).
 
-Until T2 exists, a stand-in consumer group records every event as processed
-(``ekb demo s3``, ``ekb inspector``); T2 takes that job over in S4.
+Since S4, T2 writes the registry: it records each event once it has decided
+what the event needs and handed that on (``ekb inspector``, ``ekb demo t2``).
+Only ``ekb demo s3`` still uses S3's stand-in, which records without deciding.
 
 **A delete leaves a tombstone, not a gap.** The record stays, marked
 ``deleted``, with its last version and time, but without anything about the

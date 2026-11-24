@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { api } from "./api/client";
 import { ChangeLogScreen } from "./components/ChangeLogScreen";
+import { DiffScreen } from "./components/DiffScreen";
 import { DocumentsScreen } from "./components/DocumentsScreen";
 import { EventsPanel } from "./components/EventsPanel";
 import { usePolling } from "./usePolling";
 
-type Tab = "documents" | "events" | "changelog";
+type Tab = "documents" | "events" | "changelog" | "t2";
 
 const TABS: Record<Tab, string> = {
     documents: "Documents",
     events: "Events",
     changelog: "Change log",
+    t2: "T2 Diff",
 };
 
 export function App() {
@@ -54,6 +56,7 @@ export function App() {
                 {tab === "documents" && <DocumentsScreen sources={names} />}
                 {tab === "events" && <EventsPanel sources={names} />}
                 {tab === "changelog" && <ChangeLogScreen sources={names} />}
+                {tab === "t2" && <DiffScreen sources={names} />}
             </main>
         </div>
     );

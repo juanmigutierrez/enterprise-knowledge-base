@@ -75,3 +75,15 @@ def test_purge_removes_every_version_of_one_item_only(store: InMemoryRawStore) -
 def test_an_unknown_pointer_is_not_found(store: InMemoryRawStore) -> None:
     with pytest.raises(OriginalNotFoundError):
         store.get("mem://ekb-raw/hr_docs/HR-PL-04/9.9")
+
+
+def test_purge_is_repeatable_and_scoped_to_the_named_lifetime(store: InMemoryRawStore) -> None:
+    key = "hr_docs:HR-PL-99"
+    old = store.put(key, "1.1", b"old")
+    new = store.put(key, "1.1", b"recreated", lifetime=1)
+    assert old != new
+    assert store.purge(key, lifetime=0) == 1
+    assert store.purge(key, lifetime=0) == 0
+    with pytest.raises(OriginalNotFoundError):
+        store.get(old)
+    assert store.get(new) == b"recreated"

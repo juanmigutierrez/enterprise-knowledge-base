@@ -21,7 +21,9 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
-from ekb.operate.inspector.log import EventLog
+from ekb.operate.inspector.log import DecisionLog, EventLog
+from ekb.process.t2_diff.options.content_hash import ContentHashDiffer
+from ekb.process.t2_diff.step import DiffResult, DiffStep
 from tests.conftest import REPO_ROOT
 
 AT = datetime(2026, 11, 24, 9, 0, tzinfo=UTC)
@@ -88,12 +90,27 @@ def log(bus: InMemoryEventBus) -> EventLog:
     return log
 
 
+@pytest.fixture
+def decisions(bus: InMemoryEventBus) -> DecisionLog:
+    """T2's decisions on EVENTS, plus a repeat of the last edit, as the inspector keeps them."""
+    decisions = DecisionLog()
+
+    def keep(result: DiffResult) -> None:
+        decisions.append(result.decision, result.purged)
+
+    step = DiffStep(ContentHashDiffer(), InMemoryRegistry(), InMemoryRawStore(), keep)
+    for event in [*EVENTS, EVENTS[2]]:
+        step.handle(event)
+    return decisions
+
+
 def _app(
     log: EventLog,
     profile: str = "local",
     bus: InMemoryEventBus | None = None,
     registry: InMemoryRegistry | None = None,
     rawstore: InMemoryRawStore | None = None,
+    decisions: DecisionLog | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -101,6 +118,7 @@ def _app(
         bus=bus or InMemoryEventBus(),
         registry=registry or InMemoryRegistry(),
         rawstore=rawstore or InMemoryRawStore(),
+        decisions=decisions or DecisionLog(),
     )
 
 
@@ -110,8 +128,9 @@ def client(
     bus: InMemoryEventBus,
     registry: InMemoryRegistry,
     rawstore: InMemoryRawStore,
+    decisions: DecisionLog,
 ) -> TestClient:
-    return TestClient(_app(log, bus=bus, registry=registry, rawstore=rawstore))
+    return TestClient(_app(log, bus=bus, registry=registry, rawstore=rawstore, decisions=decisions))
 
 
 def test_the_log_is_the_inspector_groups_copy_of_the_bus(
@@ -228,3 +247,45 @@ def test_originals_list_versions_and_never_the_bytes(client: TestClient) -> None
     assert all("first" not in str(v) and "second" not in str(v) for v in versions)
     assert client.get("/api/originals", params={"document_key": "hr_docs:none"}).json() == []
     assert client.get("/api/originals").status_code == 422  # document_key is required
+
+
+def test_t2_decisions_show_action_reason_and_totals(client: TestClient) -> None:
+    page = client.get("/api/t2/decisions").json()
+    assert page["cursor"] == 6
+    assert page["counts"] == {"process": 3, "acl_only": 0, "skip": 2, "purge": 1}
+    rows = [(d["source_id"], d["version"], d["action"]) for d in page["decisions"]]
+    assert rows == [
+        ("HR-PL-04", "1.1", "process"),
+        ("HR-PL-99", "1.1", "process"),
+        ("HR-PL-04", "2.1", "skip"),  # every upsert here has hash "h": same text
+        ("HR-PL-99", "1.1", "purge"),
+        ("users/alice", "0", "process"),
+        ("HR-PL-04", "2.1", "skip"),
+    ]
+    assert page["decisions"][2]["reason"] == "new version, same content and readers as v1.1"
+    repeat = page["decisions"][-1]
+    assert (repeat["previous_version"], repeat["reason"]) == (
+        "2.1",
+        "repeat: v2.1 was already processed",
+    )
+    purge = page["decisions"][3]
+    assert (purge["op"], purge["purged"], purge["acl"]) == (
+        "delete",
+        0,  # this test's raw store never held HR-PL-99's original
+        {"users": [], "groups": []},
+    )
+
+
+def test_t2_decisions_page_after_a_cursor_and_filter(
+    client: TestClient, decisions: DecisionLog
+) -> None:
+    page = client.get("/api/t2/decisions", params={"since": 4}).json()
+    assert [d["seq"] for d in page["decisions"]] == [5, 6]
+    skipped = client.get("/api/t2/decisions", params={"action": "skip"}).json()
+    assert [d["seq"] for d in skipped["decisions"]] == [3, 6]
+    assert skipped["counts"]["process"] == 3  # totals are never filtered
+    one = client.get("/api/t2/decisions", params={"document_key": "hr_docs:HR-PL-99"}).json()
+    assert [d["action"] for d in one["decisions"]] == ["process", "purge"]
+    identity = client.get("/api/t2/decisions", params={"source": "identity"}).json()
+    assert [d["source_id"] for d in identity["decisions"]] == ["users/alice"]
+    assert client.get("/api/t2/decisions", params={"action": "maybe"}).status_code == 422

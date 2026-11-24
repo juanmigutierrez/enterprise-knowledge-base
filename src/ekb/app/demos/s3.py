@@ -81,12 +81,12 @@ def run_s3_live(docs: httpx.Client, idp: httpx.Client, echo: Echo = typer.echo) 
     published: list[Delivery] = []
 
     def publish(event: ChangeEvent) -> None:
-        published.append(changelog.bus.publish(event))
+        published.append(changelog.publish(event))
 
     api = DocsApi(docs)
     people = PersonMap(load_people(IdentityApi(idp)))
     known = changelog.known(SOURCE)
-    store = changelog.rawstore.put
+    store = changelog.store_original
     webhook = DocsWebhookConnector(api, publish, store, people, known=known)
     listing = DocsFullListingConnector(api, publish, store, people, known=known)
 
@@ -131,7 +131,7 @@ def _initial_load(
         f"2. Published is not processed: group '{REGISTRY_GROUP}' has "
         f"{_pending(changelog, REGISTRY_GROUP)} events pending."
     )
-    echo("   The stand-in worker (until T2, S4) records each one, then commits it:")
+    echo("   S3's stand-in worker records each one, then commits it (T2 does this from S4):")
     echo(
         f"   recorded {changelog.record_processed()} events; the registry knows "
         f"{len(changelog.registry.known(SOURCE))} pages; pending now "
@@ -180,7 +180,7 @@ def _crash(echo: Echo, changelog: ChangeLog) -> None:
         f"{', '.join(_at(d) for d in again)}."
     )
     echo("   Nothing committed is lost, nothing uncommitted is skipped: at least once.")
-    echo("   (So a worker can see an event twice. T2 will skip repeats by hash, S4.)")
+    echo("   (So a worker can see an event twice. T2 skips repeats by hash: ekb demo t2.)")
     the_delete = next(d for d in again if d.event.op is ChangeOp.DELETE)
     try:
         bus.commit(REGISTRY_GROUP, the_delete)
@@ -232,8 +232,8 @@ def run_s3_replay(changelog: ChangeLog, source_note: str, echo: Echo = typer.ech
     echo(f"   Rebuilt: {live} live pages, {tombstones} tombstone. Same as the registry: {same}.")
     deleted = changelog.rawstore.versions(f"{SOURCE}:{DELETED}")
     echo(f"   {DELETED} was replayed as an upsert, then its delete, so it ends deleted.")
-    echo(f"   Its original is still stored ({len(deleted)} version): T2 purges it when it")
-    echo("   processes the delete (S4).")
+    echo(f"   Its original is still stored ({len(deleted)} version): this demo's stand-in")
+    echo("   never purges. T2 purges it when it processes the delete (ekb demo t2).")
     groups = ", ".join(f"{g.group} pending {g.lag}" for g in changelog.bus.stats().groups)
     echo(f"   Consumer groups: {groups}.\n")
     echo("   Why keep originals: re-parsing (T3) or re-embedding with a new model (T7)")

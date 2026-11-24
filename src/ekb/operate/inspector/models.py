@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict
 from ekb.changelog.bus.port import BusStats
 from ekb.changelog.rawstore.port import StoredOriginal
 from ekb.changelog.registry.port import DocumentRecord
-from ekb.contracts import Acl, ChangeEvent, ChangeOp
-from ekb.operate.inspector.log import LoggedEvent
+from ekb.contracts import Acl, ChangeEvent, ChangeOp, DiffAction
+from ekb.operate.inspector.log import LoggedDecision, LoggedEvent
 
 
 class _View(BaseModel):
@@ -187,3 +187,64 @@ class OriginalView(_View):
             checksum=original.checksum,
             stored_at=original.stored_at,
         )
+
+
+class DecisionView(_View):
+    """One T2 decision: the event, what it needs, and why (S4)."""
+
+    seq: int
+    decided_at: datetime
+    document_key: str
+    source: str
+    source_id: str
+    op: ChangeOp
+    version: str
+    previous_version: str | None
+    """The version T2 compared against; ``None`` if the item was never processed."""
+    action: DiffAction
+    reason: str
+    acl: AclView
+    changed_by: str | None
+    purged: int
+    """Originals removed from the raw store (deletes only)."""
+
+    @classmethod
+    def of(cls, entry: LoggedDecision) -> DecisionView:
+        decision = entry.decision
+        event = decision.event
+        return cls(
+            seq=entry.seq,
+            decided_at=entry.decided_at,
+            document_key=event.document_key,
+            source=event.source,
+            source_id=event.source_id,
+            op=event.op,
+            version=event.version,
+            previous_version=decision.previous_version,
+            action=decision.action,
+            reason=decision.reason,
+            acl=AclView.of(event.acl),
+            changed_by=event.changed_by,
+            purged=entry.purged,
+        )
+
+
+class DiffCounts(_View):
+    """How many decisions of each kind T2 has made since the inspector started."""
+
+    process: int
+    acl_only: int
+    skip: int
+    purge: int
+
+    @classmethod
+    def of(cls, counts: dict[DiffAction, int]) -> DiffCounts:
+        return cls(**{action.value: count for action, count in counts.items()})
+
+
+class DecisionPage(_View):
+    """Decisions after a cursor (filtered), the next cursor, and the totals (unfiltered)."""
+
+    decisions: list[DecisionView]
+    cursor: int
+    counts: DiffCounts

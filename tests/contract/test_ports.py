@@ -22,6 +22,7 @@ from ekb.connect.identity_api import IdentityApi
 from ekb.connect.people import People, PersonMap
 from ekb.connect.port import Connector
 from ekb.platform import registry
+from ekb.process.t2_diff.port import Differ
 from ekb.process.t7_embed.port import Embedder
 
 PORTS: dict[str, type] = {
@@ -29,6 +30,7 @@ PORTS: dict[str, type] = {
     "connect": Connector,
     "registry": DocumentRegistry,
     "rawstore": RawStore,
+    "t2_diff": Differ,
     "t7_embed": Embedder,
 }
 

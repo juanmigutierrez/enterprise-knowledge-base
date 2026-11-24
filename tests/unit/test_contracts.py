@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from ekb.contracts import Acl, ChangeEvent, ChangeOp
+from ekb.contracts import Acl, ChangeEvent, ChangeOp, DiffAction, DiffDecision
 
 NOW = datetime(2026, 11, 23, tzinfo=UTC)
 
@@ -70,3 +70,52 @@ def test_delete_may_say_who_deleted() -> None:
         changed_by="dana",
     )
     assert (event.changed_by, event.schema_version) == ("dana", 2)
+
+
+# ------------------------------------------------------------------ T2 decision
+
+
+def _event(op: ChangeOp) -> ChangeEvent:
+    fields: dict[str, object] = {
+        "source": "hr_docs",
+        "source_id": "HR-PL-04",
+        "op": op,
+        "version": "2.1",
+        "occurred_at": NOW,
+    }
+    if op is ChangeOp.UPSERT:
+        fields["raw_pointer"] = "mem://ekb-raw/hr_docs/HR-PL-04/2.1"
+    return ChangeEvent.model_validate(fields)
+
+
+@pytest.mark.parametrize("action", [DiffAction.SKIP, DiffAction.ACL_ONLY, DiffAction.PROCESS])
+def test_a_delete_can_only_be_purged(action: DiffAction) -> None:
+    """The deletion gate in the contract: no T2 option can skip a delete."""
+    with pytest.raises(ValidationError, match="a delete must be purged"):
+        DiffDecision(action=action, reason="x", event=_event(ChangeOp.DELETE))
+
+
+@pytest.mark.parametrize("op", [ChangeOp.UPSERT, ChangeOp.ACL_CHANGE])
+def test_only_a_delete_can_be_purged(op: ChangeOp) -> None:
+    with pytest.raises(ValidationError, match="only a delete can be purged"):
+        DiffDecision(action=DiffAction.PURGE, reason="x", event=_event(op))
+
+
+def test_only_an_upsert_can_be_processed() -> None:
+    with pytest.raises(ValidationError, match="only an upsert"):
+        DiffDecision(action=DiffAction.PROCESS, reason="x", event=_event(ChangeOp.ACL_CHANGE))
+
+
+def test_valid_decisions_are_accepted() -> None:
+    upsert, acl, delete = (
+        _event(op) for op in (ChangeOp.UPSERT, ChangeOp.ACL_CHANGE, ChangeOp.DELETE)
+    )
+    for action, event in [
+        (DiffAction.PROCESS, upsert),
+        (DiffAction.ACL_ONLY, upsert),
+        (DiffAction.SKIP, upsert),
+        (DiffAction.ACL_ONLY, acl),
+        (DiffAction.SKIP, acl),
+        (DiffAction.PURGE, delete),
+    ]:
+        assert DiffDecision(action=action, reason="x", event=event).action is action
