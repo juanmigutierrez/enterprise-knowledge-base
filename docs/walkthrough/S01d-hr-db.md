@@ -36,7 +36,7 @@ The database needs no factory or feed: SQLite is its server, and `cdc_log` is it
 
 ## 4. How it works
 
-**The triggers are the CDC.** Each table has three `AFTER` triggers that copy the changed row into `cdc_log` **in the same transaction** as the change:
+**The triggers are the CDC.** Each table has `AFTER` triggers that copy the changed row into `cdc_log` **in the same transaction** as the change:
 ```sql
 CREATE TRIGGER leave_balances_cdc_update AFTER UPDATE ON leave_balances BEGIN
     INSERT INTO cdc_log (table_name, op, row_key, before, after) VALUES
@@ -44,6 +44,8 @@ CREATE TRIGGER leave_balances_cdc_update AFTER UPDATE ON leave_balances BEGIN
      json_object(... OLD ...), json_object(... NEW ...));
 END;
 ```
+A primary-key update writes two entries in the same transaction, a delete for the old key followed by a create for the new one. The update example above shows the ordinary case where the key stays the same.
+
 Two properties follow, and they are what real CDC gives you:
 - **A rolled-back change leaves no entry**, and neither does one refused by a constraint: the log entry is undone with the data.
 - **`seq` order is commit order**, because SQLite runs one writer at a time.

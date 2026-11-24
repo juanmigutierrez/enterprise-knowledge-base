@@ -32,6 +32,7 @@ enterprise-knowledge-base/
 │   ├── evaluation/           8 · Experiment runner, metrics, gates (code)
 │   └── app/                  Composition root: CLI entry points, wiring
 ├── agents/                   7 · Example agent and MCP client configs (outside the product)
+├── ui/                       8 · Inspector UI: React + TypeScript (Vite), local only (D19)
 ├── evaluation/               8 · Datasets, experiment files, results (data)
 ├── config/                   Chosen option per step; profiles: local · ci · bedrock
 ├── deploy/

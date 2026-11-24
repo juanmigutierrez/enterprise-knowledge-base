@@ -40,7 +40,7 @@ def _module_dir(module: str, root: Path) -> Path:
     return path
 
 
-def _free_port() -> int:
+def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         port: int = sock.getsockname()[1]
@@ -72,7 +72,7 @@ def running_mock(
     """
     root = repo_root or Path.cwd()
     _module_dir(module, root)
-    port = _free_port()
+    port = free_port()
     url = f"http://127.0.0.1:{port}"
     command = [sys.executable, "-m", module, "--port", str(port)]
     process = subprocess.Popen(command, cwd=root)  # noqa: S603  # nosec B603: fixed command, no shell

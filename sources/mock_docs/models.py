@@ -53,6 +53,7 @@ class PageSummary(BaseModel):
     acl_rev: int = Field(ge=1)
     content_hash: str
     updated_at: datetime
+    modified_by: str | None = None  # who made the last change; None for seeded pages
 
 
 class Page(PageSummary):
@@ -107,6 +108,7 @@ class SourceChange(BaseModel):
     rev: int
     acl_rev: int
     at: datetime
+    actor: str | None = None  # who made the change (the X-Actor header), if anyone said
 
 
 class ChangeFeed(BaseModel):

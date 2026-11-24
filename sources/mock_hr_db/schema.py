@@ -1,7 +1,12 @@
 """Tables, change log and triggers of the mock HR database.
 
 The triggers are the CDC: each one copies the changed row into ``cdc_log`` in
-the same transaction as the change. So a rolled-back change leaves no log entry,
+the same transaction as the change.
+
+Database logs don't know which application user wrote a row, so each table has
+a ``changed_by`` column the application fills in (an identity provider user
+ID). It travels in ``before`` / ``after`` like any other column. A delete
+removes the row, so who deleted it is not recorded. So a rolled-back change leaves no log entry,
 and because SQLite runs one writer at a time, ``seq`` order is commit order.
 """
 
@@ -18,10 +23,14 @@ class Table:
 
 
 TABLES = (
-    Table("office_headcount", ("office_id", "city", "country", "headcount"), ("office_id",)),
+    Table(
+        "office_headcount",
+        ("office_id", "city", "country", "headcount", "changed_by"),
+        ("office_id",),
+    ),
     Table(
         "leave_balances",
-        ("employee_id", "year", "days_total", "days_taken"),
+        ("employee_id", "year", "days_total", "days_taken", "changed_by"),
         ("employee_id", "year"),
     ),
 )
@@ -31,7 +40,8 @@ CREATE TABLE office_headcount (
     office_id  TEXT NOT NULL PRIMARY KEY,
     city       TEXT NOT NULL,
     country    TEXT NOT NULL CHECK (length(country) = 2),
-    headcount  INTEGER NOT NULL CHECK (headcount >= 0)
+    headcount  INTEGER NOT NULL CHECK (headcount >= 0),
+    changed_by TEXT              -- identity provider user ID of the last writer (NULL: seed)
 );
 
 -- Personal data: later steps let a row be read only by that employee and hr-team.
@@ -40,6 +50,7 @@ CREATE TABLE leave_balances (
     year        INTEGER NOT NULL,
     days_total  REAL NOT NULL CHECK (days_total >= 0),
     days_taken  REAL NOT NULL CHECK (days_taken >= 0 AND days_taken <= days_total),
+    changed_by  TEXT,            -- identity provider user ID of the last writer (NULL: seed)
     PRIMARY KEY (employee_id, year)
 );
 
@@ -62,7 +73,7 @@ def _json(table: Table, columns: tuple[str, ...], row: str) -> str:
 
 
 def trigger_ddl(table: Table) -> str:
-    """The three AFTER triggers that log every change to ``table``."""
+    """The AFTER triggers that log every change to ``table``."""
     log = "INSERT INTO cdc_log (table_name, op, row_key, before, after) VALUES"
     new_key, old_key = _json(table, table.key, "NEW"), _json(table, table.key, "OLD")
     new_row, old_row = _json(table, table.columns, "NEW"), _json(table, table.columns, "OLD")
@@ -70,8 +81,14 @@ def trigger_ddl(table: Table) -> str:
 CREATE TRIGGER {table.name}_cdc_insert AFTER INSERT ON {table.name} BEGIN
     {log} ('{table.name}', 'c', {new_key}, NULL, {new_row});
 END;
-CREATE TRIGGER {table.name}_cdc_update AFTER UPDATE ON {table.name} BEGIN
+CREATE TRIGGER {table.name}_cdc_update AFTER UPDATE ON {table.name}
+WHEN {new_key} = {old_key} BEGIN
     {log} ('{table.name}', 'u', {new_key}, {old_row}, {new_row});
+END;
+CREATE TRIGGER {table.name}_cdc_rekey AFTER UPDATE ON {table.name}
+WHEN {new_key} != {old_key} BEGIN
+    {log} ('{table.name}', 'd', {old_key}, {old_row}, NULL);
+    {log} ('{table.name}', 'c', {new_key}, NULL, {new_row});
 END;
 CREATE TRIGGER {table.name}_cdc_delete AFTER DELETE ON {table.name} BEGIN
     {log} ('{table.name}', 'd', {old_key}, {old_row}, NULL);

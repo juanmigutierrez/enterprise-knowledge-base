@@ -39,7 +39,10 @@ def test_seed_rows_are_logged_once_as_a_snapshot(conn: sqlite3.Connection) -> No
 
 
 def test_insert_update_delete_each_log_one_entry_in_commit_order(conn: sqlite3.Connection) -> None:
-    conn.execute("INSERT INTO office_headcount VALUES ('LIS', 'Lisbon', 'PT', 0)")
+    conn.execute(
+        "INSERT INTO office_headcount (office_id, city, country, headcount, changed_by) "
+        "VALUES ('LIS', 'Lisbon', 'PT', 0, 'dana')"
+    )
     conn.execute("UPDATE leave_balances SET days_taken = 10 WHERE employee_id = 'E-1001'")
     conn.execute("DELETE FROM office_headcount WHERE office_id = 'BLQ'")
     conn.commit()
@@ -51,7 +54,13 @@ def test_insert_update_delete_each_log_one_entry_in_commit_order(conn: sqlite3.C
         {"office_id": "LIS"},
     )
     assert insert.before is None
-    assert insert.after == {"office_id": "LIS", "city": "Lisbon", "country": "PT", "headcount": 0}
+    assert insert.after == {
+        "office_id": "LIS",
+        "city": "Lisbon",
+        "country": "PT",
+        "headcount": 0,
+        "changed_by": "dana",  # the application says who wrote the row
+    }
 
     assert update.op is CdcOp.UPDATE
     assert update.key == {"employee_id": "E-1001", "year": 2026}
@@ -60,7 +69,13 @@ def test_insert_update_delete_each_log_one_entry_in_commit_order(conn: sqlite3.C
     assert (update.before["days_taken"], update.after["days_taken"]) == (8, 10)
 
     assert delete.op is CdcOp.DELETE
-    assert delete.before == {"office_id": "BLQ", "city": "Bologna", "country": "IT", "headcount": 0}
+    assert delete.before == {
+        "office_id": "BLQ",
+        "city": "Bologna",
+        "country": "IT",
+        "headcount": 0,
+        "changed_by": None,  # seeded rows name nobody
+    }
     assert delete.after is None  # the row is gone; only its last state is logged
 
     assert [c.seq for c in (insert, update, delete)] == [
@@ -136,7 +151,10 @@ def test_duplicate_seed_key_leaves_destination_available_for_retry(tmp_path: Pat
 
 def test_office_requires_a_key_for_cdc(conn: sqlite3.Connection) -> None:
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute("INSERT INTO office_headcount VALUES (NULL, 'Lisbon', 'PT', 0)")
+        conn.execute(
+            "INSERT INTO office_headcount (office_id, city, country, headcount) "
+            "VALUES (NULL, 'Lisbon', 'PT', 0)"
+        )
     assert read_changes(conn, since=SNAPSHOT_ROWS) == []
 
 

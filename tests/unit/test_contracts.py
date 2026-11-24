@@ -37,3 +37,36 @@ def test_document_key_groups_events_per_document() -> None:
         acl=Acl(groups=frozenset({"hr"})),
     )
     assert event.document_key == "mock_docs:42"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"content_hash": "sha256:abc"},
+        {"acl": Acl(groups=frozenset({"hr-team"}))},
+        {"person_id": "alice"},
+    ],
+)
+def test_delete_carries_nothing_about_the_item(extra: dict[str, object]) -> None:
+    """Deletion gate, enforced by the contract: only keys, version, time and who deleted."""
+    with pytest.raises(ValidationError, match="delete"):
+        ChangeEvent(
+            source="hr_docs",
+            source_id="1",
+            op=ChangeOp.DELETE,
+            version="2",
+            occurred_at=NOW,
+            **extra,
+        )
+
+
+def test_delete_may_say_who_deleted() -> None:
+    event = ChangeEvent(
+        source="hr_docs",
+        source_id="1",
+        op=ChangeOp.DELETE,
+        version="2",
+        occurred_at=NOW,
+        changed_by="dana",
+    )
+    assert (event.changed_by, event.schema_version) == ("dana", 2)

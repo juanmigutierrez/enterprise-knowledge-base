@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _EMPLOYEE_ID = r"^E-\d{4}$"
 _TEAM_ID = r"^T-[A-Z]{3}$"
+ACTOR_ID = r"^[a-z][a-z0-9.-]*$"  # an identity provider user ID, as in X-Actor
 
 
 class Team(BaseModel):
@@ -23,6 +24,7 @@ class Team(BaseModel):
     department: str
     lead_id: str = Field(pattern=_EMPLOYEE_ID)
     updated_at: datetime
+    updated_by: str | None = None  # who saved it last (X-Actor); None for seeded records
 
 
 class TeamUpdate(BaseModel):
@@ -55,6 +57,7 @@ class EmployeeCreate(EmployeeFields):
 
 class Employee(EmployeeCreate):
     updated_at: datetime
+    updated_by: str | None = None  # who saved it last (X-Actor); None for seeded records
 
 
 class EmployeeUpdate(BaseModel):

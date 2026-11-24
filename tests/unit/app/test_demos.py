@@ -19,6 +19,7 @@ from ekb.app.demos.s1 import run_s1
 from ekb.app.demos.s1b import run_s1b
 from ekb.app.demos.s1c import run_s1c
 from ekb.app.demos.s1d import run_s1d
+from ekb.app.demos.t1 import run_t1, run_t1_all
 from tests.conftest import REPO_ROOT
 
 Story = Callable[..., None]
@@ -113,18 +114,20 @@ def test_demos_are_repeatable_against_the_same_running_mock(
         ("s1b", "12 employees in 5 teams"),
         ("s1c", "12 users in 6 groups"),
         ("s1d", "16 entries, all op=r"),
+        ("t1", "full listing sync() -> 0 events"),
+        ("t1 --all", "Unmapped people reported during the run: none."),
     ],
 )
 def test_cli_runs_each_demo_end_to_end(
     step: str, expected: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(REPO_ROOT)
-    result = CliRunner().invoke(app, ["demo", step])
+    result = CliRunner().invoke(app, ["demo", *step.split()])
     assert result.exit_code == 0, result.output
     assert expected in result.output
 
 
-@pytest.mark.parametrize("step", ["s1", "s1b", "s1c"])
+@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1"])
 def test_cli_reports_an_unreachable_mock_cleanly(step: str) -> None:
     result = CliRunner().invoke(app, ["demo", step, "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
@@ -136,3 +139,59 @@ def test_cli_s1d_reports_a_failed_start(monkeypatch: pytest.MonkeyPatch, tmp_pat
     result = CliRunner().invoke(app, ["demo", "s1d"])
     assert result.exit_code == 1
     assert "repository root" in result.output
+
+
+def _t1(runs: int = 1) -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        for _ in range(runs):
+            lines.clear()
+            run_t1(docs, idp, echo=lines.append)
+    return "\n".join(lines)
+
+
+def test_t1_turns_four_changes_into_four_events_and_the_listing_catches_a_lost_delete() -> None:
+    output = _t1(runs=2)  # a second run starts clean
+    assert "4 notifications" in output
+    assert "page.created              HR-PL-11  rev=1 acl_rev=1 actor=dana" in output
+    assert "-> upsert     hr_docs:HR-PL-11" in output
+    assert "-> acl_change hr_docs:HR-PL-05" in output
+    assert "by=lucia  acl=es-employees" in output
+    assert "-> delete     hr_docs:HR-PL-99" in output
+    assert '"schema_version": 2' in output  # one event printed in full
+    assert "delivered=4 failed=1" in output  # the receiver was down
+    assert "webhook sync() -> 0 events" in output
+    assert "HR-PL-11 known now: False" in output
+    assert "full listing sync() -> 0 events" in output
+
+
+def test_t1_leaves_no_subscription_behind() -> None:
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        run_t1(docs, idp, echo=lambda line: None)
+        assert docs.get("/subscriptions").json() == []
+
+
+def test_t1_all_shows_four_sources_in_one_shape(tmp_path: Path) -> None:
+    db_path = tmp_path / "hr.sqlite"
+    create_database(db_path)
+    lines: list[str] = []
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        run_t1_all(docs, hr, idp, db_path, echo=lines.append)
+    output = "\n".join(lines)
+    assert "(by full name): 12/12" in output
+    assert "Gaps: none." in output
+    assert "first poll      17 items" in output
+    assert "snapshot        16 items" in output
+    assert "(1 + 1 + 1 + 1 events)" in output
+    assert "hr_docs:HR-PL-04" in output
+    assert "person=javier by=lucia  acl=all-staff" in output
+    leave = "hr_db:leave_balances/E-1001/2026   v17       person=alice  by=dana"
+    assert f"{leave}   acl=hr-team,user:alice" in output
+    assert "identity:users/alice               v1        person=alice  by=bob" in output
+    assert "delta sync() -> 0 events" in output
+    assert "-> delete     hr_api:employees/E-1012" in output
+    assert "Unmapped people reported during the run: none." in output

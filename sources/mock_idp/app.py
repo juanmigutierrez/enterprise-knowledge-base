@@ -15,6 +15,9 @@ DELETE  /scim/v2/Groups/{id}/members/{user_id}        remove a member
 GET     /events?since=<seq>                           identity event feed after a cursor
 POST    /reset                                        reload the synthetic directory
 ======  ============================================  ===============================
+
+Writes may name the admin who makes them with an ``X-Actor: <user id>`` header
+(a user this provider knows); it is kept on the feed entry as ``actor``.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, Query, status
+from fastapi import FastAPI, Header, Query, status
 
 from sources.common.directory import DIRECTORY_FILE
 from sources.common.factory import create_service_app
@@ -42,6 +45,9 @@ from sources.mock_idp.store import (
 )
 
 DEFAULT_PORT = 8083
+
+
+Actor = Annotated[str | None, Header(alias="X-Actor")]
 
 
 def create_app(directory_file: Path = DIRECTORY_FILE) -> FastAPI:
@@ -69,12 +75,12 @@ def create_app(directory_file: Path = DIRECTORY_FILE) -> FastAPI:
         return store().user(user_id)
 
     @app.post("/scim/v2/Users", status_code=status.HTTP_201_CREATED, response_model_by_alias=True)
-    def create_user(request: UserCreate) -> ScimUser:
-        return store().create_user(request)
+    def create_user(request: UserCreate, actor: Actor = None) -> ScimUser:
+        return store().create_user(request, actor=actor)
 
     @app.post("/scim/v2/Users/{user_id}/deactivate", response_model_by_alias=True)
-    def deactivate(user_id: str) -> ScimUser:
-        return store().deactivate(user_id)
+    def deactivate(user_id: str, actor: Actor = None) -> ScimUser:
+        return store().deactivate(user_id, actor=actor)
 
     @app.get("/scim/v2/Groups", response_model_by_alias=True)
     def list_groups() -> ListResponse[ScimGroup]:
@@ -86,12 +92,12 @@ def create_app(directory_file: Path = DIRECTORY_FILE) -> FastAPI:
         return store().group(group_id)
 
     @app.post("/scim/v2/Groups/{group_id}/members", response_model_by_alias=True)
-    def add_member(group_id: str, request: MemberAdd) -> ScimGroup:
-        return store().add_member(group_id, request.user_id)
+    def add_member(group_id: str, request: MemberAdd, actor: Actor = None) -> ScimGroup:
+        return store().add_member(group_id, request.user_id, actor=actor)
 
     @app.delete("/scim/v2/Groups/{group_id}/members/{user_id}", response_model_by_alias=True)
-    def remove_member(group_id: str, user_id: str) -> ScimGroup:
-        return store().remove_member(group_id, user_id)
+    def remove_member(group_id: str, user_id: str, actor: Actor = None) -> ScimGroup:
+        return store().remove_member(group_id, user_id, actor=actor)
 
     @app.get("/events")
     def events(since: Annotated[int, Query(ge=0)] = 0) -> IdentityEventFeed:

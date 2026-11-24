@@ -1,0 +1,208 @@
+:root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --line: #e3e3de;
+    --text: #1f2328;
+    --muted: #6b6f76;
+    --accent: #2f6f4f;
+    --upsert: #2f6f4f;
+    --delete: #a33a2c;
+    --acl: #8a6d1a;
+    font-family:
+        system-ui,
+        -apple-system,
+        "Segoe UI",
+        sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+}
+
+* {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+}
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+}
+h1 {
+    font-size: 16px;
+    margin: 0;
+}
+h2 {
+    font-size: 13px;
+    margin: 0 0 8px;
+    font-family: ui-monospace, monospace;
+}
+.tag {
+    font-size: 12px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1px 8px;
+}
+nav {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+}
+
+button,
+select,
+input {
+    font: inherit;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 10px;
+    background: var(--panel);
+    color: var(--text);
+}
+button {
+    cursor: pointer;
+}
+button.on,
+nav button.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+input {
+    min-width: 220px;
+}
+
+.sources {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px;
+    flex-wrap: wrap;
+}
+.source {
+    display: flex;
+    gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.source strong {
+    color: var(--text);
+    font-family: ui-monospace, monospace;
+}
+
+main {
+    flex: 1;
+    min-height: 0;
+    padding: 0 16px 16px;
+}
+.split {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 12px;
+    height: 100%;
+}
+.pane {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+/* Only the table scrolls: the toolbar stays put and the sticky header has nothing above it. */
+.scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+.toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.grid th {
+    white-space: nowrap;
+    text-align: left;
+    color: var(--muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line);
+    padding: 4px 6px;
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+}
+.grid td {
+    border-bottom: 1px solid var(--line);
+    padding: 4px 6px;
+    white-space: nowrap;
+}
+.selectable tbody tr {
+    cursor: pointer;
+}
+.selectable tbody tr:hover {
+    background: #f1f4f1;
+}
+tr.on {
+    background: #e5efe8 !important;
+}
+/* A deleted item: greyed, its name struck through. Who deleted it stays readable. */
+tr.deleted td {
+    color: var(--muted);
+}
+tr.deleted td:first-child {
+    text-decoration: line-through;
+}
+
+.mono {
+    font-family: ui-monospace, monospace;
+}
+.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.muted,
+.empty {
+    color: var(--muted);
+}
+.error {
+    color: var(--delete);
+}
+
+.op {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #fff;
+}
+.op-upsert {
+    background: var(--upsert);
+}
+.op-delete {
+    background: var(--delete);
+}
+.op-acl_change {
+    background: var(--acl);
+}

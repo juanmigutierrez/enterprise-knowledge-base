@@ -9,6 +9,9 @@ Rules that the connector (S2a) relies on:
   see one record twice but can never miss one. T2 drops the duplicate.
 - A delete leaves **no trace**: no tombstone, no event, nothing in any delta.
   Only comparing two full listings shows that a record is gone.
+- A save may name who made it (``actor``, an identity provider user ID); it is
+  kept as ``updated_by``. A delete's actor is accepted and, like the record,
+  forgotten.
 - Referential rules a real HR system enforces: an employee's team and manager
   must exist, names are unique (they link to the identity provider 1-1), and
   someone who still leads a team or manages people can't be deleted.
@@ -108,16 +111,18 @@ class HrStore:
 
     # ----------------------------------------------------------------- writes
 
-    def hire(self, request: EmployeeCreate) -> Employee:
+    def hire(self, request: EmployeeCreate, *, actor: str | None = None) -> Employee:
         with self._lock:
             if request.id in self._employees:
                 raise RecordConflictError(f"employee {request.id} exists")
-            employee = Employee(**request.model_dump(), updated_at=self._clock())
+            employee = Employee(**request.model_dump(), updated_at=self._clock(), updated_by=actor)
             self._check_employee(employee)
             self._employees[employee.id] = employee
             return employee
 
-    def update_employee(self, employee_id: str, request: EmployeeUpdate) -> Employee:
+    def update_employee(
+        self, employee_id: str, request: EmployeeUpdate, *, actor: str | None = None
+    ) -> Employee:
         with self._lock:
             current = self._employee(employee_id)
             # Only fields that were sent change. ``null`` clears the manager; for any
@@ -128,27 +133,37 @@ class HrStore:
                 if field == "manager_id" or getattr(request, field) is not None
             }
             employee = Employee.model_validate(
-                {**current.model_dump(), **changes, "updated_at": self._clock()}
+                {
+                    **current.model_dump(),
+                    **changes,
+                    "updated_at": self._clock(),
+                    "updated_by": actor,
+                }
             )
             self._check_employee(employee)
             self._employees[employee_id] = employee
             return employee
 
-    def update_team(self, team_id: str, request: TeamUpdate) -> Team:
+    def update_team(self, team_id: str, request: TeamUpdate, *, actor: str | None = None) -> Team:
         with self._lock:
             current = self._team(team_id)
             changes = {
                 f: getattr(request, f) for f in request.model_fields_set if getattr(request, f)
             }
             team = Team.model_validate(
-                {**current.model_dump(), **changes, "updated_at": self._clock()}
+                {
+                    **current.model_dump(),
+                    **changes,
+                    "updated_at": self._clock(),
+                    "updated_by": actor,
+                }
             )
             if team.lead_id not in self._employees:
                 raise InvalidReferenceError(f"team lead {team.lead_id} does not exist")
             self._teams[team_id] = team
             return team
 
-    def delete_employee(self, employee_id: str) -> None:
+    def delete_employee(self, employee_id: str, *, actor: str | None = None) -> None:
         """Remove the record. Nothing records that it ever existed."""
         with self._lock:
             self._employee(employee_id)

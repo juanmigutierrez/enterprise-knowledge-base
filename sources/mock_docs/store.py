@@ -10,12 +10,19 @@ Rules that later steps rely on (they are what "a change" means in S2-S4):
   feed. Nothing of the content survives, as in a source that empties its bin.
 - The feed is ordered by ``seq``, so a reader that keeps the last ``seq`` it
   saw can always catch up with ``changes(since=seq)``.
+- Every write may name who made it (``actor``, an identity provider user ID,
+  checked against the directory). It is kept on the page as ``modified_by``
+  and on the feed entry as ``actor``; seeding names nobody.
+- Listeners (the webhook publisher, S2) hear about each change after it is
+  saved and after the lock is released, so a listener that calls back into the
+  store (as a webhook receiver fetching the page does) cannot deadlock.
 """
 
 from __future__ import annotations
 
 import hashlib
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from sources.common.clock import Clock, utc_now
@@ -34,6 +41,8 @@ from sources.mock_docs.models import (
 from sources.mock_docs.seed import load_pages
 
 DEFAULT_DATA_DIR = DATA_DIR
+
+Listener = Callable[[SourceChange], None]
 
 
 class PageNotFoundError(KeyError):
@@ -57,7 +66,9 @@ class DocsStore:
         self.directory = directory
         self._clock = clock
         self._pages: dict[str, Page] = {}
+        self._deleted_revs: dict[str, int] = {}
         self._feed: ChangeFeed[SourceChange] = ChangeFeed()
+        self._listeners: list[Listener] = []
         self._lock = threading.Lock()
 
     @classmethod
@@ -67,6 +78,11 @@ class DocsStore:
         for request in load_pages(data_dir / "hr_docs"):
             store.create(request)
         return store
+
+    def add_listener(self, listener: Listener) -> None:
+        """Call ``listener`` with every change from now on (not with past ones)."""
+        with self._lock:
+            self._listeners.append(listener)
 
     # ------------------------------------------------------------------ reads
 
@@ -97,7 +113,8 @@ class DocsStore:
 
     # ----------------------------------------------------------------- writes
 
-    def create(self, request: PageCreate) -> Page:
+    def create(self, request: PageCreate, *, actor: str | None = None) -> Page:
+        self._check_actor(actor)
         self.directory.check(users=request.acl.users, groups=request.acl.groups)
         with self._lock:
             if request.id in self._pages:
@@ -105,17 +122,20 @@ class DocsStore:
             page = Page(
                 **request.model_dump(exclude={"acl"}),
                 acl=request.acl,
-                rev=1,
+                rev=self._deleted_revs.pop(request.id, 0) + 1,
                 acl_rev=1,
                 content_hash=content_hash(request.title, request.body),
                 updated_at=self._clock(),
+                modified_by=actor,
             )
             self._pages[page.id] = page
-            self._record(ChangeKind.CREATED, page)
-            return page
+            change = self._record(ChangeKind.CREATED, page, actor=page.modified_by)
+        self._notify(change)
+        return page
 
-    def edit(self, page_id: str, request: PageEdit) -> Page:
+    def edit(self, page_id: str, request: PageEdit, *, actor: str | None = None) -> Page:
         """Save new content. Always a new ``rev``, even if the text is identical."""
+        self._check_actor(actor)
         with self._lock:
             current = self._get(page_id)
             title = request.title or current.title
@@ -126,29 +146,42 @@ class DocsStore:
                     "rev": current.rev + 1,
                     "content_hash": content_hash(title, request.body),
                     "updated_at": self._clock(),
+                    "modified_by": actor,
                 }
             )
             self._pages[page_id] = page
-            self._record(ChangeKind.UPDATED, page)
-            return page
+            change = self._record(ChangeKind.UPDATED, page, actor=page.modified_by)
+        self._notify(change)
+        return page
 
-    def set_acl(self, page_id: str, acl: PageAcl) -> Page:
+    def set_acl(self, page_id: str, acl: PageAcl, *, actor: str | None = None) -> Page:
         """Replace who may read the page. Content and ``rev`` stay as they are."""
+        self._check_actor(actor)
         self.directory.check(users=acl.users, groups=acl.groups)
         with self._lock:
             current = self._get(page_id)
             page = current.model_copy(
-                update={"acl": acl, "acl_rev": current.acl_rev + 1, "updated_at": self._clock()}
+                update={
+                    "acl": acl,
+                    "acl_rev": current.acl_rev + 1,
+                    "updated_at": self._clock(),
+                    "modified_by": actor,
+                }
             )
             self._pages[page_id] = page
-            self._record(ChangeKind.PERMISSIONS_CHANGED, page)
-            return page
+            change = self._record(ChangeKind.PERMISSIONS_CHANGED, page, actor=page.modified_by)
+        self._notify(change)
+        return page
 
-    def delete(self, page_id: str) -> SourceChange:
+    def delete(self, page_id: str, *, actor: str | None = None) -> SourceChange:
+        self._check_actor(actor)
         with self._lock:
             page = self._get(page_id)
+            self._deleted_revs[page_id] = page.rev
             del self._pages[page_id]
-            return self._record(ChangeKind.DELETED, page)
+            change = self._record(ChangeKind.DELETED, page, actor=actor)
+        self._notify(change)
+        return change
 
     # --------------------------------------------------------------- helpers
 
@@ -158,10 +191,26 @@ class DocsStore:
         except KeyError:
             raise PageNotFoundError(f"page {page_id} not found") from None
 
-    def _record(self, kind: ChangeKind, page: Page) -> SourceChange:
+    def _notify(self, change: SourceChange) -> None:
+        with self._lock:
+            listeners = list(self._listeners)
+        for listener in listeners:
+            listener(change)
+
+    def _check_actor(self, actor: str | None) -> None:
+        if actor is not None:
+            self.directory.check(users=[actor])
+
+    def _record(self, kind: ChangeKind, page: Page, *, actor: str | None) -> SourceChange:
         at = self._clock()
         return self._feed.append(
             lambda seq: SourceChange(
-                seq=seq, event=kind, page_id=page.id, rev=page.rev, acl_rev=page.acl_rev, at=at
+                seq=seq,
+                event=kind,
+                page_id=page.id,
+                rev=page.rev,
+                acl_rev=page.acl_rev,
+                at=at,
+                actor=actor,
             )
         )
