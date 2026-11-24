@@ -7,6 +7,10 @@ type Schemas = components["schemas"];
 export type AclView = Schemas["AclView"];
 export type BlockView = Schemas["BlockView"];
 export type ChangeLogView = Schemas["ChangeLogView"];
+export type ChunkedDocumentView = Schemas["ChunkedDocumentView"];
+export type ChunkListView = Schemas["ChunkListView"];
+export type ChunkSummaryView = Schemas["ChunkSummaryView"];
+export type ChunkView = Schemas["ChunkView"];
 export type DecisionPage = Schemas["DecisionPage"];
 export type DecisionView = Schemas["DecisionView"];
 export type DiffCounts = Schemas["DiffCounts"];
@@ -43,6 +47,11 @@ type ParsedQuery = NonNullable<
 >;
 type ParsedDocumentQuery =
     operations["t3_parsed_document_api_t3_parsed_document_get"]["parameters"]["query"];
+type ChunksQuery = NonNullable<
+    operations["t4_chunks_api_t4_chunks_get"]["parameters"]["query"]
+>;
+type ChunkedDocumentQuery =
+    operations["t4_chunks_document_api_t4_chunks_document_get"]["parameters"]["query"];
 
 type Query = Record<string, string | number | null | undefined>;
 
@@ -89,4 +98,8 @@ export const api = {
         get<ParsedListView>("/api/t3/parsed", query),
     t3Document: (query: ParsedDocumentQuery) =>
         getOrNull<ParsedDocumentView>("/api/t3/parsed/document", query),
+    t4Chunks: (query: ChunksQuery = {}) =>
+        get<ChunkListView>("/api/t4/chunks", query),
+    t4Document: (query: ChunkedDocumentQuery) =>
+        getOrNull<ChunkedDocumentView>("/api/t4/chunks/document", query),
 };

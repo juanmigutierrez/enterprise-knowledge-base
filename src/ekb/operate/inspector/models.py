@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict
 from ekb.changelog.bus.port import BusStats
 from ekb.changelog.rawstore.port import StoredOriginal
 from ekb.changelog.registry.port import DocumentRecord
-from ekb.contracts import Acl, Block, BlockKind, ChangeEvent, ChangeOp, DiffAction
-from ekb.operate.inspector.log import LoggedDecision, LoggedEvent, ParsedEntry
+from ekb.contracts import Acl, Block, BlockKind, ChangeEvent, ChangeOp, Chunk, DiffAction
+from ekb.operate.inspector.log import ChunkEntry, LoggedDecision, LoggedEvent, ParsedEntry
 
 
 class _View(BaseModel):
@@ -338,4 +338,92 @@ class ParsedDocumentView(_View):
             summary=ParsedSummaryView.of(entry),
             blocks=[BlockView.of(b) for b in entry.document.blocks],
             text=entry.document.text,
+        )
+
+
+class ChunkSummaryView(_View):
+    """One chunked document, without its chunks: what the list on the T4 screen shows (S6)."""
+
+    document_key: str
+    source: str
+    source_id: str
+    version: str
+    title: str
+    chunker_id: str
+    max_tokens: int
+    chunks: int
+    tokens: int
+    """All its chunks' tokens added up."""
+    smallest: int
+    largest: int
+    over_limit: int
+    """Chunks over ``max_tokens``: a single block too big to split, such as a long table."""
+    runs: int
+    """How many times T4 chunked this item since the inspector started."""
+    chunked_at: datetime
+
+    @classmethod
+    def of(cls, entry: ChunkEntry) -> ChunkSummaryView:
+        sizes = [chunk.tokens for chunk in entry.chunks] or [0]
+        source, _, source_id = entry.document_key.partition(":")
+        return cls(
+            document_key=entry.document_key,
+            source=source,
+            source_id=source_id,
+            version=entry.version,
+            title=entry.title,
+            chunker_id=entry.chunker_id,
+            max_tokens=entry.max_tokens,
+            chunks=len(entry.chunks),
+            tokens=sum(sizes),
+            smallest=min(sizes),
+            largest=max(sizes),
+            over_limit=sum(1 for n in sizes if n > entry.max_tokens),
+            runs=entry.runs,
+            chunked_at=entry.chunked_at,
+        )
+
+
+class ChunkListView(_View):
+    documents: list[ChunkSummaryView]
+    chunks: int
+    """Chunks across the listed documents."""
+
+
+class ChunkView(_View):
+    """One chunk, as T4 left it: no header, labels, vector or ACL yet."""
+
+    chunk_id: str
+    position: int
+    section: list[str]
+    tokens: int
+    text: str
+    context_header: str
+    publishable: bool
+    """Always false after T4: the publication gate opens only once T5, T7 and T8 ran."""
+
+    @classmethod
+    def of(cls, chunk: Chunk) -> ChunkView:
+        return cls(
+            chunk_id=chunk.chunk_id,
+            position=chunk.position,
+            section=list(chunk.section),
+            tokens=chunk.tokens,
+            text=chunk.text,
+            context_header=chunk.context_header,
+            publishable=chunk.publishable,
+        )
+
+
+class ChunkedDocumentView(_View):
+    """One document's chunks, in reading order."""
+
+    summary: ChunkSummaryView
+    chunks: list[ChunkView]
+
+    @classmethod
+    def of(cls, entry: ChunkEntry) -> ChunkedDocumentView:
+        return cls(
+            summary=ChunkSummaryView.of(entry),
+            chunks=[ChunkView.of(chunk) for chunk in entry.chunks],
         )

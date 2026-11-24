@@ -15,6 +15,9 @@ fast-tracked, skipped or purged, and why.
 
 Since S5 it keeps T3's latest output per document (:class:`ParsedStore`). A
 purge drops it: deleted content is never shown, parsed or not.
+
+Since S6 it keeps T4's latest chunks per document (:class:`ChunkStore`), with
+the same rule: a purge drops them.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ekb.changelog.bus.port import Delivery
-from ekb.contracts import ChangeEvent, DiffAction, DiffDecision, ParsedDocument
+from ekb.contracts import ChangeEvent, Chunk, DiffAction, DiffDecision, ParsedDocument
 
 
 @dataclass(frozen=True)
@@ -200,3 +203,70 @@ class ParsedStore:
         """Per source, how many live items T3 found to be records, not documents."""
         with self._lock:
             return {source: len(keys) for source, keys in sorted(self._records.items()) if keys}
+
+
+@dataclass(frozen=True)
+class ChunkEntry:
+    document_key: str
+    version: str
+    title: str
+    chunker_id: str
+    max_tokens: int
+    chunks: tuple[Chunk, ...]
+    lifetime: int
+    chunked_at: datetime
+    runs: int
+    """How many times T4 chunked this item: an edit adds one, a skip or a fast lane doesn't."""
+
+
+class ChunkStore:
+    """T4's latest chunks per document.
+
+    ``record`` and ``drop`` are what ``ekb inspector`` calls after T3: ``record``
+    for every document T4 chunked, ``drop`` for every purge, so a deleted
+    page's chunks go with its parsed text and its originals.
+    """
+
+    def __init__(self) -> None:
+        self._documents: dict[str, ChunkEntry] = {}
+        self._lock = threading.Lock()
+
+    def record(
+        self,
+        event: ChangeEvent,
+        title: str,
+        chunks: tuple[Chunk, ...],
+        *,
+        chunker_id: str,
+        max_tokens: int,
+    ) -> None:
+        """Keep T4's chunks for ``event``'s document, replacing the previous version's."""
+        key = event.document_key
+        with self._lock:
+            previous = self._documents.get(key)
+            self._documents[key] = ChunkEntry(
+                document_key=key,
+                version=event.version,
+                title=title,
+                chunker_id=chunker_id,
+                max_tokens=max_tokens,
+                chunks=chunks,
+                lifetime=event.original_lifetime,
+                chunked_at=datetime.now(UTC),
+                runs=previous.runs + 1 if previous else 1,
+            )
+
+    def drop(self, document_key: str) -> bool:
+        """Forget a deleted document's chunks. True if any were kept."""
+        with self._lock:
+            return self._documents.pop(document_key, None) is not None
+
+    def get(self, document_key: str) -> ChunkEntry | None:
+        with self._lock:
+            return self._documents.get(document_key)
+
+    def entries(self, source: str | None = None) -> list[ChunkEntry]:
+        """Chunked documents, sorted by key."""
+        with self._lock:
+            entries = sorted(self._documents.items())
+        return [e for key, e in entries if source is None or key.partition(":")[0] == source]

@@ -174,6 +174,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t4/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** T4 Chunks */
+        get: operations["t4_chunks_api_t4_chunks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t4/chunks/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** T4 Chunks Document */
+        get: operations["t4_chunks_document_api_t4_chunks_document_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -228,6 +262,79 @@ export interface components {
          * @enum {string}
          */
         ChangeOp: "upsert" | "delete" | "acl_change";
+        /** ChunkListView */
+        ChunkListView: {
+            /** Chunks */
+            chunks: number;
+            /** Documents */
+            documents: components["schemas"]["ChunkSummaryView"][];
+        };
+        /**
+         * ChunkSummaryView
+         * @description One chunked document, without its chunks: what the list on the T4 screen shows (S6).
+         */
+        ChunkSummaryView: {
+            /**
+             * Chunked At
+             * Format: date-time
+             */
+            chunked_at: string;
+            /** Chunker Id */
+            chunker_id: string;
+            /** Chunks */
+            chunks: number;
+            /** Document Key */
+            document_key: string;
+            /** Largest */
+            largest: number;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Over Limit */
+            over_limit: number;
+            /** Runs */
+            runs: number;
+            /** Smallest */
+            smallest: number;
+            /** Source */
+            source: string;
+            /** Source Id */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Tokens */
+            tokens: number;
+            /** Version */
+            version: string;
+        };
+        /**
+         * ChunkView
+         * @description One chunk, as T4 left it: no header, labels, vector or ACL yet.
+         */
+        ChunkView: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Context Header */
+            context_header: string;
+            /** Position */
+            position: number;
+            /** Publishable */
+            publishable: boolean;
+            /** Section */
+            section: string[];
+            /** Text */
+            text: string;
+            /** Tokens */
+            tokens: number;
+        };
+        /**
+         * ChunkedDocumentView
+         * @description One document's chunks, in reading order.
+         */
+        ChunkedDocumentView: {
+            /** Chunks */
+            chunks: components["schemas"]["ChunkView"][];
+            summary: components["schemas"]["ChunkSummaryView"];
+        };
         /**
          * DecisionPage
          * @description Decisions after a cursor (filtered), the next cursor, and the totals (unfiltered).
@@ -802,6 +909,75 @@ export interface operations {
                 };
             };
             /** @description Not parsed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    t4_chunks_api_t4_chunks_get: {
+        parameters: {
+            query?: {
+                source?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChunkListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    t4_chunks_document_api_t4_chunks_document_get: {
+        parameters: {
+            query: {
+                document_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChunkedDocumentView"];
+                };
+            };
+            /** @description Not chunked */
             404: {
                 headers: {
                     [name: string]: unknown;

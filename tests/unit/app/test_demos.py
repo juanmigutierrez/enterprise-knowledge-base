@@ -23,6 +23,7 @@ from ekb.app.demos.s3 import run_s3_live, run_s3_replay
 from ekb.app.demos.t1 import run_t1, run_t1_all
 from ekb.app.demos.t2 import run_t2_demo
 from ekb.app.demos.t3 import run_t3_demo
+from ekb.app.demos.t4 import run_t4_demo
 from tests.conftest import REPO_ROOT
 
 Story = Callable[..., None]
@@ -123,6 +124,8 @@ def test_demos_are_repeatable_against_the_same_running_mock(
         ("t2", "T2 decided 19 events: process 14, acl_only 1, skip 2, purge 2."),
         ("t3", "T2 decided 16 events: process 13, acl_only 1, skip 1, purge 1."),
         ("t3 --doc HR-PL-09 --parser plain_text", "T3 ran 13 times"),
+        ("t4", "Publishable chunks: 0 of 41."),
+        ("t4 --chunker fixed --doc HR-CMP-01", "T3 and T4 ran 13 times"),
     ],
 )
 def test_cli_runs_each_demo_end_to_end(
@@ -134,7 +137,7 @@ def test_cli_runs_each_demo_end_to_end(
     assert expected in result.output
 
 
-@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2", "t3"])
+@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2", "t3", "t4"])
 def test_cli_reports_an_unreachable_mock_cleanly(step: str) -> None:
     result = CliRunner().invoke(app, ["demo", step, "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
@@ -332,5 +335,81 @@ def test_cli_t3_rejects_an_unknown_parser_or_page(monkeypatch: pytest.MonkeyPatc
     assert bad_parser.exit_code == 2
     assert "markdown, plain_text" in bad_parser.output
     bad_page = CliRunner().invoke(app, ["demo", "t3", "--doc", "HR-XX-00"])
+    assert bad_page.exit_code == 1
+    assert "no page 'HR-XX-00'" in bad_page.output
+
+
+def _t4(runs: int = 1, **options: object) -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        for _ in range(runs):
+            lines.clear()
+            story = run_t4_demo(docs, idp, echo=lines.append, **options)  # type: ignore[arg-type]
+            assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    assert "hr_docs:HR-PL-99" not in story.chunks
+    assert not any(chunk.publishable for chunk in story.kept())
+    return "\n".join(lines)
+
+
+def test_t4_follows_a_policy_compares_the_baseline_and_chunks_only_changes() -> None:
+    output = _t4(runs=2)  # a second run starts clean
+    assert (
+        "1. Initial load: full listing -> T2 -> T3 -> T4 (structure_aware@1(max_tokens=400))."
+        in output
+    )
+    assert "HR-PL-01   v1.1  13 blocks -> 4 chunks, 38-59 tokens" in output
+    assert "48 chunks from 12 pages; 0 over the 400-token limit." in output
+    # One policy, chunk by chunk.
+    assert "hr_docs:HR-PL-01#2  49 tokens  § Annual leave policy > Booking leave" in output
+    assert "   | 2. Your manager approves or declines within three working days." in output
+    assert "'Annual leave policy' has no text of its own: no chunk" in output
+    # The baseline: one chunk per page at 400; cut tables at 60.
+    assert "fixed@1(max_tokens=400,overlap_tokens=50): 12 chunks for 12 pages." in output
+    assert "hr_docs:HR-CMP-01#1 starts in the middle of a line: '| 47,000 | 54,000'." in output
+    assert "hr_docs:HR-CMP-01#1 holds 1 row(s) of the 'Engineering \N{EN DASH} Italy" in output
+    assert "'E3 | 52,000 | 61,000 | 70,000' no longer" in output
+    assert "structure_aware@1(max_tokens=400) keeps each table whole, under its heading:" in output
+    # The header that S8 will add.
+    assert "hr_docs:HR-PL-01#3 reads: 'You may carry up to 5 unused days" in output
+    assert "It never says 'Annual leave policy'." in output
+    # Only changes are chunked again; the deleted page's chunks go.
+    assert (
+        "HR-PL-04 v2.1: T2 process -> T3 3 blocks: 2 heading, 1 paragraph -> T4 1 chunk" in output
+    )
+    assert "HR-PL-01 v2.1: T2 skip -> T3, T4 not run (same text: same chunks)" in output
+    assert "HR-PL-05 v1.2: T2 acl_only -> T3, T4 not run (only the readers changed" in output
+    assert "HR-PL-99 v1.1: T2 purge -> T3, T4 not run; its chunks are forgotten" in output
+    assert "Chunks kept: 41 from 11 pages." in output
+    assert "T3 and T4 ran 13 times: once per 'process', never for the others." in output
+    assert "Publishable chunks: 0 of 41." in output
+
+
+def test_t4_can_run_the_story_with_the_baseline_and_another_page() -> None:
+    output = _t4(doc="HR-CMP-01", chunker_name="fixed")
+    assert "T4 (fixed@1(max_tokens=400,overlap_tokens=50))" in output
+    assert "HR-CMP-01  v1.1   8 blocks -> 1 chunk, 149 tokens" in output
+    assert "hr_docs:HR-CMP-01#0  149 tokens  § (no section)" in output
+    assert "With this chunker the chunks carry no section" in output
+    assert "structure_aware@1(max_tokens=400) keeps each table whole" in output  # still compared
+
+
+def test_t4_shows_a_section_split_when_the_limit_is_small() -> None:
+    output = _t4(max_tokens=30)
+    assert "over the 30-token limit" in output  # the salary tables are kept whole
+    assert "structure_aware@1(max_tokens=30)" in output
+    assert "Continuation chunks carry the same heading trail as metadata." in output
+
+
+def test_cli_t4_rejects_an_unknown_chunker_bad_settings_or_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    bad_chunker = CliRunner().invoke(app, ["demo", "t4", "--chunker", "semantic"])
+    assert bad_chunker.exit_code == 2
+    assert "fixed, structure_aware" in bad_chunker.output
+    too_small = CliRunner().invoke(app, ["demo", "t4", "--chunker", "fixed", "--max-tokens", "40"])
+    assert too_small.exit_code == 2
+    assert "overlap_tokens" in too_small.output
+    bad_page = CliRunner().invoke(app, ["demo", "t4", "--doc", "HR-XX-00"])
     assert bad_page.exit_code == 1
     assert "no page 'HR-XX-00'" in bad_page.output

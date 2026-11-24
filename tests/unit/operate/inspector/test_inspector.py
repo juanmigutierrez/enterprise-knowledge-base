@@ -21,11 +21,12 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
-from ekb.operate.inspector.log import DecisionLog, EventLog, ParsedStore
+from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.process.t2_diff.options.content_hash import ContentHashDiffer
 from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.options.markdown import MarkdownParser
 from ekb.process.t3_parse.port import MARKDOWN, SourceFile
+from ekb.process.t4_chunk.options.structure_aware import StructureAwareChunker
 from tests.conftest import REPO_ROOT
 
 AT = datetime(2026, 11, 24, 9, 0, tzinfo=UTC)
@@ -114,6 +115,7 @@ def _app(
     rawstore: InMemoryRawStore | None = None,
     decisions: DecisionLog | None = None,
     parsed: ParsedStore | None = None,
+    chunks: ChunkStore | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -123,6 +125,7 @@ def _app(
         rawstore=rawstore or InMemoryRawStore(),
         decisions=decisions or DecisionLog(),
         parsed=parsed or ParsedStore(),
+        chunks=chunks or ChunkStore(),
         current_lifetime=lambda key: 0,
     )
 
@@ -145,6 +148,24 @@ def parsed() -> ParsedStore:
 
 
 @pytest.fixture
+def chunks() -> ChunkStore:
+    """T4's results as the inspector keeps them: HR-PL-04 chunked twice (an edit)."""
+    store = ChunkStore()
+    chunker = StructureAwareChunker()
+    for version in ("1.1", "2.1"):
+        file = SourceFile("hr_docs:HR-PL-04", version, "Remote work", "en", MARKDOWN, BODY.encode())
+        cut = chunker.chunk(MarkdownParser().parse(file))
+        store.record(
+            EVENTS[0].model_copy(update={"version": version}),
+            "Remote work",
+            cut,
+            chunker_id=chunker.chunker_id,
+            max_tokens=chunker.max_tokens,
+        )
+    return store
+
+
+@pytest.fixture
 def client(
     log: EventLog,
     bus: InMemoryEventBus,
@@ -152,6 +173,7 @@ def client(
     rawstore: InMemoryRawStore,
     decisions: DecisionLog,
     parsed: ParsedStore,
+    chunks: ChunkStore,
 ) -> TestClient:
     return TestClient(
         _app(
@@ -161,6 +183,7 @@ def client(
             rawstore=rawstore,
             decisions=decisions,
             parsed=parsed,
+            chunks=chunks,
         )
     )
 
@@ -383,5 +406,88 @@ def test_a_re_created_document_starts_counting_runs_again(parsed: ParsedStore) -
     parsed.drop("hr_docs:HR-PL-04")
     parsed.record(EVENTS[0], entry.document)
     again = parsed.get("hr_docs:HR-PL-04")
+    assert again is not None
+    assert again.runs == 1
+
+
+def test_t4_lists_chunked_documents_with_their_sizes(client: TestClient) -> None:
+    view = client.get("/api/t4/chunks").json()
+    assert view["chunks"] == 1
+    (doc,) = view["documents"]
+    assert (doc["document_key"], doc["version"], doc["title"], doc["runs"]) == (
+        "hr_docs:HR-PL-04",
+        "2.1",  # the latest chunking
+        "Remote work",
+        2,  # chunked twice: once per processed version
+    )
+    assert (doc["source"], doc["source_id"]) == ("hr_docs", "HR-PL-04")
+    assert doc["chunker_id"] == "structure_aware@1(max_tokens=400)"
+    assert (doc["chunks"], doc["max_tokens"], doc["over_limit"]) == (1, 400, 0)
+    assert doc["tokens"] == doc["smallest"] == doc["largest"] == 14
+    assert client.get("/api/t4/chunks", params={"source": "identity"}).json() == {
+        "documents": [],
+        "chunks": 0,
+    }
+
+
+def test_t4_shows_one_documents_chunks_none_of_them_publishable(client: TestClient) -> None:
+    view = client.get("/api/t4/chunks/document", params={"document_key": "hr_docs:HR-PL-04"})
+    assert view.status_code == 200
+    body = view.json()
+    assert body["summary"]["version"] == "2.1"
+    (chunk,) = body["chunks"]
+    assert chunk == {
+        "chunk_id": "hr_docs:HR-PL-04#0",
+        "position": 0,
+        "section": ["Remote work", "The rule"],
+        "tokens": 14,
+        "text": "The rule\n\n- Two days a week.\n\nDay | Where\nFri | Home",
+        "context_header": "",
+        "publishable": False,  # the publication gate: no sensitivity, vector or ACL yet
+    }
+
+
+@pytest.mark.parametrize("key", ["hr_docs:none", "identity:users/alice"])
+def test_t4_has_nothing_for_unknown_items_or_records(client: TestClient, key: str) -> None:
+    response = client.get("/api/t4/chunks/document", params={"document_key": key})
+    assert response.status_code == 404
+    assert client.get("/api/t4/chunks/document").status_code == 422  # document_key is required
+
+
+def test_a_purged_item_s_chunks_are_never_returned(client: TestClient, chunks: ChunkStore) -> None:
+    """Deletion gate, inspector side: a purge drops the chunks with the parsed text."""
+    assert chunks.drop("hr_docs:HR-PL-04") is True
+    gone = client.get("/api/t4/chunks/document", params={"document_key": "hr_docs:HR-PL-04"})
+    assert gone.status_code == 404
+    assert client.get("/api/t4/chunks").json() == {"documents": [], "chunks": 0}
+    assert chunks.drop("hr_docs:HR-PL-04") is False  # dropping again is harmless
+
+
+def test_chunks_of_a_closed_lifetime_are_hidden_before_the_purge(chunks: ChunkStore) -> None:
+    """A delete is published before T2 purges: the API hides the old lifetime at once."""
+    client = TestClient(
+        create_inspector_app(
+            EventLog(),
+            profile="local",
+            bus=InMemoryEventBus(),
+            registry=InMemoryRegistry(),
+            rawstore=InMemoryRawStore(),
+            decisions=DecisionLog(),
+            parsed=ParsedStore(),
+            chunks=chunks,
+            current_lifetime=lambda key: 1,  # a delete closed lifetime 0
+        )
+    )
+    assert client.get("/api/t4/chunks").json()["documents"] == []
+    url = "/api/t4/chunks/document"
+    assert client.get(url, params={"document_key": "hr_docs:HR-PL-04"}).status_code == 404
+
+
+def test_a_re_created_document_starts_counting_chunk_runs_again(chunks: ChunkStore) -> None:
+    entry = chunks.get("hr_docs:HR-PL-04")
+    assert entry is not None
+    chunks.drop("hr_docs:HR-PL-04")
+    chunks.record(EVENTS[0], entry.title, entry.chunks, chunker_id=entry.chunker_id, max_tokens=400)
+    again = chunks.get("hr_docs:HR-PL-04")
     assert again is not None
     assert again.runs == 1

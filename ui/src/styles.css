@@ -335,3 +335,56 @@ pre.code {
     padding: 6px;
     border-radius: 4px;
 }
+
+/* T4 Chunk: one card per chunk, its size against the limit, its section and text. */
+.chunks {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.chunk {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: var(--panel);
+}
+.chunk-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.chunk-head .mono {
+    color: var(--text);
+}
+.bar {
+    flex: 0 0 90px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+}
+.bar > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+}
+.bar.over > span {
+    background: var(--delete);
+}
+.chunk .section-label {
+    margin: 4px 0 6px;
+}
+.chunk pre.clean-text {
+    padding-top: 4px;
+    border-top: 1px dashed var(--line);
+}
+.gate {
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 6px;
+}

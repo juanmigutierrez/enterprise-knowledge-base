@@ -104,7 +104,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S3 | 3 · Change log | Event bus, document registry, raw store: **in-memory** options | Ordering per document, replay, why originals are stored | `ekb demo s3`: publish, consume, replay · UI: change log panel | 40 min | ✅ |
 | S4 | 4 · **T2** Diff | Skip unchanged, ACL fast lane, delete → purge | How the system avoids re-processing and handles deletes | `ekb demo t2`: same doc twice → second skipped; ACL change → fast lane · UI: T2 decision panel | 30 min | ✅ |
 | S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ✅ |
-| S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy · UI: chunks panel | 30 min | ⬜ |
+| S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy · UI: chunks panel | 30 min | ✅ |
 | S7 | Platform · Model gateway | Provider switch (fake / Ollama / Bedrock), content-hash cache, cost log | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged · UI: model calls and cost panel | 40 min | ⬜ |
 | S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ⬜ |
 | S9 | 4 · **T6** Entities | Exact match against the people and teams from the HR record API (S1b) (model cascade later) | How documents get linked to people and teams | `ekb demo t6` · UI: entities panel | 30 min | ⬜ |
@@ -138,4 +138,13 @@ A step is never started before the previous one is pushed. Exception, decided on
 
 ## 6. Next step
 
-S5 is complete. Next is **S6** with `/plan-task S6`. In parallel, decide which design version is the official one (§4.1 task 1).
+S6 is complete. See the [T4 chunking walkthrough](walkthrough/S06-t4-chunk.md).
+
+Next is **S7** (model gateway) with `/plan-task S7`, then S8 adds the context header through it. Agreed on 24 November 2026, to be settled in S7's plan:
+- Start with a free provider, so other models can be compared later without code changes.
+- Add **OpenRouter** as a development-only provider next to Ollama and Bedrock (it serves the same Claude Haiku 5.5 as the design). It is an exception to the "AWS or open source only" constraint, so record it in D15.
+- Decide in S7's plan whether model swapping uses **LangChain** (or a similar library) or the gateway's own thin port with one option per provider.
+
+Idea for later (T4, card 4.2): a chunk size that adapts to the text instead of one limit for every document.
+
+In parallel, decide which design version is the official one (§4.1 task 1).

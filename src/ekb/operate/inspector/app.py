@@ -12,10 +12,15 @@ GET /api/t2/decisions[?since=&source=&action=   T2's decisions and totals (S4)
                      &document_key=]
 GET /api/t3/parsed[?source=]                    parsed documents, and records not parsed (S5)
 GET /api/t3/parsed/document?document_key=       one parsed document's blocks and text (S5)
+GET /api/t4/chunks[?source=]                    chunked documents and their sizes (S6)
+GET /api/t4/chunks/document?document_key=       one document's chunks (S6)
 ==============================================  =====================================
 
 Every route is a GET: a test fails if a write route appears. The factory
 refuses any profile but ``local``.
+
+Deleted content is never returned: T3's and T4's output of an item whose
+lifetime a delete closed is hidden at once, even before T2's purge drops it.
 """
 
 from __future__ import annotations
@@ -30,9 +35,12 @@ from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
 from ekb.contracts import ChangeOp, DiffAction
-from ekb.operate.inspector.log import DecisionLog, EventLog, ParsedStore
+from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.models import (
     ChangeLogView,
+    ChunkedDocumentView,
+    ChunkListView,
+    ChunkSummaryView,
     DecisionPage,
     DecisionView,
     DiffCounts,
@@ -66,6 +74,7 @@ def create_inspector_app(
     rawstore: RawStore,
     decisions: DecisionLog,
     parsed: ParsedStore,
+    chunks: ChunkStore,
     current_lifetime: Callable[[str], int],
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
@@ -187,6 +196,26 @@ def create_inspector_app(
                 "or deleted",
             )
         return ParsedDocumentView.of(entry)
+
+    @app.get("/api/t4/chunks")
+    def t4_chunks(source: str | None = None) -> ChunkListView:
+        documents = [
+            ChunkSummaryView.of(e)
+            for e in chunks.entries(source)
+            if e.lifetime == current_lifetime(e.document_key)
+        ]
+        return ChunkListView(documents=documents, chunks=sum(d.chunks for d in documents))
+
+    @app.get("/api/t4/chunks/document", responses={404: {"description": "Not chunked"}})
+    def t4_chunks_document(document_key: str) -> ChunkedDocumentView:
+        entry = chunks.get(document_key)
+        if entry is None or entry.lifetime != current_lifetime(document_key):
+            raise HTTPException(
+                status_code=404,
+                detail=f"{document_key} has no chunks: not a document, not processed yet, "
+                "or deleted",
+            )
+        return ChunkedDocumentView.of(entry)
 
     return app
 

@@ -9,9 +9,11 @@ from ekb.contracts import (
     BlockKind,
     ChangeEvent,
     ChangeOp,
+    Chunk,
     DiffAction,
     DiffDecision,
     ParsedDocument,
+    render_blocks,
 )
 
 NOW = datetime(2026, 11, 23, tzinfo=UTC)
@@ -172,3 +174,40 @@ def test_the_clean_text_keeps_list_items_together_and_indents_nested_ones() -> N
         "Leave\n\n- first\n  - nested\n    more about nested\n2. second\n\na | b\n1 | 2"
     )
     assert ParsedDocument.model_validate(parsed.model_dump()) == parsed
+
+
+def test_a_chunk_says_where_it_sits_and_what_cut_it_and_starts_unpublishable() -> None:
+    chunk = Chunk(
+        document_key="hr_docs:HR-PL-01",
+        document_version="1.1",
+        chunk_id="hr_docs:HR-PL-01#2",
+        text="Booking leave\n\n1. Ask two weeks ahead.",
+        section=("Annual leave policy", "Booking leave"),
+        position=2,
+        tokens=9,
+        chunker_id="structure_aware@1(max_tokens=400)",
+    )
+    assert chunk.context_header == ""
+    assert not chunk.publishable  # no sensitivity, vector or ACL yet
+    bare = Chunk(document_key="k", document_version="1", chunk_id="k#0", text="t")
+    assert (bare.section, bare.position, bare.tokens, bare.chunker_id) == ((), 0, 0, "")
+
+
+def test_render_blocks_is_the_documents_clean_text() -> None:
+    """T4 renders a chunk's blocks with the same function: the same words, the same layout."""
+    blocks = (
+        Block(kind=BlockKind.HEADING, text="Booking", level=2),
+        Block(kind=BlockKind.LIST_ITEM, text="Ask", section=("Booking",), level=1, marker="1."),
+        Block(kind=BlockKind.LIST_ITEM, text="Wait", section=("Booking",), level=1, marker="2."),
+    )
+    document = ParsedDocument(
+        document_key="k",
+        version="1",
+        title="t",
+        media_type="text/markdown",
+        parser_id="p",
+        blocks=blocks,
+    )
+    assert render_blocks(blocks) == document.text == "Booking\n\n1. Ask\n2. Wait"
+    assert render_blocks(blocks[1:]) == "1. Ask\n2. Wait"
+    assert render_blocks(()) == ""
