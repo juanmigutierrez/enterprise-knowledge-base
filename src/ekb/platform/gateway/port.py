@@ -4,14 +4,24 @@
   ``langchain`` (every real provider, through LangChain's chat models).
 - :class:`ResponseCache` keeps replies by cache key. ``in_memory`` and ``sqlite``.
 - :class:`CostLog` keeps one record per call. ``in_memory`` and ``jsonl``.
+
+And one port the other way round: :class:`Completer` is what a pipeline step
+needs from the gateway (S8). :class:`~ekb.platform.gateway.gateway.ModelGateway`
+implements it; a step's tests can pass anything with the same ``complete``.
 """
 
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-from ekb.platform.gateway.models import CachedReply, CallRecord, ChatRequest, ModelReply
+from ekb.platform.gateway.models import (
+    CachedReply,
+    CallRecord,
+    ChatRequest,
+    GatewayReply,
+    ModelReply,
+)
 
 
 @runtime_checkable
@@ -78,3 +88,25 @@ class CostLog(Protocol):
     def append(self, record: CallRecord) -> None: ...
 
     def records(self) -> list[CallRecord]: ...
+
+
+@runtime_checkable
+class Completer(Protocol):
+    """What a step asks of the gateway: answer this prompt for this task.
+
+    Raises :class:`~ekb.platform.gateway.errors.GatewayError` when no model can
+    answer (every candidate skipped or failed) or the request itself is invalid.
+    """
+
+    def complete(
+        self,
+        task: str,
+        prompt: str,
+        *,
+        prompt_version: str,
+        max_output_tokens: int,
+        system: str = "",
+        temperature: float = 0.0,
+        json_schema: dict[str, Any] | None = None,
+        document_key: str | None = None,
+    ) -> GatewayReply: ...

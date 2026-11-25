@@ -2,7 +2,8 @@
 # so permission and deletion gates run on every pull request for free.
 steps:
   t3_parse:     { option: plain_text }
-  t4_chunk:     { option: fixed, params: { max_tokens: 400, context_header: none } }
+  t4_chunk:     { option: fixed, params: { max_tokens: 400 } }
+  t4_header:    { option: none }
   t5_classify:  { option: rules }
   t6_entities:  { option: exact_match }
   t7_embed:     { option: fake, params: { dimensions: 32 } }

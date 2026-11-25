@@ -17,6 +17,7 @@ from ekb.app.demos import (  # noqa: F401  (importing registers the commands)
     t2,
     t3,
     t4,
+    t5,
 )
 from ekb.app.demos._app import demo_app
 

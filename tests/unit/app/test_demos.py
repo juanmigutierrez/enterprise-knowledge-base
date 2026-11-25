@@ -24,6 +24,7 @@ from ekb.app.demos.t1 import run_t1, run_t1_all
 from ekb.app.demos.t2 import run_t2_demo
 from ekb.app.demos.t3 import run_t3_demo
 from ekb.app.demos.t4 import run_t4_demo
+from ekb.app.demos.t5 import close_cache, demo_gateway, run_t5_demo
 from tests.conftest import REPO_ROOT
 from tests.http import as_httpx
 
@@ -127,6 +128,9 @@ def test_demos_are_repeatable_against_the_same_running_mock(
         ("t3 --doc HR-PL-09 --parser plain_text", "T3 ran 13 times"),
         ("t4", "Publishable chunks: 0 of 41."),
         ("t4 --chunker fixed --doc HR-CMP-01", "T3 and T4 ran 13 times"),
+        ("t5", "Publishable chunks: 0 of 43"),
+        ("t5 --fake --classifier model_plus_rules", "Labelled chunks: 43 of 43."),
+        ("t5 --header none", "No model calls: this header option writes none."),
     ],
 )
 def test_cli_runs_each_demo_end_to_end(
@@ -138,7 +142,7 @@ def test_cli_runs_each_demo_end_to_end(
     assert expected in result.output
 
 
-@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2", "t3", "t4"])
+@pytest.mark.parametrize("step", ["s1", "s1b", "s1c", "t1", "s3", "t2", "t3", "t4", "t5"])
 def test_cli_reports_an_unreachable_mock_cleanly(step: str) -> None:
     result = CliRunner().invoke(app, ["demo", step, "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
@@ -414,3 +418,93 @@ def test_cli_t4_rejects_an_unknown_chunker_bad_settings_or_page(
     bad_page = CliRunner().invoke(app, ["demo", "t4", "--doc", "HR-XX-00"])
     assert bad_page.exit_code == 1
     assert "no page 'HR-XX-00'" in bad_page.output
+
+
+def _t5(runs: int = 1, **options: str) -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        gateway, _ = demo_gateway(fake=True)  # one gateway for every run: its cache is kept
+        for _ in range(runs):
+            lines.clear()
+            story = run_t5_demo(as_httpx(docs), as_httpx(idp), gateway, lines.append, **options)
+            assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    assert "hr_docs:HR-PL-99" not in story.processed
+    assert not any(chunk.publishable for chunk in story.kept())
+    assert all(chunk.sensitivity is not None for chunk in story.kept())
+    return "\n".join(lines)
+
+
+def test_t5_writes_headers_labels_every_chunk_and_explains_why() -> None:
+    output = _t5()
+    assert "Header: model@1(header@1). Classifier: rules@1." in output
+    assert "HR-CMP-01  4 chunks  headers written  4 restricted" in output
+    assert "48 chunks from 12 pages; 48 have a header." in output
+    assert "Model calls so far: 12 requests, 0 from the cache." in output
+    # One chunk, before and after.
+    assert "2. One chunk, before and after its header: hr_docs:HR-PL-01#3." in output
+    assert "header:  fake-small chunk_3" in output
+    assert "by:      model@1(header@1, fake:fake-small)" in output
+    # Labels and why.
+    assert "HR-PL-06   finance  (source)  5 internal" in output
+    assert "restricted: the document says “(restricted)”" in output
+    assert "hr_docs:HR-PL-10#2  says 'confidential' -> internal" in output
+    # Personal data, only the IBAN's chunk raised.
+    assert "hr_docs:HR-PL-11#0  internal, people, pii: email, phone" in output
+    assert "hr_docs:HR-PL-11#1  confidential, people, pii: iban" in output
+    # The replay comes from the cache; changes; the purge forgets the replies.
+    assert "6. A replay: T4 again on all 13 pages, as a rebuild would." in output
+    assert "   0 requests, 13 from the cache." in output
+    assert "HR-PL-04 v2.1: T2 process -> T3, T4 1 chunk(s), headers written -> T5 1 internal" in (
+        output
+    )
+    assert "HR-PL-01 v2.1: T2 skip -> T3, T4, T5 not run" in output
+    assert "HR-PL-05 v1.2: T2 acl_only -> T3, T4, T5 not run (labels come from the text)" in output
+    assert "HR-PL-99 v1.1: T2 purge -> chunks forgotten, and 1 cached model reply" in output
+    assert "T4's header and T5 ran 14 times" in output
+    assert "Model calls in this run: 14 requests, 13 from the cache." in output
+    assert "Publishable chunks: 0 of 43" in output
+
+
+def test_t5_a_second_run_finds_the_unchanged_headers_in_the_cache() -> None:
+    output = _t5(runs=2)
+    # HR-PL-99 was forgotten when it was deleted; it is re-created, so it costs a request.
+    # Every other page's header is still cached, and the edit of HR-PL-04 too.
+    assert "Model calls so far: 1 requests, 11 from the cache." in output
+    assert "HR-PL-04 v2.1: T2 process -> T3, T4 1 chunk(s), headers cached" in output
+
+
+def test_t5_with_the_model_classifier_and_without_a_header() -> None:
+    output = _t5(header="none", classifier="model_plus_rules")
+    assert "Header: none@1. Classifier: model_plus_rules@1(classify@2, rules@1)." in output
+    assert "header:  '' (no header: the none option writes none)" in output
+    assert "HR-PL-99 v1.1: T2 purge -> chunks forgotten, and 1 cached model reply" in output
+
+
+def test_t5_without_any_key_runs_with_empty_headers_and_says_why(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("EKB_PROFILE", "local")
+    monkeypatch.chdir(tmp_path)  # the local profile's cache files go here, not in the repo
+    for key in ("GOOGLE_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    gateway, warning = demo_gateway(fake=False)
+    assert warning == "no model provider has a key: headers will be empty"
+    lines: list[str] = []
+    try:
+        with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+            run_t5_demo(as_httpx(docs), as_httpx(idp), gateway, lines.append)
+    finally:
+        close_cache(gateway)
+    output = "\n".join(lines)
+    assert "HR-PL-01   4 chunks  headers failed   4 internal" in output
+    assert "Set a free API key" in output
+    assert "No model calls: no model is available, so nothing was cached." in output
+
+
+def test_cli_t5_rejects_unknown_options() -> None:
+    bad_header = CliRunner().invoke(app, ["demo", "t5", "--header", "sonnet"])
+    assert bad_header.exit_code == 2
+    assert "none, model" in bad_header.output
+    bad_classifier = CliRunner().invoke(app, ["demo", "t5", "--classifier", "presidio"])
+    assert bad_classifier.exit_code == 2
+    assert "rules, model_plus_rules" in bad_classifier.output

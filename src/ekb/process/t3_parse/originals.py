@@ -40,6 +40,7 @@ class _DocsPage(BaseModel):
 
     title: str
     language: str | None = None
+    department: str | None = None
     body: str
 
 
@@ -60,4 +61,5 @@ def docs_page(document_key: str, version: str, original: bytes) -> SourceFile:
         language=page.language,
         media_type=MARKDOWN,
         content=page.body.encode("utf-8"),
+        department=page.department,
     )

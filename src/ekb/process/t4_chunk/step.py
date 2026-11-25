@@ -5,6 +5,8 @@
     parsed  = T3's result                  # blocks, each with its section
     chunks  = chunker.chunk(parsed)        # the option: structure_aware, fixed
     check(parsed, chunks)                  # the rules every option keeps
+    headers = header.write(parsed, chunks) # S8, if a header writer is given: none, model
+    chunks  = with_headers(chunks, headers)  # one header per chunk, nothing else changed
 
 T4 runs right after T3, so only where T2 decided ``process``: new or changed
 text. A permission change or an unchanged save never re-chunks a document,
@@ -16,6 +18,11 @@ and a delete removes its chunks with its parsed text (the wiring in
 instead of publishing a chunk with the wrong version or, worse, with an ACL
 that T8 never resolved. That last check is the publication gate's first
 line: nothing leaves T4 publishable.
+
+**The header writer only returns strings** (S8), one per chunk; the step puts
+them on the chunks. So a header option, whatever model it calls, cannot change a
+chunk's text, its position or a field a later step owns. Without a header writer
+(the S6 wiring) the chunks keep an empty header and no ``header_id``.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ekb.contracts import Chunk, ParsedDocument
+from ekb.process.t4_chunk.header import Headers, HeaderWriter, clean
 from ekb.process.t4_chunk.port import Chunker, chunk_id
 
 
@@ -34,6 +42,8 @@ class ChunkResult:
     chunker_id: str
     max_tokens: int
     reason: str
+    headers: Headers | None = None
+    """What the header writer did (S8); ``None`` when T4 ran without one."""
 
     @property
     def over_limit(self) -> int:
@@ -54,10 +64,11 @@ def summary(chunks: Sequence[Chunk], max_tokens: int | None = None) -> str:
 
 
 class ChunkStep:
-    """T4 with one chunker."""
+    """T4 with one chunker and, from S8, one header writer."""
 
-    def __init__(self, chunker: Chunker) -> None:
+    def __init__(self, chunker: Chunker, header: HeaderWriter | None = None) -> None:
         self._chunker = chunker
+        self._header = header
 
     @property
     def chunker_id(self) -> str:
@@ -67,16 +78,43 @@ class ChunkStep:
     def max_tokens(self) -> int:
         return self._chunker.max_tokens
 
+    @property
+    def header_id(self) -> str:
+        """The header option (``none@1``, ``model@1(header@1)``), or ``""`` without one."""
+        return self._header.header_id if self._header is not None else ""
+
     def handle(self, document: ParsedDocument) -> ChunkResult:
         chunks = self._chunker.chunk(document)
         check(document, chunks)
+        reason = f"chunked with {self.chunker_id}: {summary(chunks, self.max_tokens)}"
+        headers = None
+        if self._header is not None:
+            headers = self._header.write(document, chunks)
+            chunks = with_headers(document, chunks, headers)
+            reason += f"; headers: {headers.note}"
         return ChunkResult(
             document=document,
             chunks=chunks,
             chunker_id=self.chunker_id,
             max_tokens=self.max_tokens,
-            reason=f"chunked with {self.chunker_id}: {summary(chunks, self.max_tokens)}",
+            reason=reason,
+            headers=headers,
         )
+
+
+def with_headers(
+    document: ParsedDocument, chunks: tuple[Chunk, ...], headers: Headers
+) -> tuple[Chunk, ...]:
+    """``chunks`` with their headers: one per chunk, in order, on one line each."""
+    if len(headers.texts) != len(chunks):
+        raise ChunkError(
+            f"{document.document_key} v{document.version}: {len(chunks)} chunks but "
+            f"{len(headers.texts)} headers from {headers.header_id}"
+        )
+    return tuple(
+        chunk.model_copy(update={"context_header": clean(text), "header_id": headers.header_id})
+        for chunk, text in zip(chunks, headers.texts, strict=True)
+    )
 
 
 class ChunkError(ValueError):

@@ -388,8 +388,12 @@ export interface components {
             chunker_id: string;
             /** Chunks */
             chunks: number;
+            /** Classifier Note */
+            classifier_note: string;
             /** Document Key */
             document_key: string;
+            /** Header Note */
+            header_note: string;
             /** Largest */
             largest: number;
             /** Max Tokens */
@@ -398,6 +402,10 @@ export interface components {
             over_limit: number;
             /** Runs */
             runs: number;
+            /** Sensitivity */
+            sensitivity: {
+                [key: string]: number;
+            };
             /** Smallest */
             smallest: number;
             /** Source */
@@ -413,23 +421,34 @@ export interface components {
         };
         /**
          * ChunkView
-         * @description One chunk, as T4 left it: no header, labels, vector or ACL yet.
+         * @description One chunk, as T4 and T5 left it: header and labels, no vector or ACL yet.
          */
         ChunkView: {
             /** Chunk Id */
             chunk_id: string;
+            /** Classifier Id */
+            classifier_id: string;
             /** Context Header */
             context_header: string;
+            /** Department */
+            department: string | null;
+            /** Header Id */
+            header_id: string;
+            /** Pii */
+            pii: components["schemas"]["PiiKind"][];
             /** Position */
             position: number;
             /** Publishable */
             publishable: boolean;
             /** Section */
             section: string[];
+            sensitivity: components["schemas"]["Sensitivity"] | null;
             /** Text */
             text: string;
             /** Tokens */
             tokens: number;
+            /** Why */
+            why: string;
         };
         /**
          * ChunkedDocumentView
@@ -748,6 +767,17 @@ export interface components {
             version: string;
         };
         /**
+         * PiiKind
+         * @description Kinds of personal data T5 flags on a chunk.
+         *
+         *     The first four identify a person or their money on their own, so a chunk
+         *     holding one is at least confidential. An email address, a phone number or
+         *     a name is flagged but does not raise the chunk by itself: a policy giving
+         *     the HR team's address is not confidential.
+         * @enum {string}
+         */
+        PiiKind: "iban" | "payment_card" | "it_fiscal_code" | "es_national_id" | "email" | "phone" | "person_name";
+        /**
          * RecordCountView
          * @description A source whose items T3 found to be structured records, not documents (D7).
          */
@@ -791,6 +821,17 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * Sensitivity
+         * @description How carefully a passage must be handled, from least to most strict.
+         *
+         *     The order matters: when two signals disagree (a rule and a model, a
+         *     document's marker and a chunk's own content), the stricter one wins,
+         *     because a missed restriction is a leak and an extra one is only friction
+         *     (card 4.9).
+         * @enum {string}
+         */
+        Sensitivity: "public" | "internal" | "confidential" | "restricted";
         /** SourceView */
         SourceView: {
             /** Deleted */

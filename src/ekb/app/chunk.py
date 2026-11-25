@@ -1,19 +1,21 @@
-"""T4 wired behind T3 (S6).
+"""T4 wired behind T3 (S6), with its context header (S8) and T5 behind it.
 
-Two choices are made here, in the composition root, and nowhere else:
+Three choices are made here, in the composition root, and nowhere else:
 
 - **Which chunker.** ``structure_aware`` by hand, as S4 and S5 chose their
   options by hand. ``config/default.yaml`` already names it (card 4.2's
   starting choice) and the ``ci`` profile names ``fixed``; choosing from
-  config comes with the pipeline (S12). The step's ``context_header``
-  setting belongs to the header, which S8 adds as its own port next to the
-  chunker: the chunkers take only their own settings.
-- **When T4 runs.** Right after T3, on the same document, inside T2's
-  ``downstream`` until S12 puts the steps on the bus. A record (T3's
-  "not a document") is never chunked.
+  config comes with the pipeline (S12).
+- **Which header writer** (S8): ``none`` or ``model``, its own port next to the
+  chunker (``t4_header`` in the config, card 4.3). ``model`` needs the model
+  gateway. Without one (the S6 wiring), chunks keep an empty header.
+- **When T4 runs, and T5 after it.** Right after T3, on the same document,
+  inside T2's ``downstream`` until S12 puts the steps on the bus. A record
+  (T3's "not a document") is never chunked or labelled.
 
-T4 runs *before* anything is kept: if it fails, neither T3's nor T4's result
-is recorded, T2 records nothing, and the event comes back (S4's rule).
+T4 and T5 run *before* anything is kept: if either fails, neither T3's nor
+T4's nor T5's result is recorded, T2 records nothing, and the event comes back
+(S4's rule).
 """
 
 from __future__ import annotations
@@ -21,15 +23,25 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from ekb.contracts import Chunk
 from ekb.platform import registry
+from ekb.platform.gateway.port import Completer
 from ekb.process.t3_parse.step import ParseResult
+from ekb.process.t4_chunk.header import HeaderWriter
 from ekb.process.t4_chunk.options.fixed import FixedChunker
+from ekb.process.t4_chunk.options.header_model import ModelHeaderWriter
+from ekb.process.t4_chunk.options.header_none import NoHeader
 from ekb.process.t4_chunk.options.structure_aware import StructureAwareChunker
 from ekb.process.t4_chunk.port import Chunker
 from ekb.process.t4_chunk.step import ChunkResult, ChunkStep
+from ekb.process.t5_classify.step import ClassifyResult, ClassifyStep
 
 CHUNKERS = (StructureAwareChunker, FixedChunker)  # imported, so both are registered
+HEADERS = (NoHeader, ModelHeaderWriter)
 DEFAULT_CHUNKER = "structure_aware"
+HEADER_OPTIONS = ("none", "model")
+MODEL_HEADERS = frozenset({"model"})
+"""Header options that call a model, and so need the gateway."""
 
 
 def chunker(name: str = DEFAULT_CHUNKER, **params: int) -> Chunker:
@@ -40,30 +52,60 @@ def chunker(name: str = DEFAULT_CHUNKER, **params: int) -> Chunker:
     return built
 
 
-def chunk_step(name: str = DEFAULT_CHUNKER, **params: int) -> ChunkStep:
-    return ChunkStep(chunker(name, **params))
+def header_writer(name: str, gateway: Completer | None = None) -> HeaderWriter:
+    """A registered T4 header option by name (``none``, ``model``). ``model`` writes
+    through ``gateway`` (its ``context_header`` task)."""
+    if name in MODEL_HEADERS:
+        if gateway is None:
+            raise ValueError(f"the {name!r} header option needs the model gateway")
+        built = registry.create("t4_header", name, gateway=gateway)
+    else:
+        built = registry.create("t4_header", name)
+    if not isinstance(built, HeaderWriter):
+        raise TypeError(f"t4_header option {name!r} does not implement the HeaderWriter port")
+    return built
+
+
+def chunk_step(
+    name: str = DEFAULT_CHUNKER, *, header: HeaderWriter | None = None, **params: int
+) -> ChunkStep:
+    return ChunkStep(chunker(name, **params), header)
 
 
 @dataclass(frozen=True)
 class Processed:
-    """What T3 and T4 made of one event T2 sent on."""
+    """What T3, T4 and T5 made of one event T2 sent on."""
 
     parse: ParseResult
     chunks: ChunkResult | None
     """``None`` when T3 found a structured record, not a document: nothing to chunk."""
+    labels: ClassifyResult | None = None
+    """T5's result (S8); ``None`` without T5, or with nothing to label."""
+
+    @property
+    def final(self) -> tuple[Chunk, ...]:
+        """The chunks as the last step that ran left them: labelled if T5 ran."""
+        if self.labels is not None:
+            return self.labels.chunks
+        return self.chunks.chunks if self.chunks is not None else ()
 
 
 def chunk_after_t3(
-    t4: ChunkStep, keep: Callable[[Processed], object]
+    t4: ChunkStep, keep: Callable[[Processed], object], t5: ClassifyStep | None = None
 ) -> Callable[[ParseResult], None]:
-    """T3's ``keep`` until S12: chunk what T3 parsed, then hand both results on.
+    """T3's ``keep`` until S12: chunk what T3 parsed, label it (with ``t5``), then
+    hand every result on.
 
     Use it as the ``keep`` of :func:`ekb.app.parse.parse_after_t2`; its
-    ``forget`` must drop the document's chunks as well as its parsed text.
+    ``forget`` must drop the document's chunks as well as its parsed text, and
+    its cached model replies (:func:`ekb.app.classify.forgetter`).
     """
 
     def then(result: ParseResult) -> None:
         chunks = t4.handle(result.parsed) if result.parsed is not None else None
-        keep(Processed(result, chunks))  # only after T4: a failure keeps nothing
+        labels = None
+        if t5 is not None and chunks is not None:
+            labels = t5.handle(chunks.document, chunks.chunks)
+        keep(Processed(result, chunks, labels))  # only after T4 and T5: a failure keeps nothing
 
     return then

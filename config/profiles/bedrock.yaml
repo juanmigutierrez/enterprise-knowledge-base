@@ -3,7 +3,8 @@
 # and "production" alike (plan.md §4.2 assumptions); it needs AWS credentials and
 # the aws extra (langchain-aws). Infrastructure stays local unless the aws profile is used.
 steps:
-  t4_chunk:     { option: structure_aware, params: { max_tokens: 400, context_header: model } }
+  t4_chunk:     { option: structure_aware, params: { max_tokens: 400 } }
+  t4_header:    { option: model }
   t5_classify:  { option: model_plus_rules }
   t6_entities:  { option: cascade }
   t7_embed:     { option: cohere_embed_v4, params: { dimensions: 1024, dtype: int8 } }

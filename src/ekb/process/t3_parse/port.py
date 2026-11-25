@@ -45,6 +45,8 @@ class SourceFile:
     media_type: str
     content: bytes
     """The file's bytes. Text formats are UTF-8; a PDF parser (later) reads them as they are."""
+    department: str | None = None
+    """The source's own department label, if it has one. Passed through to the result."""
 
 
 @runtime_checkable

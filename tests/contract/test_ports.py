@@ -26,8 +26,11 @@ from ekb.platform import registry
 from ekb.platform.gateway.port import CostLog, ModelClient, ResponseCache
 from ekb.process.t2_diff.port import Differ
 from ekb.process.t3_parse.port import Parser
+from ekb.process.t4_chunk.header import HeaderWriter
 from ekb.process.t4_chunk.port import Chunker
+from ekb.process.t5_classify.port import Classifier
 from ekb.process.t7_embed.port import Embedder
+from tests.unit.platform.gateway.helpers import Scripted
 
 PORTS: dict[str, type] = {
     "bus": EventBus,
@@ -37,6 +40,8 @@ PORTS: dict[str, type] = {
     "t2_diff": Differ,
     "t3_parse": Parser,
     "t4_chunk": Chunker,
+    "t4_header": HeaderWriter,
+    "t5_classify": Classifier,
     "t7_embed": Embedder,
     "model_client": ModelClient,
     "model_cache": ResponseCache,
@@ -63,6 +68,9 @@ TEST_PARAMS: dict[tuple[str, str], dict[str, object]] = {
     ("model_client", "langchain"): {"provider": "groq", "model": "openai/gpt-oss-20b"},
     ("model_cache", "sqlite"): {"path": ":memory:"},
     ("cost_log", "jsonl"): {"path": str(Path(tempfile.gettempdir()) / "ekb-contract.jsonl")},
+    # Options that call a model take the gateway; building them calls nothing.
+    ("t4_header", "model"): {"gateway": Scripted()},
+    ("t5_classify", "model_plus_rules"): {"gateway": Scripted()},
 }
 
 load_options()

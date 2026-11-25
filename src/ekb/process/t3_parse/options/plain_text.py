@@ -37,6 +37,7 @@ class PlainTextParser:
             version=source.version,
             title=source.title,
             language=source.language,
+            department=source.department,
             media_type=source.media_type,
             parser_id=self.parser_id,
             blocks=tuple(Block(kind=BlockKind.PARAGRAPH, text=p) for p in paragraphs if p),

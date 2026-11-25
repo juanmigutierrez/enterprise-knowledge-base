@@ -106,7 +106,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S5 | 4 · **T3** Parse | Plain-text and Markdown parser (Docling as a later option) | From file to clean structured text | `ekb demo t3` on one document · UI: parsed text panel | 25 min | ✅ |
 | S6 | 4 · **T4** Chunk | Structure-aware chunking; context header off for now | Why chunk boundaries and headers matter for retrieval | `ekb demo t4`: show chunks of one policy · UI: chunks panel | 30 min | ✅ |
 | S7 | Platform · Model gateway | Free-tier providers through LangChain (Google AI Studio, Groq, Mistral, OpenRouter; fake offline; Ollama optional), per-task failover on quotas, content-hash cache, cost log, spend cap | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged · UI: model calls and cost panel | 40 min | ✅ |
-| S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ⬜ |
+| S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ✅ |
 | S9 | 4 · **T6** Entities | Exact match against the people and teams from the HR record API (S1b) (model cascade later) | How documents get linked to people and teams | `ekb demo t6` · UI: entities panel | 30 min | ⬜ |
 | S10 | 4 · **T7** Embed | Ollama bge-m3 option next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ⬜ |
 | S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ⬜ |
@@ -138,12 +138,19 @@ A step is never started before the previous one is pushed. Exception, decided on
 
 ## 6. Next step
 
+S8 is complete and reviewed (✅). The [S8 walkthrough](walkthrough/S08-t4-header-t5-classify.md) covers gateway-generated context headers and T5 classification. Settled in S8's plan on 25 November 2026:
+- The header is its own port in T4 (`t4_header`: `none`, `model`), one call per document through the gateway's `context_header` task; it is written in the document's language, and a model failure leaves the header empty instead of blocking the document.
+- T5 labels from the content only, never from the ACL: explicit markers ("Restricted to", "Do not forward", "(confidential)") set a document-wide floor, high-risk personal data raises its own chunk to confidential, everything else is internal, `public` is never guessed. `model_plus_rules` only makes labels stricter. The source's department is passed through T3 and wins over keywords.
+- A purge now also drops the document's cached model replies (`gateway.forget`).
+
+Next is **S9** (T6 entities) with `/plan-task S9`.
+
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.
 - OpenRouter and the other free tiers are recorded in D15 as an exception to the "AWS or open source only" constraint, for the POC only.
 - LangChain's chat models make the calls; the gateway's own code keeps routing, the cache, quotas, the spend cap and the cost log.
 
-The next step is **S8** (context header + T5 classify) with `/plan-task S8`, the gateway's first real caller. Its plan must also wire `forget(document_key)` to T2's purge.
+S8 (context header + T5 classify) was the gateway's first real caller; it wires `forget(document_key)` to T2's purge.
 
 Idea for later (T4, card 4.2): a chunk size that adapts to the text instead of one limit for every document.
 

@@ -389,6 +389,44 @@ pre.code {
     padding: 0 6px;
 }
 
+/* T4 header and T5 labels (S8): the header as a quiet line, one colour per sensitivity. */
+.header-line {
+    margin: 0 0 6px;
+    padding-left: 8px;
+    border-left: 3px solid var(--accent);
+    font-style: italic;
+}
+.why {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.sens {
+    font-size: 11px;
+    border-radius: 999px;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+}
+.sens-public,
+.sens-internal {
+    color: var(--upsert);
+    border-color: var(--upsert);
+}
+.sens-confidential {
+    color: var(--acl);
+    border-color: var(--acl);
+}
+.sens-restricted {
+    color: #fff;
+    background: var(--delete);
+    border-color: var(--delete);
+}
+.gate.pii {
+    color: var(--acl);
+    border-color: var(--acl);
+}
+
 /* Model gateway (S7): one badge per call outcome; each task's chain of models. */
 .out {
     font-size: 11px;

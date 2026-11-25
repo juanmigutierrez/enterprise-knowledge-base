@@ -13,6 +13,8 @@ from ekb.contracts import (
     DiffAction,
     DiffDecision,
     ParsedDocument,
+    PiiKind,
+    Sensitivity,
     render_blocks,
 )
 
@@ -191,6 +193,44 @@ def test_a_chunk_says_where_it_sits_and_what_cut_it_and_starts_unpublishable() -
     assert not chunk.publishable  # no sensitivity, vector or ACL yet
     bare = Chunk(document_key="k", document_version="1", chunk_id="k#0", text="t")
     assert (bare.section, bare.position, bare.tokens, bare.chunker_id) == ((), 0, 0, "")
+    # S8: T4's header and T5's labels start empty too.
+    assert (bare.header_id, bare.department, bare.sensitivity, bare.pii, bare.classifier_id) == (
+        "",
+        None,
+        None,
+        (),
+        "",
+    )
+    labelled = bare.model_copy(update={"sensitivity": Sensitivity.RESTRICTED})
+    assert not labelled.publishable  # a sensitivity alone: still no vector or ACL
+
+
+def test_sensitivity_is_ordered_and_the_strictest_wins() -> None:
+    levels = list(Sensitivity)
+    assert [level.rank for level in levels] == [0, 1, 2, 3]
+    assert levels == [
+        Sensitivity.PUBLIC,
+        Sensitivity.INTERNAL,
+        Sensitivity.CONFIDENTIAL,
+        Sensitivity.RESTRICTED,
+    ]
+    assert Sensitivity.strictest(Sensitivity.INTERNAL) is Sensitivity.INTERNAL
+    assert (
+        Sensitivity.strictest(Sensitivity.RESTRICTED, Sensitivity.PUBLIC, Sensitivity.INTERNAL)
+        is Sensitivity.RESTRICTED
+    )
+
+
+def test_a_chunk_s_pii_round_trips_as_its_names() -> None:
+    chunk = Chunk(
+        document_key="k",
+        document_version="1",
+        chunk_id="k#0",
+        text="t",
+        pii=(PiiKind.IBAN, PiiKind.EMAIL),
+    )
+    assert chunk.model_dump(mode="json")["pii"] == ["iban", "email"]
+    assert Chunk.model_validate(chunk.model_dump(mode="json")).pii == chunk.pii
 
 
 def test_render_blocks_is_the_documents_clean_text() -> None:

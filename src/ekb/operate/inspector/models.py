@@ -17,7 +17,17 @@ from pydantic import BaseModel, ConfigDict
 from ekb.changelog.bus.port import BusStats
 from ekb.changelog.rawstore.port import StoredOriginal
 from ekb.changelog.registry.port import DocumentRecord
-from ekb.contracts import Acl, Block, BlockKind, ChangeEvent, ChangeOp, Chunk, DiffAction
+from ekb.contracts import (
+    Acl,
+    Block,
+    BlockKind,
+    ChangeEvent,
+    ChangeOp,
+    Chunk,
+    DiffAction,
+    PiiKind,
+    Sensitivity,
+)
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkEntry, LoggedDecision, LoggedEvent, ParsedEntry
 from ekb.platform.gateway.config import split_ref
@@ -366,11 +376,18 @@ class ChunkSummaryView(_View):
     runs: int
     """How many times T4 chunked this item since the inspector started."""
     chunked_at: datetime
+    header_note: str
+    """What T4's header writer did (S8): who wrote the headers, or why there are none."""
+    classifier_note: str
+    """What T5 did (S8): where the department came from, which model, or rules only."""
+    sensitivity: dict[str, int]
+    """Chunks per sensitivity label, e.g. ``{"internal": 3, "confidential": 1}`` (S8)."""
 
     @classmethod
     def of(cls, entry: ChunkEntry) -> ChunkSummaryView:
         sizes = [chunk.tokens for chunk in entry.chunks] or [0]
         source, _, source_id = entry.document_key.partition(":")
+        levels = [chunk.sensitivity for chunk in entry.chunks if chunk.sensitivity is not None]
         return cls(
             document_key=entry.document_key,
             source=source,
@@ -386,6 +403,11 @@ class ChunkSummaryView(_View):
             over_limit=sum(1 for n in sizes if n > entry.max_tokens),
             runs=entry.runs,
             chunked_at=entry.chunked_at,
+            header_note=entry.header_note,
+            classifier_note=entry.classifier_note,
+            sensitivity={
+                level.value: levels.count(level) for level in Sensitivity if level in levels
+            },
         )
 
 
@@ -396,7 +418,7 @@ class ChunkListView(_View):
 
 
 class ChunkView(_View):
-    """One chunk, as T4 left it: no header, labels, vector or ACL yet."""
+    """One chunk, as T4 and T5 left it: header and labels, no vector or ACL yet."""
 
     chunk_id: str
     position: int
@@ -404,11 +426,20 @@ class ChunkView(_View):
     tokens: int
     text: str
     context_header: str
+    header_id: str
+    """What wrote the header (S8): ``none@1``, or the option, prompt version and model."""
+    department: str | None
+    sensitivity: Sensitivity | None
+    """``None`` only when T5 has not run on it."""
+    pii: list[PiiKind]
+    classifier_id: str
+    why: str
+    """Why T5 gave it its sensitivity, in plain words."""
     publishable: bool
-    """Always false after T4: the publication gate opens only once T5, T7 and T8 ran."""
+    """Always false after T5: the publication gate opens only once T7 and T8 ran too."""
 
     @classmethod
-    def of(cls, chunk: Chunk) -> ChunkView:
+    def of(cls, chunk: Chunk, why: str = "") -> ChunkView:
         return cls(
             chunk_id=chunk.chunk_id,
             position=chunk.position,
@@ -416,6 +447,12 @@ class ChunkView(_View):
             tokens=chunk.tokens,
             text=chunk.text,
             context_header=chunk.context_header,
+            header_id=chunk.header_id,
+            department=chunk.department,
+            sensitivity=chunk.sensitivity,
+            pii=list(chunk.pii),
+            classifier_id=chunk.classifier_id,
+            why=why,
             publishable=chunk.publishable,
         )
 
@@ -428,9 +465,13 @@ class ChunkedDocumentView(_View):
 
     @classmethod
     def of(cls, entry: ChunkEntry) -> ChunkedDocumentView:
+        why = list(entry.why) + [""] * (len(entry.chunks) - len(entry.why))
         return cls(
             summary=ChunkSummaryView.of(entry),
-            chunks=[ChunkView.of(chunk) for chunk in entry.chunks],
+            chunks=[
+                ChunkView.of(chunk, reason)
+                for chunk, reason in zip(entry.chunks, why, strict=False)  # why may be longer
+            ],
         )
 
 

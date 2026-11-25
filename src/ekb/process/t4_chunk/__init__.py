@@ -7,7 +7,11 @@ that mixes two topics matches both badly, and a table cut in half loses the
 column names its numbers depend on.
 
 Built in S6: the ``Chunker`` port and two options, ``structure_aware`` (cuts
-along sections) and ``fixed`` (windows of tokens, the baseline). The context
-header, a line that tells each chunk which document and section it is from,
-comes in S8 through the model gateway (S7); until then it is empty.
+along sections) and ``fixed`` (windows of tokens, the baseline).
+
+Built in S8: the **context header**, one or two sentences that tell each chunk
+which document and topic it is from, so a search finds a chunk that never names
+its subject. It is a port of its own (``header.py``, ``HeaderWriter``, registered
+as ``t4_header``) with two options: ``none`` (the baseline of card 4.3) and
+``model`` (one call per document through the model gateway, S7).
 """

@@ -306,9 +306,10 @@ def _header(story: Story, doc: str) -> None:
     _say(echo, f"It never says '{parsed.title}'. Its trail does: {_trail(chunk.section)}.")
     _say(
         echo,
-        f"Its context header is {chunk.context_header!r} for now. In S8 a model writes one "
-        "through the gateway (S7), so the chunk is found by questions about the policy it "
-        "belongs to; card 4.3 measures what that adds.",
+        f"Its context header is {chunk.context_header!r} here: this demo runs T4 without a "
+        "header writer. From S8 a model writes one through the gateway (S7), so the chunk "
+        "is found by questions about the policy it belongs to (`ekb demo t5`); card 4.3 "
+        "measures what that adds.",
     )
     echo("")
 
@@ -352,7 +353,7 @@ def _summary(story: Story) -> None:
     echo(f"   T3 and T4 ran {runs} times: once per 'process', never for the others.")
     echo(f"   Publishable chunks: {publishable} of {len(kept)}. None has a sensitivity (T5),")
     echo("   a vector (T7) or an ACL (T8) yet, so none could be searched.")
-    echo("   Next, the model gateway (S7), then the context header (S8).")
+    echo("   Next: the model gateway (S7), then the context header and T5's labels (S8).")
 
 
 # -------------------------------------------------------------------------- CLI
