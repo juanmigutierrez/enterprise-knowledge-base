@@ -134,6 +134,30 @@ def test_the_fake_answers_json_when_asked_for_a_schema() -> None:
     assert json.loads(reply.text) == {"header": "small header"}
 
 
+def test_the_fake_fills_in_enums_lists_numbers_and_nested_objects() -> None:
+    """So a step that checks its reply against the schema (S8) accepts the fake's."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "level": {"type": "string", "enum": ["public", "internal"]},
+            "kinds": {"type": "array", "items": {"type": "string"}},
+            "count": {"type": "integer"},
+            "ok": {"type": "boolean"},
+            "chunk_0": {"type": "object", "properties": {"text": {"type": "string"}}},
+        },
+    }
+
+    reply = FakeClient("small").invoke(REQUEST.model_copy(update={"json_schema": schema}))
+
+    assert json.loads(reply.text) == {
+        "level": "public",
+        "kinds": [],
+        "count": 0,
+        "ok": False,
+        "chunk_0": {"text": "small text"},
+    }
+
+
 def test_the_fake_never_counts_more_output_than_allowed() -> None:
     reply = FakeClient().invoke(REQUEST.model_copy(update={"max_output_tokens": 2}))
 

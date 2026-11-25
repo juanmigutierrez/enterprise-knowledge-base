@@ -18,6 +18,18 @@ def test_the_body_is_the_file_and_the_page_gives_title_and_language() -> None:
         "en",
     )
     assert (file.media_type, file.content) == (MARKDOWN, b"# Annual leave policy\n")
+    assert file.department == "people"  # the page's own label, for T5 (S8)
+
+
+def test_the_department_passes_through_the_parsers_and_may_be_missing() -> None:
+    from ekb.process.t3_parse.options.markdown import MarkdownParser
+    from ekb.process.t3_parse.options.plain_text import PlainTextParser
+
+    filed = docs_page("k", "1", page_json("# Expenses\n", department="finance"))
+    unfiled = docs_page("k", "1", page_json("# Note\n", department=None))
+    for parser in (MarkdownParser(), PlainTextParser()):
+        assert parser.parse(filed).department == "finance"
+        assert parser.parse(unfiled).department is None
 
 
 def test_fields_it_does_not_need_are_ignored() -> None:

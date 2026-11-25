@@ -5,17 +5,26 @@ import {
     type ChunkSummaryView,
     type ChunkView,
 } from "../api/client";
-import { chunkCount, listedChunks, sizeRange, sizeShare } from "../chunk";
+import {
+    chunkCount,
+    listedChunks,
+    piiLabel,
+    sensitivityClass,
+    sensitivityCounts,
+    sizeRange,
+    sizeShare,
+} from "../chunk";
 import { time } from "../format";
 import { trail } from "../parse";
 import { usePolling } from "../usePolling";
 
 /**
- * T4 Chunk (S6): the passages each document was cut into.
- * Left: every chunked document, with its number of chunks, their sizes and
- * how many times T4 chunked it. Right: one document's chunks in order, each
- * with its size against the chunker's limit, the section it belongs to and
- * its text. None is publishable yet: that is T8's gate.
+ * T4 Chunk (S6) and its labels (S8): the passages each document was cut into.
+ * Left: every chunked document, with its number of chunks, their sizes, its
+ * chunks per sensitivity and how many times T4 chunked it. Right: one
+ * document's chunks in order, each with its size against the chunker's limit,
+ * the section it belongs to, its context header (T4), its labels and why (T5)
+ * and its text. None is publishable yet: that is T8's gate.
  */
 export function ChunkScreen({ sources }: { sources: string[] }) {
     const [source, setSource] = useState("");
@@ -48,9 +57,11 @@ export function ChunkScreen({ sources }: { sources: string[] }) {
                     cuts each document along its sections. Long sections can
                     span several chunks, each carrying the same heading trail.
                     Tables and individual list items stay whole.
-                    These chunks are what T5–T8 label, embed and
-                    secure, and what a search returns. The context header
-                    comes in S8.
+                    A model then writes each chunk a context header, one call
+                    per document through the gateway, and T5 labels every chunk
+                    with a department, a sensitivity and the personal data it
+                    holds. T7 and T8 embed and secure them later; until then no
+                    chunk is publishable.
                 </p>
                 {list.error && <p className="error">{list.error}</p>}
                 <div className="counts">
@@ -142,6 +153,7 @@ function ChunkTable({
                     <th>title</th>
                     <th>chunks</th>
                     <th>sizes</th>
+                    <th>sensitivity</th>
                     <th>runs</th>
                     <th>chunked at</th>
                 </tr>
@@ -161,6 +173,7 @@ function ChunkTable({
                             {sizeRange(d)}
                             {d.over_limit > 0 && ` (${d.over_limit} over)`}
                         </td>
+                        <td>{sensitivityCounts(d.sensitivity)}</td>
                         <td className="num">{d.runs}</td>
                         <td>{time(d.chunked_at)}</td>
                     </tr>
@@ -180,6 +193,12 @@ function ChunkedDocument({ doc }: { doc: ChunkedDocumentView }) {
                 {sizeRange(summary)} · limit {summary.max_tokens} · cut by{" "}
                 <span className="mono">{summary.chunker_id}</span>
             </p>
+            {summary.header_note && (
+                <p className="muted">Headers: {summary.header_note}</p>
+            )}
+            {summary.classifier_note && (
+                <p className="muted">Labels: {summary.classifier_note}</p>
+            )}
             <div className="chunks">
                 {doc.chunks.map((chunk) => (
                     <ChunkCard
@@ -206,6 +225,11 @@ function ChunkCard({ chunk, maxTokens }: { chunk: ChunkView; maxTokens: number }
                     {chunk.tokens} tokens{over && " — over the limit, kept whole"}
                 </span>
                 <span className="spacer" />
+                <span className={sensitivityClass(chunk.sensitivity)} title={chunk.why}>
+                    {chunk.sensitivity ?? "not labelled"}
+                </span>
+                {chunk.department && <span className="gate">{chunk.department}</span>}
+                {chunk.pii.length > 0 && <span className="gate pii">{piiLabel(chunk.pii)}</span>}
                 <span
                     className="gate"
                     title="Published only once T5, T7 and T8 have set sensitivity, vector and ACL"
@@ -214,9 +238,14 @@ function ChunkCard({ chunk, maxTokens }: { chunk: ChunkView; maxTokens: number }
                 </span>
             </div>
             <div className="section-label">§ {trail(chunk.section)}</div>
-            {chunk.context_header && (
-                <p className="muted">header: {chunk.context_header}</p>
+            {chunk.context_header ? (
+                <p className="header-line" title={chunk.header_id}>
+                    {chunk.context_header}
+                </p>
+            ) : (
+                chunk.header_id && <p className="muted">no header</p>
             )}
+            {chunk.why && <p className="why">{chunk.why}</p>}
             <pre className="clean-text">{chunk.text}</pre>
         </div>
     );

@@ -217,14 +217,20 @@ class ChunkEntry:
     chunked_at: datetime
     runs: int
     """How many times T4 chunked this item: an edit adds one, a skip or a fast lane doesn't."""
+    header_note: str = ""
+    """What T4's header writer did for this version (S8): who wrote, or why none."""
+    classifier_note: str = ""
+    """What T5 did for this version (S8): where the department came from, which model."""
+    why: tuple[str, ...] = ()
+    """Per chunk: why T5 gave it its sensitivity."""
 
 
 class ChunkStore:
-    """T4's latest chunks per document.
+    """T4's latest chunks per document, with T5's labels on them from S8.
 
     ``record`` and ``drop`` are what ``ekb inspector`` calls after T3: ``record``
-    for every document T4 chunked, ``drop`` for every purge, so a deleted
-    page's chunks go with its parsed text and its originals.
+    for every document T4 chunked (and T5 labelled), ``drop`` for every purge, so
+    a deleted page's chunks go with its parsed text and its originals.
     """
 
     def __init__(self) -> None:
@@ -239,6 +245,9 @@ class ChunkStore:
         *,
         chunker_id: str,
         max_tokens: int,
+        header_note: str = "",
+        classifier_note: str = "",
+        why: tuple[str, ...] = (),
     ) -> None:
         """Keep T4's chunks for ``event``'s document, replacing the previous version's."""
         key = event.document_key
@@ -254,6 +263,9 @@ class ChunkStore:
                 lifetime=event.original_lifetime,
                 chunked_at=datetime.now(UTC),
                 runs=previous.runs + 1 if previous else 1,
+                header_note=header_note,
+                classifier_note=classifier_note,
+                why=why,
             )
 
     def drop(self, document_key: str) -> bool:

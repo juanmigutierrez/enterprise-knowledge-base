@@ -82,6 +82,9 @@ class ParsedDocument(BaseModel):
     """The version of the original that was parsed; chunks keep it as ``document_version``."""
     title: str
     language: str | None = None
+    department: str | None = None
+    """The department the source files the document under, when it says (the docs
+    tool's ``department`` field). T5 trusts it before guessing from the text (S8)."""
     media_type: str
     """What the parser read, e.g. ``text/markdown``."""
     parser_id: str

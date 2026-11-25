@@ -18,8 +18,9 @@ steps:
   # 4 · Process
   t2_diff:       { option: content_hash, card: "4.14" }
   t3_parse:      { option: docling, card: "4.1" }
-  t4_chunk:      { option: structure_aware, params: { max_tokens: 400, context_header: model }, card: "4.2 / 4.3" }
-  t5_classify:   { option: model_plus_rules, card: "4.9" }
+  t4_chunk:      { option: structure_aware, params: { max_tokens: 400 }, card: "4.2" }
+  t4_header:     { option: model, card: "4.3" }   # gateway task: context_header
+  t5_classify:   { option: model_plus_rules, card: "4.9" }   # gateway task: classify
   t6_entities:   { option: cascade, card: "4.10" }
   t7_embed:      { option: bge_m3_ollama, card: "4.4" }
   t8_permissions: { option: source_acl }

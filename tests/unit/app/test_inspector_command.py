@@ -15,10 +15,12 @@ from typer.testing import CliRunner
 
 from ekb.app.changelog import ChangeLog
 from ekb.app.cli import app
+from ekb.app.gateway import build_gateway
 from ekb.app.inspector import SyncLoop, build_connectors
-from ekb.contracts import Acl, ChangeOp, DiffAction
+from ekb.contracts import Acl, ChangeOp, DiffAction, Sensitivity
 from ekb.contracts.listing import NeedsOriginal
 from ekb.operate.inspector.log import EventLog
+from ekb.platform.config import load_settings
 from tests.http import as_httpx
 from tests.unit.changelog.factories import acl_change
 
@@ -151,6 +153,62 @@ def test_t4_chunks_what_t3_parses_and_forgets_what_t2_purges(
     assert [c.text for c in edited.chunks] == ["Rule\n\nFriday too."]
     assert chunks.get("hr_docs:HR-PL-99") is None  # deleted: its chunks are gone
     assert len(chunks.entries()) == 11
+
+
+def test_headers_and_labels_in_the_live_loop_and_a_purge_forgets_the_replies(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    """S8: the loop writes headers through the gateway (fake models in the ci profile)
+    and labels every chunk; a delete drops the document's cached replies too."""
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
+    gateway = build_gateway(load_settings().gateway)
+    loop = SyncLoop(
+        connectors, changelog, EventLog(), listing_every=1, gateway=gateway, header="model"
+    )
+    loop.run_round()
+    assert (loop.t4.header_id, loop.t5.classifier_id) == ("model@1(header@1)", "rules@1")
+    entries = loop.chunks.entries()
+    assert all(c.context_header and c.sensitivity for e in entries for c in e.chunks)
+    restricted = loop.chunks.get("hr_docs:HR-CMP-01")
+    assert restricted is not None
+    assert {c.sensitivity for c in restricted.chunks} == {Sensitivity.RESTRICTED}
+    assert restricted.header_note == "written by fake:fake-small, one request"
+    assert restricted.classifier_note == "department people (from the source)"
+    assert len(restricted.why) == len(restricted.chunks)
+    assert gateway.cache.size() == 12  # one header reply per page
+
+    docs.delete("/pages/HR-PL-99")
+    loop.run_round()
+    assert loop.chunks.get("hr_docs:HR-PL-99") is None
+    assert gateway.cache.size() == 11  # its header reply went with it
+
+
+def test_the_loop_needs_no_gateway_without_a_model_option(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    docs, hr, idp = clients
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "missing.sqlite", changelog
+    )
+    loop = SyncLoop(connectors, changelog, EventLog())  # header none, classifier rules
+    assert (loop.t4.header_id, loop.t5.classifier_id) == ("none@1", "rules@1")
+    with pytest.raises(ValueError, match="needs the model gateway"):
+        SyncLoop(connectors, changelog, EventLog(), header="model")
+
+
+@pytest.mark.parametrize(
+    ("option", "value"), [("--header", "sonnet"), ("--classifier", "presidio")]
+)
+def test_the_command_refuses_unknown_header_or_classifier_options(option: str, value: str) -> None:
+    result = CliRunner().invoke(app, ["inspector", option, value])
+    assert result.exit_code == 2
+    assert "one of" in result.output
 
 
 def test_a_failing_source_does_not_stop_the_others(

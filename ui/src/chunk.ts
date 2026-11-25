@@ -37,3 +37,27 @@ export function sizeShare(tokens: number, maxTokens: number): number {
 export function chunkCount(n: number): string {
     return `${n} chunk${n === 1 ? "" : "s"}`;
 }
+
+/** T5's levels, least to most strict (S8). */
+export const SENSITIVITIES = ["public", "internal", "confidential", "restricted"] as const;
+
+/** `3 internal, 1 confidential`: chunks per sensitivity, least strict first; `—` if none. */
+export function sensitivityCounts(counts: Record<string, number>): string {
+    const known = SENSITIVITIES.filter((level) => counts[level]).map(
+        (level) => `${counts[level]} ${level}`,
+    );
+    const other = Object.keys(counts)
+        .filter((level) => !(SENSITIVITIES as readonly string[]).includes(level) && counts[level])
+        .map((level) => `${counts[level]} ${level}`);
+    return [...known, ...other].join(", ") || "—";
+}
+
+/** The badge's class: one colour per level, a neutral one before T5 ran. */
+export function sensitivityClass(level: string | null | undefined): string {
+    return level ? `sens sens-${level}` : "sens";
+}
+
+/** `PII: email, phone`, or `""` when the chunk holds none. */
+export function piiLabel(kinds: readonly string[]): string {
+    return kinds.length ? `PII: ${kinds.join(", ")}` : "";
+}

@@ -50,6 +50,7 @@ class MarkdownParser:
             version=source.version,
             title=source.title,
             language=source.language,
+            department=source.department,
             media_type=source.media_type,
             parser_id=self.parser_id,
             blocks=tuple(_Walker().walk(self._md.parse(text))),

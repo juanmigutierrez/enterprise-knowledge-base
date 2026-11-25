@@ -106,3 +106,50 @@ def ask(
     return gateway.complete(
         task, prompt, prompt_version=prompt_version, max_output_tokens=max_output_tokens, **kwargs
     )
+
+
+class Scripted:
+    """A :class:`~ekb.platform.gateway.port.Completer` that answers with a fixed text, or
+    raises: for steps that call the gateway (S8) and must handle any reply."""
+
+    def __init__(self, text: str = "{}", error: Exception | None = None) -> None:
+        self.text, self.error = text, error
+        self.asked: list[dict[str, Any]] = []
+
+    def complete(
+        self,
+        task: str,
+        prompt: str,
+        *,
+        prompt_version: str,
+        max_output_tokens: int,
+        system: str = "",
+        temperature: float = 0.0,
+        json_schema: dict[str, Any] | None = None,
+        document_key: str | None = None,
+    ) -> GatewayReply:
+        self.asked.append(
+            {
+                "task": task,
+                "prompt": prompt,
+                "prompt_version": prompt_version,
+                "max_output_tokens": max_output_tokens,
+                "system": system,
+                "json_schema": json_schema,
+                "document_key": document_key,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        return GatewayReply(
+            text=self.text,
+            task=task,
+            candidate="fake:scripted",
+            cached=False,
+            input_tokens=1,
+            output_tokens=1,
+            cost_usd=0.0,
+            latency_ms=1,
+            key="k" * 64,
+            steps=(),
+        )

@@ -366,8 +366,16 @@
             "title": "Chunks",
             "type": "integer"
           },
+          "classifier_note": {
+            "title": "Classifier Note",
+            "type": "string"
+          },
           "document_key": {
             "title": "Document Key",
+            "type": "string"
+          },
+          "header_note": {
+            "title": "Header Note",
             "type": "string"
           },
           "largest": {
@@ -385,6 +393,13 @@
           "runs": {
             "title": "Runs",
             "type": "integer"
+          },
+          "sensitivity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Sensitivity",
+            "type": "object"
           },
           "smallest": {
             "title": "Smallest",
@@ -425,21 +440,50 @@
           "largest",
           "over_limit",
           "runs",
-          "chunked_at"
+          "chunked_at",
+          "header_note",
+          "classifier_note",
+          "sensitivity"
         ],
         "title": "ChunkSummaryView",
         "type": "object"
       },
       "ChunkView": {
-        "description": "One chunk, as T4 left it: no header, labels, vector or ACL yet.",
+        "description": "One chunk, as T4 and T5 left it: header and labels, no vector or ACL yet.",
         "properties": {
           "chunk_id": {
             "title": "Chunk Id",
             "type": "string"
           },
+          "classifier_id": {
+            "title": "Classifier Id",
+            "type": "string"
+          },
           "context_header": {
             "title": "Context Header",
             "type": "string"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "header_id": {
+            "title": "Header Id",
+            "type": "string"
+          },
+          "pii": {
+            "items": {
+              "$ref": "#/components/schemas/PiiKind"
+            },
+            "title": "Pii",
+            "type": "array"
           },
           "position": {
             "title": "Position",
@@ -456,6 +500,16 @@
             "title": "Section",
             "type": "array"
           },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sensitivity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "text": {
             "title": "Text",
             "type": "string"
@@ -463,6 +517,10 @@
           "tokens": {
             "title": "Tokens",
             "type": "integer"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
           }
         },
         "required": [
@@ -472,6 +530,12 @@
           "tokens",
           "text",
           "context_header",
+          "header_id",
+          "department",
+          "sensitivity",
+          "pii",
+          "classifier_id",
+          "why",
           "publishable"
         ],
         "title": "ChunkView",
@@ -1273,6 +1337,20 @@
         "title": "ParsedSummaryView",
         "type": "object"
       },
+      "PiiKind": {
+        "description": "Kinds of personal data T5 flags on a chunk.\n\nThe first four identify a person or their money on their own, so a chunk\nholding one is at least confidential. An email address, a phone number or\na name is flagged but does not raise the chunk by itself: a policy giving\nthe HR team's address is not confidential.",
+        "enum": [
+          "iban",
+          "payment_card",
+          "it_fiscal_code",
+          "es_national_id",
+          "email",
+          "phone",
+          "person_name"
+        ],
+        "title": "PiiKind",
+        "type": "string"
+      },
       "RecordCountView": {
         "description": "A source whose items T3 found to be structured records, not documents (D7).",
         "properties": {
@@ -1393,6 +1471,17 @@
         ],
         "title": "RecordView",
         "type": "object"
+      },
+      "Sensitivity": {
+        "description": "How carefully a passage must be handled, from least to most strict.\n\nThe order matters: when two signals disagree (a rule and a model, a\ndocument's marker and a chunk's own content), the stricter one wins,\nbecause a missed restriction is a leak and an extra one is only friction\n(card 4.9).",
+        "enum": [
+          "public",
+          "internal",
+          "confidential",
+          "restricted"
+        ],
+        "title": "Sensitivity",
+        "type": "string"
       },
       "SourceView": {
         "properties": {

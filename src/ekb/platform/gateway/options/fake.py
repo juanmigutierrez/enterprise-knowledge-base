@@ -1,8 +1,11 @@
 """Offline, deterministic model client for tests, CI and ``ekb demo gateway --fake``.
 
-It has no language skill: it echoes the start of the prompt's last line. It exists so the
-gateway's routing, cache, quotas and failover can be tested without a network,
-an API key or a quota, and so the ``ci`` profile never calls a real model.
+It has no language skill: it echoes the start of the prompt's last line. Asked for
+JSON, it fills the schema in: the first value of an enum, an empty list, zero, and
+``"<model> <field>"`` for a string, so a step that checks its reply against the
+schema (S8) accepts it. It exists so the gateway's routing, cache, quotas and
+failover can be tested without a network, an API key or a quota, and so the ``ci``
+profile never calls a real model.
 
 ``fail`` scripts failures: each call takes the next kind from it and raises it,
 which is how the tests (and the demo) show what a 429 or an outage does.
@@ -13,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
+from typing import Any
 
 from ekb.platform.gateway.errors import ModelCallError
 from ekb.platform.gateway.models import ChatRequest, FailureKind, ModelReply
@@ -57,8 +61,7 @@ class FakeClient:
             kind = self._fail.pop(0)
             raise ModelCallError(kind, f"FakeClient scripted failure ({kind})")
         if request.json_schema is not None:
-            properties = request.json_schema.get("properties", {})
-            text = json.dumps({name: f"{self._model} {name}" for name in properties})
+            text = json.dumps(_fill(request.json_schema, "", self._model), ensure_ascii=False)
         else:
             last = request.prompt.strip().splitlines()[-1] if request.prompt.strip() else ""
             text = f"{self._model} says: {' '.join(last.split()[:ECHO_WORDS])}"
@@ -69,3 +72,20 @@ class FakeClient:
             output_tokens=min(len(output), request.max_output_tokens),
             served_model=self._model,
         )
+
+
+def _fill(schema: dict[str, Any], name: str, model: str) -> object:
+    """A value that matches ``schema``: deterministic, and obviously not a model's."""
+    if "enum" in schema:
+        return schema["enum"][0]
+    kind = schema.get("type", "object" if "properties" in schema else "string")
+    if kind == "object":
+        properties: dict[str, dict[str, Any]] = schema.get("properties", {})
+        return {key: _fill(sub, key, model) for key, sub in properties.items()}
+    if kind == "array":
+        return []
+    if kind in ("integer", "number"):
+        return 0
+    if kind == "boolean":
+        return False
+    return f"{model} {name}"

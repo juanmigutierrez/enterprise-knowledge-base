@@ -27,6 +27,8 @@ from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.options.markdown import MarkdownParser
 from ekb.process.t3_parse.port import MARKDOWN, SourceFile
 from ekb.process.t4_chunk.options.structure_aware import StructureAwareChunker
+from ekb.process.t5_classify.options.rules import RulesClassifier
+from ekb.process.t5_classify.step import ClassifyStep
 from tests.conftest import REPO_ROOT
 
 AT = datetime(2026, 11, 24, 9, 0, tzinfo=UTC)
@@ -443,8 +445,54 @@ def test_t4_shows_one_documents_chunks_none_of_them_publishable(client: TestClie
         "tokens": 14,
         "text": "The rule\n\n- Two days a week.\n\nDay | Where\nFri | Home",
         "context_header": "",
+        "header_id": "",  # T4 without a header writer, as S6 wired it
+        "department": None,  # T5 has not run on these
+        "sensitivity": None,
+        "pii": [],
+        "classifier_id": "",
+        "why": "",
         "publishable": False,  # the publication gate: no sensitivity, vector or ACL yet
     }
+    assert body["summary"]["sensitivity"] == {}
+    assert body["summary"]["header_note"] == body["summary"]["classifier_note"] == ""
+
+
+def test_t4_shows_t5_s_labels_and_why() -> None:
+    """S8: the chunks the inspector keeps carry their header and T5's labels."""
+    body = (
+        "# Salaries\n\nRestricted to HR. Do not forward.\n\n## Contact\nWrite to hr@example.com.\n"
+    )
+    file = SourceFile("hr_docs:HR-X", "1.1", "Salaries", "en", MARKDOWN, body.encode(), "people")
+    document = MarkdownParser().parse(file)
+    cut = StructureAwareChunker().chunk(document)
+    result = ClassifyStep(RulesClassifier()).handle(document, cut)
+    store = ChunkStore()
+    store.record(
+        EVENTS[0].model_copy(update={"source_id": "HR-X"}),
+        "Salaries",
+        result.chunks,
+        chunker_id="structure_aware@1(max_tokens=400)",
+        max_tokens=400,
+        header_note="no header: the none option writes none",
+        classifier_note=result.note,
+        why=result.why,
+    )
+    client = TestClient(_app(EventLog(), chunks=store))
+
+    view = client.get("/api/t4/chunks/document", params={"document_key": "hr_docs:HR-X"}).json()
+
+    assert view["summary"]["sensitivity"] == {"restricted": 2}
+    assert view["summary"]["classifier_note"] == "department people (from the source)"
+    assert view["summary"]["header_note"].startswith("no header")
+    first, second = view["chunks"]
+    assert (first["sensitivity"], first["department"], first["classifier_id"]) == (
+        "restricted",
+        "people",
+        "rules@1",
+    )
+    assert first["why"] == "restricted: the document says “Restricted to”"
+    assert second["pii"] == ["email"]  # an email is flagged but does not raise the chunk
+    assert second["publishable"] is False  # labelled, but no vector or ACL yet
 
 
 @pytest.mark.parametrize("key", ["hr_docs:none", "identity:users/alice"])

@@ -12,8 +12,8 @@ GET /api/t2/decisions[?since=&source=&action=   T2's decisions and totals (S4)
                      &document_key=]
 GET /api/t3/parsed[?source=]                    parsed documents, and records not parsed (S5)
 GET /api/t3/parsed/document?document_key=       one parsed document's blocks and text (S5)
-GET /api/t4/chunks[?source=]                    chunked documents and their sizes (S6)
-GET /api/t4/chunks/document?document_key=       one document's chunks (S6)
+GET /api/t4/chunks[?source=]                    chunked documents, sizes and labels (S6, S8)
+GET /api/t4/chunks/document?document_key=       one document's chunks, headers, labels (S6, S8)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================

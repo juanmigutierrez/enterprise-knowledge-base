@@ -19,3 +19,4 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S5 | [T3 Parse: from a stored original to clean, structured text](S05-t3-parse.md) |
 | S6 | [T4 Chunk: from parsed blocks to the passages that will be searched](S06-t4-chunk.md) |
 | S7 | [Model gateway: every model call routed, reused, guarded and costed](S07-model-gateway.md) |
+| S8 | [T4 context header + T5 Classify: what metadata each chunk carries, and why](S08-t4-header-t5-classify.md) |

@@ -9,11 +9,13 @@ It builds a small live system in one process:
    polling and CDC every few seconds, the full listings less often. After each
    group of connectors T2 (S4) decides every new event, purges deleted items'
    originals and records the registry, keeping its decisions for the UI. T3
-   (S5) parses what T2 sends on and T4 (S6) chunks it; both forget what T2
-   purges. The inspector's own consumer group copies the events into its log;
+   (S5) parses what T2 sends on, T4 (S6) chunks it and writes the context
+   headers through the model gateway (S8), and T5 (S8) labels the chunks; all
+   of them forget what T2 purges, the gateway's cached replies included. The
+   inspector's own consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``), with the
    model gateway's panel (S7): its routes, free quotas and the cost log that
-   ``ekb demo gateway`` and, from S8, the pipeline write to.
+   ``ekb demo gateway`` and the headers write to.
 
 Change something in a mock's ``/docs`` page and watch the event appear.
 """
@@ -38,11 +40,12 @@ import uvicorn
 from fastapi import FastAPI
 
 from ekb.app.changelog import ChangeLog
-from ekb.app.chunk import Processed, chunk_after_t3, chunk_step
+from ekb.app.chunk import HEADER_OPTIONS, Processed, chunk_after_t3, chunk_step, header_writer
+from ekb.app.classify import CLASSIFIER_OPTIONS, classify_step, forgetter
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
 from ekb.app.diff import T2_GROUP, diff_step, run_t2
-from ekb.app.gateway import build_cost_log, max_spend, provider_status
+from ekb.app.gateway import build_gateway, max_spend, provider_status
 from ekb.app.parse import parse_after_t2, parse_step
 from ekb.changelog.bus.consume import drain
 from ekb.connect.docs_api import DocsApi
@@ -69,9 +72,11 @@ from ekb.operate.inspector.app import (
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.platform.config import Settings, load_settings
+from ekb.platform.gateway.gateway import ModelGateway
 from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.step import ParseStep
 from ekb.process.t4_chunk.step import ChunkStep
+from ekb.process.t5_classify.step import ClassifyStep
 
 logger = logging.getLogger(__name__)
 
@@ -132,33 +137,43 @@ class SyncLoop:
     decisions: DecisionLog = field(default_factory=DecisionLog)
     parsed: ParsedStore = field(default_factory=ParsedStore, kw_only=True)
     chunks: ChunkStore = field(default_factory=ChunkStore, kw_only=True)
+    gateway: ModelGateway | None = field(default=None, kw_only=True)
+    """The model gateway the header (and ``model_plus_rules``) call; its cached replies
+    about a purged document are forgotten with the rest."""
+    header: str = field(default="none", kw_only=True)
+    """T4's header option: ``none`` (no model, the default for tests) or ``model``."""
+    classifier: str = field(default="rules", kw_only=True)
+    """T5's option: ``rules`` or ``model_plus_rules``."""
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
     t2: DiffStep = field(init=False)
     t3: ParseStep = field(init=False)
     t4: ChunkStep = field(init=False)
+    t5: ClassifyStep = field(init=False)
 
     def __post_init__(self) -> None:
         def processed(result: Processed) -> None:
             event, parsed = result.parse.event, result.parse.parsed
             self.parsed.record(event, parsed)
             if parsed is not None and result.chunks is not None:
+                headers, labels = result.chunks.headers, result.labels
                 self.chunks.record(
                     event,
                     parsed.title,
-                    result.chunks.chunks,
+                    result.final,
                     chunker_id=result.chunks.chunker_id,
                     max_tokens=result.chunks.max_tokens,
+                    header_note=headers.note if headers is not None else "",
+                    classifier_note=labels.note if labels is not None else "",
+                    why=labels.why if labels is not None else (),
                 )
 
-        def forget(document_key: str) -> None:
-            self.parsed.drop(document_key)
-            self.chunks.drop(document_key)
-
+        forget = forgetter(self.gateway, self.parsed.drop, self.chunks.drop)
         self.t3 = parse_step(self.changelog)
-        self.t4 = chunk_step()
-        then_parse = parse_after_t2(self.t3, chunk_after_t3(self.t4, processed), forget)
+        self.t4 = chunk_step(header=header_writer(self.header, self.gateway))
+        self.t5 = classify_step(self.classifier, self.gateway)
+        then_parse = parse_after_t2(self.t3, chunk_after_t3(self.t4, processed, self.t5), forget)
 
         def keep(result: DiffResult) -> None:
             then_parse(result)  # first: if T3 or T4 fails, T2 records nothing; the event comes back
@@ -234,10 +249,23 @@ def inspector(
     docs_url: Annotated[str | None, typer.Option(help="A running mock docs service.")] = None,
     hr_url: Annotated[str | None, typer.Option(help="A running mock HR API.")] = None,
     idp_url: Annotated[str | None, typer.Option(help="A running mock identity provider.")] = None,
+    header: Annotated[
+        str,
+        typer.Option(help="T4's context header: model (through the gateway) or none."),
+    ] = "model",
+    classifier: Annotated[
+        str, typer.Option(help="T5's classifier: rules or model_plus_rules.")
+    ] = "rules",
 ) -> None:
     """8 · Inspector (local only): run the connectors and serve the read-only inspector API."""
     if not math.isfinite(interval) or interval <= 0:
         raise typer.BadParameter("must be finite and positive", param_hint="--interval")
+    if header not in HEADER_OPTIONS:
+        raise typer.BadParameter(f"one of {', '.join(HEADER_OPTIONS)}", param_hint="--header")
+    if classifier not in CLASSIFIER_OPTIONS:
+        raise typer.BadParameter(
+            f"one of {', '.join(CLASSIFIER_OPTIONS)}", param_hint="--classifier"
+        )
     if export_openapi is not None:
         schema = openapi_json(
             _create_app(
@@ -257,6 +285,7 @@ def inspector(
     log, decisions, parsed, chunks = EventLog(), DecisionLog(), ParsedStore(), ChunkStore()
     changelog = ChangeLog.in_memory()
     try:
+        gateway = build_gateway(settings.gateway)
         app = _create_app(
             log,
             decisions,
@@ -264,7 +293,7 @@ def inspector(
             changelog,
             profile,
             chunks=chunks,
-            gateway=gateway_panel(settings),
+            gateway=gateway_panel(settings, gateway),
         )
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
@@ -289,6 +318,9 @@ def inspector(
             decisions,
             parsed=parsed,
             chunks=chunks,
+            gateway=gateway,
+            header=header,
+            classifier=classifier,
             listing_every=listing_every,
         )
         loaded = loop.run_round()
@@ -303,6 +335,14 @@ def inspector(
         typer.echo(f"T3 parsed {len(parsed.entries())} documents with {loop.t3.parser_id}.")
         cut = sum(len(entry.chunks) for entry in chunks.entries())
         typer.echo(f"T4 cut them into {cut} chunks with {loop.t4.chunker_id}.")
+        headed = sum(1 for e in chunks.entries() for c in e.chunks if c.context_header)
+        typer.echo(f"T4 headers: {headed} of {cut} chunks have one ({loop.t4.header_id}).")
+        if header == "model" and cut and not headed:
+            typer.echo(
+                "  No model wrote them: set a free API key in .env and start with "
+                "`uv run --env-file .env ekb inspector` (S7 walkthrough), or use --header none."
+            )
+        typer.echo(f"T5 labelled them with {loop.t5.classifier_id}.")
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -312,13 +352,14 @@ def inspector(
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
 
 
-def gateway_panel(settings: Settings) -> GatewayPanel:
+def gateway_panel(settings: Settings, gateway: ModelGateway) -> GatewayPanel:
     """The gateway as the inspector shows it: its routes, which keys are set (not the
-    keys), and the cost log the demo and the pipeline write to."""
+    keys), and the cost log the demo and the pipeline write to. It reads the same log
+    instance the pipeline's gateway writes, so in-memory logs (``ci``) show too."""
     config = settings.gateway
     return GatewayPanel(
         config=config,
-        log=build_cost_log(config.cost_log),
+        log=gateway.log,
         providers=provider_status(config),
         max_spend_usd=max_spend(config, os.environ),
     )

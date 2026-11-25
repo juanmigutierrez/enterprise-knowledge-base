@@ -17,7 +17,8 @@ Modules:
 - ``config``: the ``gateway:`` section of the settings (tasks, models, quotas).
 - ``models``: the request, the reply, the cached reply and the call record.
 - ``port``: the three ports, :class:`ModelClient`, :class:`ResponseCache` and
-  :class:`CostLog`, each with options in ``options/``.
+  :class:`CostLog`, each with options in ``options/``; and :class:`Completer`,
+  what a pipeline step needs from the gateway (S8).
 - ``keys``: the cache key.
 - ``usage``: quota windows and totals, computed from the cost log.
 - ``errors``: what can go wrong, in the gateway's own words.

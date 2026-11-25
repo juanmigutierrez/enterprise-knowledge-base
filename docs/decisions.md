@@ -205,7 +205,7 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
   1. **Cache every model call by content hash** (model + prompt version + input) → re-ingestion during development is almost free. *Built in S7: a SQLite cache keyed on provider, model, model settings, prompt version and the full request.*
   2. **Prompt caching in T4:** the document is a cached prefix, then each chunk.
   3. **Bedrock batch inference** (−50%) for ingestion and evaluation.
-  4. **One call per document** returning context headers + classification + entities as JSON, instead of one call per chunk.
+  4. **One call per document** returning context headers + classification + entities as JSON, instead of one call per chunk. *Partly applied in S8: one call per document **per step** (T4's headers, task `context_header`; T5's model labels, task `classify`), not one combined call. The steps are independent (an import-linter contract) and each task has its own model chain; a combined call is left to an experiment.*
   5. **A cascade for entities:** exact match against HR data → Haiku → Sonnet only on low confidence or conflicts.
   6. **Skip the model where code works:** no LLM for HR database records; strip boilerplate before enrichment.
   7. **Cap output length and require a JSON schema** (no retries, no long answers).
