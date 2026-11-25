@@ -762,3 +762,38 @@ ol.hits {
     background: #f1f1ee;
     font-size: 12px;
 }
+
+/* Q4 (S14): cited, held back, personal data removed, source changed. */
+.q4 {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-weight: 600;
+}
+.q4-cited {
+    background: var(--accent);
+    color: #fff;
+}
+.q4-held {
+    background: #fbeaea;
+    color: #9b1c1c;
+    border: 1px solid #e3a6a6;
+}
+.hit.held {
+    opacity: 0.75;
+    border-style: dashed;
+}
+.redacted {
+    background: #fff1c2;
+    color: #6b4e00;
+    border-radius: 3px;
+    padding: 0 3px;
+    font-size: 0.9em;
+}
+.changed {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    border: 1px solid var(--acl);
+    color: var(--acl);
+}

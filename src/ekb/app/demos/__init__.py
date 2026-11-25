@@ -7,6 +7,7 @@ walkthrough in docs/walkthrough/.
 """
 
 from ekb.app.demos import (  # noqa: F401  (importing registers the commands)
+    answer,
     gateway,
     ingest,
     s1,

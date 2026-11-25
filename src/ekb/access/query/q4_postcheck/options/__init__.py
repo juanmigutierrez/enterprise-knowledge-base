@@ -1,1 +1,1 @@
-"""Options for ``q4_postcheck``. Each module registers one implementation of the step's port."""
+"""Options for ``q4_postcheck`` and its redactor ``q4_redact``. Each module registers one option."""

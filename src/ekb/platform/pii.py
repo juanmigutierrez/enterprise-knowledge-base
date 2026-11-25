@@ -1,4 +1,9 @@
-"""Finding personal data in text with patterns (T5's rules, S8).
+"""Finding personal data in text with patterns, for T5's labels and Q4's redaction.
+
+Written for T5's rules (S8) and moved here in S14, so Q4 removes from released
+text exactly what T5 flags on a chunk: the query steps and the processing steps
+cannot import each other (import-linter), and two copies of these patterns would
+drift apart. A pattern fixed here is fixed for labelling and redaction alike.
 
 Each detector is a regular expression, and where the identifier carries a check
 digit (IBAN, payment card, Spanish DNI / NIE), the check digit too. A check digit
@@ -11,7 +16,7 @@ number or a card.
 
 Not found by patterns: people's names (that needs a name recognizer, such as
 Presidio with a spaCy model, or the model option), addresses and dates of birth.
-Presidio is a later option of this step (card 4.9).
+Presidio is a later option of T5 (card 4.9) and of Q4's redaction.
 """
 
 from __future__ import annotations

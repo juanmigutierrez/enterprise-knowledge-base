@@ -19,7 +19,9 @@ from ekb.changelog.bus.port import BusStats
 from ekb.changelog.rawstore.port import StoredOriginal
 from ekb.changelog.registry.port import DocumentRecord
 from ekb.contracts import (
+    AccessVerdict,
     Acl,
+    AnswerResult,
     Block,
     BlockKind,
     ChangeEvent,
@@ -31,8 +33,8 @@ from ekb.contracts import (
     EntityKind,
     EntityMention,
     Membership,
+    Passage,
     PiiKind,
-    SearchResult,
     Sensitivity,
     StepOutcome,
     TraceStatus,
@@ -680,20 +682,28 @@ def _membership(membership: Membership, published: dict[str, Acl | None]) -> Mem
 # ------------------------------------------------------------------ T6 entities (S9)
 
 
-# ------------------------------------------------------------------ Search as user (S13)
+# ------------------------------------------------------------------ Search as user (S13, S14)
+
+
+class RedactionView(_View):
+    """Personal data Q4 removed from a released passage: the kind and how often."""
+
+    kind: PiiKind
+    count: int
 
 
 class SearchHitView(_View):
-    """One chunk Q3 kept for this person, and where each leg ranked it."""
+    """One chunk Q3 kept for this person, where each leg ranked it, and what Q4 decided."""
 
     rank: int
     score: float
-    """The fused (reciprocal rank fusion) score."""
+    """The fused (reciprocal rank fusion) score, after merging Q1's searches."""
     chunk_id: str
     document_key: str
     title: str
     section: list[str]
     text: str
+    """The chunk's text as indexed (an inspector's view: personal data included)."""
     sensitivity: Sensitivity | None
     readers: AclView | None
     """The chunk's readers: what let this person find it."""
@@ -703,6 +713,16 @@ class SearchHitView(_View):
     vector_rank: int | None
     vector_score: float | None
     """Cosine similarity to the question."""
+    verdict: AccessVerdict
+    """Q4: what the source said about this person and this document, now (S14)."""
+    access_reason: str
+    citation: int | None
+    """The passage's number in the answer, ``[1]``; ``None`` when Q4 held it back."""
+    released_text: str | None
+    """The text as released, personal data removed; ``None`` when held back."""
+    redactions: list[RedactionView]
+    source_changed: bool
+    """Released, but the source's text has changed since it was indexed."""
 
 
 class WithheldView(_View):
@@ -716,7 +736,7 @@ class WithheldView(_View):
 
 
 class SearchView(_View):
-    """One question asked as one person: Q2's scope, Q3's hits and notes."""
+    """One question asked as one person: Q1's plan, Q2's scope, Q3's hits, Q4's decisions."""
 
     question: str
     user_id: str
@@ -726,8 +746,12 @@ class SearchView(_View):
     """Q2's answer in plain words, e.g. ``reads as alice + all-staff, it-employees``."""
     groups: list[str]
     """The groups they read with now (empty when they read nothing)."""
+    searches: list[str]
+    """Q1's plan: what was searched (S14)."""
+    planner_id: str
     prefilter_id: str
     retriever_id: str
+    postcheck_id: str
     encoder: str
     """How questions are embedded, or why they are not."""
     searched: int
@@ -736,7 +760,12 @@ class SearchView(_View):
     vector_found: int
     vector_leg: bool
     notes: list[str]
+    """The answer's notes, as an agent would get them."""
     hits: list[SearchHitView]
+    released: int
+    """Passages Q4 released, cited."""
+    held_back: int
+    """Hits Q4 held back: the source did not say yes."""
     withheld: list[WithheldView]
     withheld_chunks: int
     ms: float
@@ -744,47 +773,75 @@ class SearchView(_View):
     @classmethod
     def of(
         cls,
-        result: SearchResult,
+        result: AnswerResult,
         withheld: tuple[Chunk, ...],
         titles: dict[str, str],
         encoder: str,
     ) -> SearchView:
-        scope, retrieval = result.scope, result.retrieval
+        scope = result.scope
+        retrievals = [search.retrieval for search in result.searches]
         kept_out: dict[str, list[Chunk]] = {}
         for chunk in withheld:
             kept_out.setdefault(chunk.document_key, []).append(chunk)
-        return cls(
-            question=retrieval.question,
-            user_id=scope.user_id,
-            reads_nothing=scope.reads_nothing,
-            reason=scope.reason,
-            groups=sorted(scope.principals.groups) if scope.principals is not None else [],
-            prefilter_id=scope.prefilter_id,
-            retriever_id=retrieval.retriever_id,
-            encoder=encoder,
-            searched=retrieval.searched,
-            keyword_found=retrieval.keyword_found,
-            vector_found=retrieval.vector_found,
-            vector_leg=retrieval.vector_leg,
-            notes=list(retrieval.notes),
-            hits=[
+        passages = {p.citation.chunk_id: p for p in result.released.passages}
+        answers = {a.document_key: a for a in result.released.checked}
+        hits: list[SearchHitView] = []
+        for hit in result.hits:
+            chunk = hit.chunk
+            passage: Passage | None = passages.get(chunk.chunk_id)
+            access = answers.get(chunk.document_key)
+            if access is None:  # Q4 did not look at it (source_recheck always does)
+                verdict, why = AccessVerdict.UNAVAILABLE, "not checked by Q4"
+            else:
+                verdict, why = access.verdict, access.reason
+            if passage is None and verdict.released:  # never released without a passage
+                verdict = AccessVerdict.UNAVAILABLE
+            hits.append(
                 SearchHitView(
                     rank=hit.rank,
                     score=hit.score,
-                    chunk_id=hit.chunk.chunk_id,
-                    document_key=hit.chunk.document_key,
-                    title=titles.get(hit.chunk.document_key, ""),
-                    section=list(hit.chunk.section),
-                    text=hit.chunk.text,
-                    sensitivity=hit.chunk.sensitivity,
-                    readers=AclView.of(hit.chunk.acl) if hit.chunk.acl is not None else None,
+                    chunk_id=chunk.chunk_id,
+                    document_key=chunk.document_key,
+                    title=passage.citation.title if passage else titles.get(chunk.document_key, ""),
+                    section=list(passage.citation.section if passage else chunk.section),
+                    text=chunk.text,
+                    sensitivity=chunk.sensitivity,
+                    readers=AclView.of(chunk.acl) if chunk.acl is not None else None,
                     keyword_rank=hit.keyword_rank,
                     keyword_score=hit.keyword_score,
                     vector_rank=hit.vector_rank,
                     vector_score=hit.vector_score,
+                    verdict=verdict,
+                    access_reason=why,
+                    citation=passage.citation.number if passage is not None else None,
+                    released_text=passage.text if passage is not None else None,
+                    redactions=[
+                        RedactionView(kind=r.kind, count=r.count)
+                        for r in (passage.redactions if passage is not None else ())
+                    ],
+                    source_changed=passage.citation.source_changed if passage else False,
                 )
-                for hit in retrieval.hits
-            ],
+            )
+        return cls(
+            question=result.plan.question,
+            user_id=scope.user_id,
+            reads_nothing=scope.reads_nothing,
+            reason=scope.reason,
+            groups=sorted(scope.principals.groups) if scope.principals is not None else [],
+            searches=list(result.plan.searches),
+            planner_id=result.plan.planner_id,
+            prefilter_id=scope.prefilter_id,
+            retriever_id=retrievals[0].retriever_id if retrievals else "",
+            postcheck_id=result.released.postcheck_id,
+            encoder=encoder,
+            searched=max((r.searched for r in retrievals), default=0),
+            keyword_found=sum(r.keyword_found for r in retrievals),
+            vector_found=sum(r.vector_found for r in retrievals),
+            vector_leg=any(r.vector_leg for r in retrievals),
+            notes=list(result.answer.notes),
+            hits=hits,
+            released=len(result.released.passages),
+            held_back=len(result.released.withheld),
             withheld=[
                 WithheldView(
                     document_key=key,

@@ -20,8 +20,10 @@ both are printed, never silent:
 The inspector's ``--header``, ``--classifier`` and ``--embed`` flags override
 the configuration last (:meth:`Choices.with_options`).
 
-The query path (S13) is chosen the same way, by :func:`choose_query`: Q2's
-pre-filter, Q3's retriever and, read from Q3's ``rerank`` setting, its reranker.
+The query path (S13, S14) is chosen the same way, by :func:`choose_query`: Q1's
+planner, Q2's pre-filter, Q3's retriever and, read from Q3's ``rerank``
+setting, its reranker; Q4's post-check and, read from its ``redact`` setting
+(``rules`` when absent), its redactor.
 """
 
 from __future__ import annotations
@@ -53,10 +55,16 @@ PIPELINE_STEPS = (
 )
 """What the write path needs, in the order data meets it: box 3, box 4, then box 5."""
 
-QUERY_STEPS = ("q2_prefilter", "q3_retrieve", "q3_rerank")
-"""What the query path needs (S13), in the order a question meets it. ``q3_rerank`` is
-not a step of its own in ``config/``: it is ``q3_retrieve``'s ``rerank`` setting."""
-RERANK_SETTING = "rerank"
+QUERY_STEPS = ("q1_plan", "q2_prefilter", "q3_retrieve", "q3_rerank", "q4_postcheck", "q4_redact")
+"""What the query path needs (S13, S14), in the order a question meets it."""
+SETTING_STEPS: Mapping[str, tuple[str, str, str]] = MappingProxyType(
+    {
+        "q3_rerank": ("q3_retrieve", "rerank", "none"),
+        "q4_redact": ("q4_postcheck", "redact", "rules"),
+    }
+)
+"""Query steps that are another step's setting in ``config/``, not steps of their own:
+``step: (owner step, setting, option when the setting is absent)``."""
 
 STAND_INS: Mapping[str, str] = MappingProxyType(
     {
@@ -68,6 +76,7 @@ STAND_INS: Mapping[str, str] = MappingProxyType(
         "search": "in_memory",  # opensearch (S17)
         "entities": "in_memory",  # dynamodb (S17)
         "permissions": "in_memory",  # dynamodb (S17)
+        "q1_plan": "rules",  # rewrite_when_needed (card 4.8)
         "q2_prefilter": "acl",  # acl_and_cedar (S15)
         "q3_rerank": "none",  # bge_reranker, cohere_rerank_3_5 (card 4.6)
     }
@@ -184,24 +193,28 @@ def choose(settings: Settings, *, offline: bool = False) -> Choices:
 
 
 def choose_query(settings: Settings) -> Choices:
-    """The query path's options (S13): Q2's pre-filter, Q3's retriever and its reranker.
+    """The query path's options (S13, S14), Q1 to Q4, each with its stand-in while not built.
 
-    Q3's ``rerank`` setting names the reranker (``bge_reranker`` locally), so it is
-    taken out of Q3's settings and chosen as ``q3_rerank``, with a stand-in while it
-    is not built. Nothing here calls a model: the question's vector comes from T7's
+    Two are settings of another step (:data:`SETTING_STEPS`): Q3's ``rerank``
+    (``bge_reranker`` locally) is chosen as ``q3_rerank``, and Q4's ``redact``
+    (``rules`` when absent) as ``q4_redact``; each is taken out of its owner's
+    settings. Nothing here calls a model: the question's vector comes from T7's
     embedder, which :func:`choose` decides.
     """
     load_options()
-    wanted: dict[str, tuple[str, Mapping[str, Any]]] = {}
-    for step in QUERY_STEPS[:2]:
+    wanted: dict[str, tuple[str, dict[str, Any]]] = {}
+    for step in QUERY_STEPS:
+        if step in SETTING_STEPS:
+            continue
         configured = settings.steps.get(step)
         name = configured.option if configured is not None else ""
         wanted[step] = (name, dict(configured.params) if configured is not None else {})
-    retrieve_name, retrieve_params = wanted["q3_retrieve"]
-    params = dict(retrieve_params)
-    rerank = str(params.pop(RERANK_SETTING, "none"))
-    wanted["q3_retrieve"] = (retrieve_name, params)
-    wanted["q3_rerank"] = (rerank, {})
+    for step, (owner, setting, absent) in SETTING_STEPS.items():
+        owner_name, owner_params = wanted[owner]
+        params = dict(owner_params)
+        option = str(params.pop(setting, absent))
+        wanted[owner] = (owner_name, params)
+        wanted[step] = (option, {})
     steps = tuple(_resolve(step, *wanted[step]) for step in QUERY_STEPS)
     return Choices(settings.profile, steps)
 

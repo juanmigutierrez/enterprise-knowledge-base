@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 
 from ekb.app.choices import choose, choose_query
 from ekb.app.cli import app
+from ekb.app.demos.answer import run_answer_demo
 from ekb.app.demos.ingest import demo_choices, run_ingest_demo
 from ekb.app.demos.s1 import run_s1
 from ekb.app.demos.s1b import run_s1b
@@ -864,5 +865,101 @@ def test_cli_search_runs_offline_and_reports_an_unreachable_mock(
     assert "asked by carla" in result.output
     assert "asked by alice" not in result.output
     result = CliRunner().invoke(app, ["demo", "search", "--url", "http://127.0.0.1:9"])
+    assert result.exit_code == 1
+    assert "Demo failed" in result.output
+
+
+def _answer(tmp_path: Path, **kwargs: object) -> str:
+    """``ekb demo answer`` in-process, offline."""
+    lines: list[str] = []
+    create_database(tmp_path / "hr.sqlite")
+    settings = load_settings(profile="local")
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        world = run_answer_demo(
+            as_httpx(docs),
+            as_httpx(hr),
+            as_httpx(idp),
+            tmp_path / "hr.sqlite",
+            lines.append,
+            write=choose(settings, offline=True),
+            query=choose_query(settings),
+            **kwargs,  # type: ignore[arg-type]
+        )
+    assert len(world.pipeline.dead_letters) == 0
+    return "\n".join(lines)
+
+
+ANSWER_WARNING = "ignore:You should not use the 'timeout' argument with the TestClient"
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_answer_names_q1_to_q4_and_cites_every_released_passage(tmp_path: Path) -> None:
+    output = _answer(tmp_path)
+    assert "q1_plan rewrite_when_needed -> rules (not built yet)" in output
+    assert "q4_postcheck source_recheck" in output
+    assert "q4_redact rules" in output
+    cited = output.split("1. A cited answer")[1].split("2. A question")[0]
+    assert "Q4     asked the source about 2 pages: 2 allowed" in cited
+    assert "[1] HR-PL-01 · Annual leave policy > How much leave you get" in cited
+    two = output.split("2. A question in two parts")[1].split("3. Why")[0]
+    assert 'Q1     2 searches: "How many days of annual leave do I get?"' in two
+    assert "HR-PL-04 · Remote work" in two
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_answer_holds_back_what_the_source_no_longer_allows(tmp_path: Path) -> None:
+    output = _answer(tmp_path)
+    narrowed = output.split("3. Why a second check")[1].split("4. dana")[0]
+    alice, bob = narrowed.split('bob asks "')
+    assert "HR-PL-04 · " not in alice  # not cited for alice
+    assert "inspector view: Q4 held back HR-PL-04 (3 chunks): denied" in alice
+    assert "[1] HR-PL-04 · Remote work \N{EN DASH} Milan office > The rule" in bob
+    assert "Q3 no longer finds HR-PL-04 for alice" in narrowed
+    identity = output.split("4. dana")[1].split("5. dana")[0]
+    assert "held back HR-CMP-01 (4 chunks): denied, the docs tool's readers no" in identity
+    assert "olivia as inactive (has left)" in identity
+    assert "answer 0 passages" in identity
+    deleted = output.split("5. dana")[1].split("6. The docs")[0]
+    assert "1 allowed, 1 deleted" in deleted
+    down = output.split("6. The docs tool does not answer")[1].split("7. Personal")[0]
+    assert "answer 0 passages" in down
+    assert "5 passages could not be checked against the source" in down
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_answer_removes_the_iban_and_keeps_the_payroll_contacts(tmp_path: Path) -> None:
+    output = _answer(tmp_path)
+    personal = output.split("7. Personal data")[1]
+    assert "again to IBAN [IBAN removed] after the first transfer failed." in personal
+    assert "removed: 1 IBAN" in personal
+    assert "payroll@example.com or call +39 02 1234 5678" in personal
+    assert "IT60 X054" not in output
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_answer_asks_your_question_as_the_people_you_name(tmp_path: Path) -> None:
+    output = _answer(tmp_path, question="salary bands", users=("alice", "bob"))
+    assert "1. Your question, through Q1 to Q4 (48 chunks):" in output
+    alice, bob = output.split('bob asks "salary bands"')
+    assert "HR-CMP-01 · " not in alice
+    assert "HR-CMP-01 · Salary bands 2026 (restricted)" in bob
+    assert "3. Why" not in output
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_cli_answer_runs_offline_and_reports_an_unreachable_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setenv("EKB_PROFILE", "local")
+    result = CliRunner().invoke(app, ["demo", "answer", "annual leave", "--user", "carla"])
+    assert result.exit_code == 0, result.output
+    assert 'carla asks "annual leave"' in result.output
+    assert "alice asks" not in result.output
+    result = CliRunner().invoke(app, ["demo", "answer", "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
     assert "Demo failed" in result.output

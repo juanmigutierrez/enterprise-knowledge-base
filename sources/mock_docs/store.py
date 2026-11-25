@@ -95,7 +95,9 @@ class DocsStore:
     def list_pages(self) -> list[PageSummary]:
         with self._lock:
             pages = sorted(self._pages.values(), key=lambda p: p.id)
-        return [PageSummary.model_validate(p.model_dump(exclude={"body"})) for p in pages]
+        return [
+            PageSummary.model_validate(p.model_dump(exclude={"body", "first_rev"})) for p in pages
+        ]
 
     def get(self, page_id: str) -> Page:
         with self._lock:
@@ -119,10 +121,12 @@ class DocsStore:
         with self._lock:
             if request.id in self._pages:
                 raise PageExistsError(f"page {request.id} exists")
+            first_rev = self._deleted_revs.pop(request.id, 0) + 1
             page = Page(
                 **request.model_dump(exclude={"acl"}),
                 acl=request.acl,
-                rev=self._deleted_revs.pop(request.id, 0) + 1,
+                first_rev=first_rev,
+                rev=first_rev,
                 acl_rev=1,
                 content_hash=content_hash(request.title, request.body),
                 updated_at=self._clock(),

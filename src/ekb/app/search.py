@@ -24,8 +24,8 @@ Three choices are made here, in the composition root, and nowhere else:
   (:class:`ekb.app.pipeline.Stores`), so a change the worker applies is in the
   next search.
 
-Q1 (planning) and Q4 (re-check, redact, cite) join in S14; the MCP tools that
-call this in S15.
+Q1 (planning) and Q4 (re-check, redact, cite) wrap this in S14
+(:mod:`ekb.app.answer`); the MCP tools call that in S15.
 """
 
 from __future__ import annotations

@@ -1,6 +1,17 @@
 {
   "components": {
     "schemas": {
+      "AccessVerdict": {
+        "description": "What the source says about one person and one document, right now.",
+        "enum": [
+          "allowed",
+          "denied",
+          "deleted",
+          "unavailable"
+        ],
+        "title": "AccessVerdict",
+        "type": "string"
+      },
       "AclView": {
         "properties": {
           "groups": {
@@ -2005,12 +2016,45 @@
         "title": "RecordView",
         "type": "object"
       },
-      "SearchHitView": {
-        "description": "One chunk Q3 kept for this person, and where each leg ranked it.",
+      "RedactionView": {
+        "description": "Personal data Q4 removed from a released passage: the kind and how often.",
         "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PiiKind"
+          }
+        },
+        "required": [
+          "kind",
+          "count"
+        ],
+        "title": "RedactionView",
+        "type": "object"
+      },
+      "SearchHitView": {
+        "description": "One chunk Q3 kept for this person, where each leg ranked it, and what Q4 decided.",
+        "properties": {
+          "access_reason": {
+            "title": "Access Reason",
+            "type": "string"
+          },
           "chunk_id": {
             "title": "Chunk Id",
             "type": "string"
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citation"
           },
           "document_key": {
             "title": "Document Key",
@@ -2052,6 +2096,24 @@
               }
             ]
           },
+          "redactions": {
+            "items": {
+              "$ref": "#/components/schemas/RedactionView"
+            },
+            "title": "Redactions",
+            "type": "array"
+          },
+          "released_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released Text"
+          },
           "score": {
             "title": "Score",
             "type": "number"
@@ -2072,6 +2134,10 @@
                 "type": "null"
               }
             ]
+          },
+          "source_changed": {
+            "title": "Source Changed",
+            "type": "boolean"
           },
           "text": {
             "title": "Text",
@@ -2102,6 +2168,9 @@
               }
             ],
             "title": "Vector Score"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/AccessVerdict"
           }
         },
         "required": [
@@ -2117,13 +2186,19 @@
           "keyword_rank",
           "keyword_score",
           "vector_rank",
-          "vector_score"
+          "vector_score",
+          "verdict",
+          "access_reason",
+          "citation",
+          "released_text",
+          "redactions",
+          "source_changed"
         ],
         "title": "SearchHitView",
         "type": "object"
       },
       "SearchView": {
-        "description": "One question asked as one person: Q2's scope, Q3's hits and notes.",
+        "description": "One question asked as one person: Q1's plan, Q2's scope, Q3's hits, Q4's decisions.",
         "properties": {
           "encoder": {
             "title": "Encoder",
@@ -2135,6 +2210,10 @@
             },
             "title": "Groups",
             "type": "array"
+          },
+          "held_back": {
+            "title": "Held Back",
+            "type": "integer"
           },
           "hits": {
             "items": {
@@ -2158,6 +2237,14 @@
             "title": "Notes",
             "type": "array"
           },
+          "planner_id": {
+            "title": "Planner Id",
+            "type": "string"
+          },
+          "postcheck_id": {
+            "title": "Postcheck Id",
+            "type": "string"
+          },
           "prefilter_id": {
             "title": "Prefilter Id",
             "type": "string"
@@ -2174,6 +2261,10 @@
             "title": "Reason",
             "type": "string"
           },
+          "released": {
+            "title": "Released",
+            "type": "integer"
+          },
           "retriever_id": {
             "title": "Retriever Id",
             "type": "string"
@@ -2181,6 +2272,13 @@
           "searched": {
             "title": "Searched",
             "type": "integer"
+          },
+          "searches": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Searches",
+            "type": "array"
           },
           "user_id": {
             "title": "User Id",
@@ -2212,8 +2310,11 @@
           "reads_nothing",
           "reason",
           "groups",
+          "searches",
+          "planner_id",
           "prefilter_id",
           "retriever_id",
+          "postcheck_id",
           "encoder",
           "searched",
           "keyword_found",
@@ -2221,6 +2322,8 @@
           "vector_leg",
           "notes",
           "hits",
+          "released",
+          "held_back",
           "withheld",
           "withheld_chunks",
           "ms"

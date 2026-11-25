@@ -4,6 +4,18 @@ Changing a model here is a contract change: bump ``schema_version`` (and,
 once connectors in other languages exist, re-export their JSON schemas).
 """
 
+from ekb.contracts.answer import (
+    AccessVerdict,
+    Answer,
+    AnswerResult,
+    Citation,
+    Passage,
+    QueryPlan,
+    Redaction,
+    Released,
+    SourceAccess,
+    Withheld,
+)
 from ekb.contracts.diff import DiffAction, DiffDecision
 from ekb.contracts.entities import Entity, EntityKind, EntityMention, entity_id
 from ekb.contracts.events import Acl, ChangeEvent, ChangeOp
@@ -28,12 +40,16 @@ from ekb.contracts.trace import (
 
 __all__ = [
     "STEP_ORDER",
+    "AccessVerdict",
     "Acl",
+    "Answer",
+    "AnswerResult",
     "Block",
     "BlockKind",
     "ChangeEvent",
     "ChangeOp",
     "Chunk",
+    "Citation",
     "DiffAction",
     "DiffDecision",
     "DocumentAcl",
@@ -44,16 +60,22 @@ __all__ = [
     "Leg",
     "Membership",
     "ParsedDocument",
+    "Passage",
     "PiiKind",
     "Principals",
+    "QueryPlan",
+    "Redaction",
+    "Released",
     "Retrieval",
     "Scope",
     "SearchResult",
     "Sensitivity",
+    "SourceAccess",
     "StepOutcome",
     "StepTrace",
     "Trace",
     "TraceStatus",
+    "Withheld",
     "admits",
     "entity_id",
     "readers_now",

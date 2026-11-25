@@ -79,3 +79,14 @@ class ChangeEvent(BaseModel):
                 "a delete must not point to content or carry a hash, an ACL or a person"
             )
         return self
+
+
+def parse_version(version: str) -> tuple[int, int] | None:
+    """``(rev, acl_rev)`` from a version label, or ``None`` if it isn't one of ours."""
+    rev, dot, acl_rev = version.partition(".")
+    if not dot or not rev.isdecimal() or not acl_rev.isdecimal():
+        return None
+    try:
+        return int(rev), int(acl_rev)
+    except ValueError:  # Overlong revision labels exceed Python's conversion limit.
+        return None

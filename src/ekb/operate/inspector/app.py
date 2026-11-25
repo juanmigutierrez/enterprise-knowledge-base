@@ -21,8 +21,9 @@ GET /api/t8/permissions                         readers and publication status p
 GET /api/pipeline/traces[?source=&status=]      the worker: each item's latest attempt, totals per
                                                 status and per step (S12)
 GET /api/pipeline/trace?document_key=           every attempt at one item, step by step (S12)
-GET /api/search?user=&q=                        one question asked as one person: Q2's scope,
-                                                Q3's hits, what the pre-filter kept out (S13)
+GET /api/search?user=&q=                        one question asked as one person: Q1's plan,
+                                                Q2's scope, Q3's hits, what the pre-filter kept
+                                                out (S13), Q4's decision on each hit (S14)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================
@@ -35,7 +36,8 @@ lifetime a delete closed is hidden at once, even before T2's purge drops it,
 and so is an entity whose HR record was deleted (S9) and a deleted document's
 published chunks and readers (S11). The worker's traces (S12) hold no content
 at all, so a deleted item's traces stay, as its history. The search (S13) runs the
-real query path over the same stores, so a deleted page is never a hit, nor withheld.
+real query path over the same stores, so a deleted page is never a hit, nor withheld;
+its Q4 (S14) asks the mock sources, so a page deleted there is held back even before that.
 The gateway's cost log holds no prompt or reply at all, only hashes and numbers.
 """
 
@@ -289,8 +291,11 @@ def create_inspector_app(
                 reads_nothing=True,
                 reason="the query path is not wired in this inspector",
                 groups=[],
+                searches=[],
+                planner_id="",
                 prefilter_id="",
                 retriever_id="",
+                postcheck_id="",
                 encoder="",
                 searched=0,
                 keyword_found=0,
@@ -298,6 +303,8 @@ def create_inspector_app(
                 vector_leg=False,
                 notes=["the query path is not wired in this inspector"],
                 hits=[],
+                released=0,
+                held_back=0,
                 withheld=[],
                 withheld_chunks=0,
                 ms=0.0,

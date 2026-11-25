@@ -91,15 +91,20 @@ def test_a_step_the_config_leaves_out_gets_its_stand_in() -> None:
 
 
 def test_the_query_path_runs_its_stand_ins_and_takes_the_reranker_out_of_q3() -> None:
-    """S13: acl_and_cedar runs as acl until S15, the configured reranker as none until 4.6."""
+    """S13: acl_and_cedar runs as acl until S15, the configured reranker as none until 4.6.
+    S14: rewrite_when_needed runs as rules until card 4.8; Q4 redacts with rules."""
     choices = choose_query(load_settings(profile="local"))
 
     assert [c.step for c in choices.steps] == list(QUERY_STEPS)
     assert [c.describe() for c in choices.steps] == [
+        "q1_plan rewrite_when_needed -> rules (not built yet)",
         "q2_prefilter acl_and_cedar -> acl (not built yet)",
         "q3_retrieve hybrid_rrf(top_k=5)",
         "q3_rerank bge_reranker -> none (not built yet)",
+        "q4_postcheck source_recheck",
+        "q4_redact rules",
     ]
+    assert choose_query(load_settings(profile="ci"))["q1_plan"].describe() == "q1_plan none"
     assert choose_query(load_settings(profile="ci"))["q3_rerank"].describe() == "q3_rerank none"
     bedrock = choose_query(load_settings(profile="bedrock"))["q3_rerank"]
     assert (bedrock.configured, bedrock.option) == ("cohere_rerank_3_5", "none")
@@ -111,3 +116,19 @@ def test_a_query_path_without_a_rerank_setting_reranks_with_none() -> None:
     choices = choose_query(settings.model_copy(update={"steps": steps}))
     assert choices["q3_rerank"].describe() == "q3_rerank none"
     assert choices.params("q3_retrieve") == {}
+
+
+def test_q4s_redact_setting_names_the_redactor_and_its_absence_means_rules() -> None:
+    """S14: like Q3's rerank, the redactor is a setting of Q4, not a step of its own."""
+    settings = load_settings(profile="ci")
+    assert choose_query(settings)["q4_redact"].describe() == "q4_redact rules"
+    steps = {
+        **settings.steps,
+        "q4_postcheck": StepChoice(option="source_recheck", params={"redact": "none"}),
+    }
+    choices = choose_query(settings.model_copy(update={"steps": steps}))
+    assert choices["q4_redact"].describe() == "q4_redact none"
+    assert choices.params("q4_postcheck") == {}
+    steps["q4_postcheck"] = StepChoice(option="source_recheck", params={"redact": "presidio"})
+    with pytest.raises(NoStandInError, match="q4_redact: 'presidio' is not built yet"):
+        choose_query(settings.model_copy(update={"steps": steps}))

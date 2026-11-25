@@ -6,10 +6,16 @@ import {
     legClass,
     legsLabel,
     otherCanRead,
+    planLabel,
+    redactionsLabel,
+    releasedLabel,
+    releasedParts,
     searchFor,
     searchedLabel,
     snippet,
     trail,
+    verdictClass,
+    verdictLabel,
     withheldLabel,
 } from "../src/search.ts";
 
@@ -62,4 +68,43 @@ test("a hit says whether the other column's person may read it, by the store's r
 test("the suggested questions cover a restricted page, a common one and an exact term", () => {
     assert.equal(SUGGESTED.length, 3);
     assert.ok(SUGGESTED[0].includes("salary"));
+});
+
+test("a column says what Q1 searched and what Q4 cited or held back", () => {
+    assert.equal(planLabel({ searches: ["annual leave"] }), "1 search");
+    assert.equal(planLabel({ searches: ["leave?", "remote?"] }), "2 searches: “leave?” · “remote?”");
+    assert.equal(releasedLabel({ released: 3, held_back: 2 }), "Q4: 3 cited, 2 held back");
+    assert.equal(releasedLabel({ released: 5, held_back: 0 }), "Q4: 5 cited");
+    assert.equal(releasedLabel({ released: 0, held_back: 0 }), "Q4: nothing to check");
+});
+
+test("a hit says whether Q4 cited it or held it back, and why", () => {
+    assert.equal(verdictLabel({ verdict: "allowed", citation: 1 }), "[1] cited");
+    assert.equal(verdictLabel({ verdict: "denied", citation: null }), "held back: denied");
+    assert.equal(verdictLabel({ verdict: "unavailable", citation: null }), "held back: unavailable");
+    assert.equal(verdictClass({ citation: 2 }), "q4 q4-cited");
+    assert.equal(verdictClass({ citation: null }), "q4 q4-held");
+});
+
+test("removed personal data is marked in the released text and counted", () => {
+    assert.deepEqual(releasedParts("Sent to IBAN [IBAN removed] after."), [
+        { text: "Sent to IBAN ", removed: false },
+        { text: "[IBAN removed]", removed: true },
+        { text: " after.", removed: false },
+    ]);
+    assert.deepEqual(releasedParts("[card number removed]"), [
+        { text: "[card number removed]", removed: true },
+    ]);
+    assert.deepEqual(releasedParts("nothing [to see] here"), [
+        { text: "nothing [to see] here", removed: false },
+    ]);
+    assert.deepEqual(releasedParts(""), []);
+    assert.equal(
+        redactionsLabel([
+            { kind: "iban", count: 2 },
+            { kind: "es_national_id", count: 1 },
+        ]),
+        "2 IBAN removed, 1 ID number removed",
+    );
+    assert.equal(redactionsLabel([]), "");
 });

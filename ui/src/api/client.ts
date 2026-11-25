@@ -39,6 +39,7 @@ export type PermissionsView = Schemas["PermissionsView"];
 export type PipelineView = Schemas["PipelineView"];
 export type PublicationView = Schemas["PublicationView"];
 export type RecordView = Schemas["RecordView"];
+export type RedactionView = Schemas["RedactionView"];
 export type SearchHitView = Schemas["SearchHitView"];
 export type SearchView = Schemas["SearchView"];
 export type SourceView = Schemas["SourceView"];

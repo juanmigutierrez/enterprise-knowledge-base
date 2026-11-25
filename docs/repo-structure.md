@@ -11,7 +11,7 @@ enterprise-knowledge-base/
 ├── sources/                  1 · Mock department systems (outside the product)
 ├── src/ekb/
 │   ├── contracts/            Shared models: ChangeEvent (T1), Chunk, Acl, …
-│   ├── platform/             Option registry, config, model gateway, telemetry
+│   ├── platform/             Option registry, config, model gateway, PII patterns, telemetry
 │   ├── connect/              2 · Connectors + T1 normalize
 │   │   └── options/              webhook, delta polling, full listing, identity sync
 │   ├── changelog/            3 · Change log and raw store
