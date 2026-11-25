@@ -111,7 +111,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S10 | 4 · **T7** Embed | bge-m3 on Ollama through the gateway's new `embed` task (`model` option) next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ✅ |
 | S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ✅ |
 | S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks · UI: full pipeline trace per document | 40 min | ✅ |
-| S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ⬜ |
+| S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ✅ |
 | S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations · UI: citations and redactions in search results | 40 min | ⬜ |
 | S14b | 5 · Metrics store + 6 · Q1 | *Optional.* Structured path: database change events → in-memory metrics store (DuckDB option later); Q1 sends counting questions ("how many people work in Madrid?") to SQL instead of search (D7) | Why structured data takes a different path from documents | `ekb demo answer "how many people work in Madrid?"` → answer from SQL, cited to the table | 45 min | ⬜ |
 | S15 | 6 · MCP + 7 · Agent | Knowledge API as MCP tools; static test users; small HR assistant | How an agent uses the knowledge base safely | Ask the HR assistant from Claude Code / MCP Inspector | 40 min | ⬜ |
@@ -174,7 +174,16 @@ S12 (the worker pipeline) is complete and reviewed (✅). The [S12 walkthrough](
 - The trace model lives in `ekb.contracts`, holds no content, keeps a deleted item's history, times each step, and has its own **Pipeline** tab.
 - The connectors stay wired by hand (`ekb.app.connectors`); `ekb connect` and `ekb worker` as services need a durable bus and move to S17.
 
-Next is **S13** (Q2 + Q3) with `/plan-task S13`.
+S13 (Q2 + Q3) is complete and reviewed (✅). The [S13 walkthrough](walkthrough/S13-q2-q3-search.md) covers the scope, the pre-filter in the store, BM25, the vector leg, RRF and the Search as user screen. Settled in S13's plan and review on 25 November 2026:
+- Q2 builds `acl` only (the user ID and current groups from the permission store; a leaver or an unknown ID reads nothing). `acl_and_cedar` runs as its stand-in until S15, when an agent identity exists for Cedar policies.
+- Q3 is `hybrid_rrf`: a keyword leg (BM25) and a vector leg, both ranked inside the search store over the chunks the asker may read only, fused by reciprocal rank fusion, then the top 5 (`candidates` 20 and `rrf_k` 60 are code defaults). BM25's statistics come from the asker's readable chunks, so a restricted page cannot move their scores. Tokens: lower case, accents folded, no stemming, no stop words; the indexed text is header + trail + text, as T7 embeds it.
+- The reranker port has `none` only; `bge_reranker` (and Cohere in the bedrock profile) runs as that stand-in. The choice moves to card 4.6 (D15).
+- Questions are embedded with T7's own embedder and compared only with chunks carrying T7's current model ID; they are cached untagged. With fake vectors the vector leg is off, and a model failure at query time falls back to the keyword leg, both with a note.
+- The query path is wired in `ekb.app.search`; the shared shapes are in `ekb.contracts.retrieval`. What the pre-filter kept out is shown in the demo and the inspector only, never in Q3's result.
+- `ekb demo search` runs offline (`--models` for both legs); the inspector gains `GET /api/search` and the **Search as user** tab.
+- Both ranking legs use the same readable snapshot after question encoding. If the readable corpus or the asker's membership changes during ranking, the response discards the results and asks for a fresh search.
+
+Next is **S14** (Q4 + Q1) with `/plan-task S14`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

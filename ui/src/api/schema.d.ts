@@ -174,6 +174,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search As */
+        get: operations["search_as_api_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -1084,6 +1101,76 @@ export interface components {
             version: string;
         };
         /**
+         * SearchHitView
+         * @description One chunk Q3 kept for this person, and where each leg ranked it.
+         */
+        SearchHitView: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Document Key */
+            document_key: string;
+            /** Keyword Rank */
+            keyword_rank: number | null;
+            /** Keyword Score */
+            keyword_score: number | null;
+            /** Rank */
+            rank: number;
+            readers: components["schemas"]["AclView"] | null;
+            /** Score */
+            score: number;
+            /** Section */
+            section: string[];
+            sensitivity: components["schemas"]["Sensitivity"] | null;
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
+            /** Vector Rank */
+            vector_rank: number | null;
+            /** Vector Score */
+            vector_score: number | null;
+        };
+        /**
+         * SearchView
+         * @description One question asked as one person: Q2's scope, Q3's hits and notes.
+         */
+        SearchView: {
+            /** Encoder */
+            encoder: string;
+            /** Groups */
+            groups: string[];
+            /** Hits */
+            hits: components["schemas"]["SearchHitView"][];
+            /** Keyword Found */
+            keyword_found: number;
+            /** Ms */
+            ms: number;
+            /** Notes */
+            notes: string[];
+            /** Prefilter Id */
+            prefilter_id: string;
+            /** Question */
+            question: string;
+            /** Reads Nothing */
+            reads_nothing: boolean;
+            /** Reason */
+            reason: string;
+            /** Retriever Id */
+            retriever_id: string;
+            /** Searched */
+            searched: number;
+            /** User Id */
+            user_id: string;
+            /** Vector Found */
+            vector_found: number;
+            /** Vector Leg */
+            vector_leg: boolean;
+            /** Withheld */
+            withheld: components["schemas"]["WithheldView"][];
+            /** Withheld Chunks */
+            withheld_chunks: number;
+        };
+        /**
          * Sensitivity
          * @description How carefully a passage must be handled, from least to most strict.
          *
@@ -1208,6 +1295,20 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * WithheldView
+         * @description A page the pre-filter kept out: it shares a word with the question, and this person
+         *     may not read it. Inspector only: Q3 never sees it, and an agent never learns it.
+         */
+        WithheldView: {
+            /** Chunks */
+            chunks: number;
+            /** Document Key */
+            document_key: string;
+            readers: components["schemas"]["AclView"] | null;
+            /** Title */
+            title: string;
         };
     };
     responses: never;
@@ -1495,6 +1596,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_as_api_search_get: {
+        parameters: {
+            query: {
+                user: string;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchView"];
                 };
             };
             /** @description Validation Error */

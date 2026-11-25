@@ -14,7 +14,7 @@ from sources.mock_hr_db.db import create_database
 from sources.mock_idp.app import create_app as idp_app
 from typer.testing import CliRunner
 
-from ekb.app.choices import choose
+from ekb.app.choices import choose, choose_query
 from ekb.app.cli import app
 from ekb.app.demos.ingest import demo_choices, run_ingest_demo
 from ekb.app.demos.s1 import run_s1
@@ -22,6 +22,7 @@ from ekb.app.demos.s1b import run_s1b
 from ekb.app.demos.s1c import run_s1c
 from ekb.app.demos.s1d import run_s1d
 from ekb.app.demos.s3 import run_s3_live, run_s3_replay
+from ekb.app.demos.search import run_search_demo
 from ekb.app.demos.t1 import run_t1, run_t1_all
 from ekb.app.demos.t2 import run_t2_demo
 from ekb.app.demos.t3 import run_t3_demo
@@ -776,5 +777,92 @@ def test_cli_ingest_runs_offline_and_reports_an_unreachable_mock(
     assert result.exit_code == 0, result.output
     assert "Group worker lag 0; dead letters 0" in result.output
     result = CliRunner().invoke(app, ["demo", "ingest", "--url", "http://127.0.0.1:9"])
+    assert result.exit_code == 1
+    assert "Demo failed" in result.output
+
+
+def _search(tmp_path: Path, *, models: bool = False) -> str:
+    """``ekb demo search`` in-process; with ``models``, T7 runs a (fake) model, so both legs do."""
+    lines: list[str] = []
+    create_database(tmp_path / "hr.sqlite")
+    settings = load_settings(profile="local")
+    write = choose(settings, offline=True)
+    gateway = None
+    if models:
+        write = write.with_options("test", t7_embed="model")
+        gateway = make_world().gateway
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        world = run_search_demo(
+            as_httpx(docs),
+            as_httpx(hr),
+            as_httpx(idp),
+            tmp_path / "hr.sqlite",
+            lines.append,
+            write=write,
+            query=choose_query(settings),
+            gateway=gateway,
+        )
+    assert len(world.pipeline.dead_letters) == 0
+    return "\n".join(lines)
+
+
+def test_search_names_the_options_and_who_can_read_what(tmp_path: Path) -> None:
+    output = _search(tmp_path)
+    assert "q2_prefilter acl_and_cedar -> acl (not built yet)" in output
+    assert "q3_retrieve hybrid_rrf(top_k=5)" in output
+    assert "q3_rerank bge_reranker -> none (not built yet)" in output
+    assert "questions not embedded: t7_embed runs fake vectors" in output
+    assert "Search store: 48 chunks from 12 pages." in output
+    assert "alice   reads as alice + all-staff, it-employees" in output
+    assert "searches 36 chunks of 9 pages; the other 12 are never scored for alice." in output
+    assert "searches all 48 chunks of 12 pages." in output  # bob
+
+
+def test_search_answers_alice_and_bob_from_what_each_may_read(tmp_path: Path) -> None:
+    output = _search(tmp_path)
+    salary = output.split('2.1 "')[1].split('2.2 "')[0]
+    alice, bob = salary.split("asked by bob")
+    assert "HR-CMP-01#" not in alice.split("inspector view")[0]  # never in her results
+    assert "the pre-filter kept out 4 chunks sharing a word" in alice
+    assert "HR-CMP-01 (4). alice never learns they exist." in alice
+    assert "1. HR-CMP-01#1" in bob
+    assert "note: keyword leg only: no embedding model for questions" in output
+    law = output.split('2.3 "')[1]
+    assert "1. HR-PL-05#1" in law.split("asked by bob")[1]  # hr-team reads the Madrid page
+
+
+def test_search_follows_a_group_change_and_finds_nothing_for_nobody(tmp_path: Path) -> None:
+    output = _search(tmp_path)
+    assert "before  HR-CMP-01#1, HR-CMP-01#3" in output
+    after = output.split("after   ")[1].split("\n")[0]
+    assert "HR-CMP-01" not in after
+    assert "Chunks rewritten: 0." in output
+    assert "olivia   inactive (has left): reads nothing" in output
+    assert "0 hits: nothing was searched: olivia reads nothing." in output
+    assert "mallory  unknown to the identity provider: reads nothing" in output
+
+
+def test_search_with_a_model_runs_both_legs_and_fuses_them(tmp_path: Path) -> None:
+    output = _search(tmp_path, models=True)
+    assert "questions embedded by T7's model: model@1(input@1, fake:vec, 8)" in output
+    assert "     vector   HR-" in output
+    assert "keyword leg only" not in output
+
+
+def test_cli_search_runs_offline_and_reports_an_unreachable_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setenv("EKB_PROFILE", "local")
+    result = CliRunner().invoke(app, ["demo", "search", "annual leave", "--user", "carla"])
+    assert result.exit_code == 0, result.output
+    assert '2.1 "annual leave"' in result.output
+    assert "asked by carla" in result.output
+    assert "asked by alice" not in result.output
+    result = CliRunner().invoke(app, ["demo", "search", "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
     assert "Demo failed" in result.output

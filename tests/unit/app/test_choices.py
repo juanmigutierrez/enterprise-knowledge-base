@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from ekb.app.choices import PIPELINE_STEPS, Choice, NoStandInError, choose
+from ekb.app.choices import (
+    PIPELINE_STEPS,
+    QUERY_STEPS,
+    Choice,
+    NoStandInError,
+    choose,
+    choose_query,
+)
 from ekb.platform.config import StepChoice, load_settings
 
 
@@ -81,3 +88,26 @@ def test_a_step_the_config_leaves_out_gets_its_stand_in() -> None:
     steps = {k: v for k, v in settings.steps.items() if k != "bus"}
     choices = choose(settings.model_copy(update={"steps": steps}))
     assert choices["bus"].describe() == "bus  -> in_memory (not configured)"
+
+
+def test_the_query_path_runs_its_stand_ins_and_takes_the_reranker_out_of_q3() -> None:
+    """S13: acl_and_cedar runs as acl until S15, the configured reranker as none until 4.6."""
+    choices = choose_query(load_settings(profile="local"))
+
+    assert [c.step for c in choices.steps] == list(QUERY_STEPS)
+    assert [c.describe() for c in choices.steps] == [
+        "q2_prefilter acl_and_cedar -> acl (not built yet)",
+        "q3_retrieve hybrid_rrf(top_k=5)",
+        "q3_rerank bge_reranker -> none (not built yet)",
+    ]
+    assert choose_query(load_settings(profile="ci"))["q3_rerank"].describe() == "q3_rerank none"
+    bedrock = choose_query(load_settings(profile="bedrock"))["q3_rerank"]
+    assert (bedrock.configured, bedrock.option) == ("cohere_rerank_3_5", "none")
+
+
+def test_a_query_path_without_a_rerank_setting_reranks_with_none() -> None:
+    settings = load_settings(profile="ci")
+    steps = {**settings.steps, "q3_retrieve": StepChoice(option="hybrid_rrf")}
+    choices = choose_query(settings.model_copy(update={"steps": steps}))
+    assert choices["q3_rerank"].describe() == "q3_rerank none"
+    assert choices.params("q3_retrieve") == {}

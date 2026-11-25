@@ -19,6 +19,9 @@ both are printed, never silent:
 
 The inspector's ``--header``, ``--classifier`` and ``--embed`` flags override
 the configuration last (:meth:`Choices.with_options`).
+
+The query path (S13) is chosen the same way, by :func:`choose_query`: Q2's
+pre-filter, Q3's retriever and, read from Q3's ``rerank`` setting, its reranker.
 """
 
 from __future__ import annotations
@@ -50,6 +53,11 @@ PIPELINE_STEPS = (
 )
 """What the write path needs, in the order data meets it: box 3, box 4, then box 5."""
 
+QUERY_STEPS = ("q2_prefilter", "q3_retrieve", "q3_rerank")
+"""What the query path needs (S13), in the order a question meets it. ``q3_rerank`` is
+not a step of its own in ``config/``: it is ``q3_retrieve``'s ``rerank`` setting."""
+RERANK_SETTING = "rerank"
+
 STAND_INS: Mapping[str, str] = MappingProxyType(
     {
         "bus": "in_memory",  # kafka (S17)
@@ -60,6 +68,8 @@ STAND_INS: Mapping[str, str] = MappingProxyType(
         "search": "in_memory",  # opensearch (S17)
         "entities": "in_memory",  # dynamodb (S17)
         "permissions": "in_memory",  # dynamodb (S17)
+        "q2_prefilter": "acl",  # acl_and_cedar (S15)
+        "q3_rerank": "none",  # bge_reranker, cohere_rerank_3_5 (card 4.6)
     }
 )
 """The option that runs while the configured one is not built yet."""
@@ -166,18 +176,47 @@ def choose(settings: Settings, *, offline: bool = False) -> Choices:
         configured = settings.steps.get(step)
         name = configured.option if configured is not None else ""
         params: Mapping[str, Any] = configured.params if configured is not None else {}
-        choice = Choice(step, name, dict(params), configured=name)
-        if name not in registry.options(step):
-            stand_in = STAND_INS.get(step)
-            if stand_in is None:
-                built = ", ".join(registry.options(step)) or "none"
-                raise NoStandInError(
-                    f"{step}: {name or 'no option'!r} is not built yet and has no stand-in "
-                    f"(built: {built}); choose a built one in config/"
-                )
-            why = "not built yet" if name else "not configured"
-            choice = replace(choice, option=stand_in, params={}, why=why)
+        choice = _resolve(step, name, params)
         if offline and choice.option in MODEL_OPTIONS.get(step, frozenset()):
             choice = replace(choice, option=OFFLINE[step], params={}, why="offline: no model")
         steps.append(choice)
     return Choices(settings.profile, tuple(steps))
+
+
+def choose_query(settings: Settings) -> Choices:
+    """The query path's options (S13): Q2's pre-filter, Q3's retriever and its reranker.
+
+    Q3's ``rerank`` setting names the reranker (``bge_reranker`` locally), so it is
+    taken out of Q3's settings and chosen as ``q3_rerank``, with a stand-in while it
+    is not built. Nothing here calls a model: the question's vector comes from T7's
+    embedder, which :func:`choose` decides.
+    """
+    load_options()
+    wanted: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    for step in QUERY_STEPS[:2]:
+        configured = settings.steps.get(step)
+        name = configured.option if configured is not None else ""
+        wanted[step] = (name, dict(configured.params) if configured is not None else {})
+    retrieve_name, retrieve_params = wanted["q3_retrieve"]
+    params = dict(retrieve_params)
+    rerank = str(params.pop(RERANK_SETTING, "none"))
+    wanted["q3_retrieve"] = (retrieve_name, params)
+    wanted["q3_rerank"] = (rerank, {})
+    steps = tuple(_resolve(step, *wanted[step]) for step in QUERY_STEPS)
+    return Choices(settings.profile, steps)
+
+
+def _resolve(step: str, name: str, params: Mapping[str, Any]) -> Choice:
+    """The configured option if it is built, else the step's stand-in, saying why."""
+    choice = Choice(step, name, dict(params), configured=name)
+    if name in registry.options(step):
+        return choice
+    stand_in = STAND_INS.get(step)
+    if stand_in is None:
+        built = ", ".join(registry.options(step)) or "none"
+        raise NoStandInError(
+            f"{step}: {name or 'no option'!r} is not built yet and has no stand-in "
+            f"(built: {built}); choose a built one in config/"
+        )
+    why = "not built yet" if name else "not configured"
+    return replace(choice, option=stand_in, params={}, why=why)

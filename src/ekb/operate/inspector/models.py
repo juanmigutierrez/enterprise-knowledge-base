@@ -32,6 +32,7 @@ from ekb.contracts import (
     EntityMention,
     Membership,
     PiiKind,
+    SearchResult,
     Sensitivity,
     StepOutcome,
     TraceStatus,
@@ -677,6 +678,125 @@ def _membership(membership: Membership, published: dict[str, Acl | None]) -> Mem
 
 
 # ------------------------------------------------------------------ T6 entities (S9)
+
+
+# ------------------------------------------------------------------ Search as user (S13)
+
+
+class SearchHitView(_View):
+    """One chunk Q3 kept for this person, and where each leg ranked it."""
+
+    rank: int
+    score: float
+    """The fused (reciprocal rank fusion) score."""
+    chunk_id: str
+    document_key: str
+    title: str
+    section: list[str]
+    text: str
+    sensitivity: Sensitivity | None
+    readers: AclView | None
+    """The chunk's readers: what let this person find it."""
+    keyword_rank: int | None
+    keyword_score: float | None
+    """BM25."""
+    vector_rank: int | None
+    vector_score: float | None
+    """Cosine similarity to the question."""
+
+
+class WithheldView(_View):
+    """A page the pre-filter kept out: it shares a word with the question, and this person
+    may not read it. Inspector only: Q3 never sees it, and an agent never learns it."""
+
+    document_key: str
+    title: str
+    chunks: int
+    readers: AclView | None
+
+
+class SearchView(_View):
+    """One question asked as one person: Q2's scope, Q3's hits and notes."""
+
+    question: str
+    user_id: str
+    reads_nothing: bool
+    """Unknown or inactive: nothing was searched."""
+    reason: str
+    """Q2's answer in plain words, e.g. ``reads as alice + all-staff, it-employees``."""
+    groups: list[str]
+    """The groups they read with now (empty when they read nothing)."""
+    prefilter_id: str
+    retriever_id: str
+    encoder: str
+    """How questions are embedded, or why they are not."""
+    searched: int
+    """Chunks this person may read: the only ones ranked."""
+    keyword_found: int
+    vector_found: int
+    vector_leg: bool
+    notes: list[str]
+    hits: list[SearchHitView]
+    withheld: list[WithheldView]
+    withheld_chunks: int
+    ms: float
+
+    @classmethod
+    def of(
+        cls,
+        result: SearchResult,
+        withheld: tuple[Chunk, ...],
+        titles: dict[str, str],
+        encoder: str,
+    ) -> SearchView:
+        scope, retrieval = result.scope, result.retrieval
+        kept_out: dict[str, list[Chunk]] = {}
+        for chunk in withheld:
+            kept_out.setdefault(chunk.document_key, []).append(chunk)
+        return cls(
+            question=retrieval.question,
+            user_id=scope.user_id,
+            reads_nothing=scope.reads_nothing,
+            reason=scope.reason,
+            groups=sorted(scope.principals.groups) if scope.principals is not None else [],
+            prefilter_id=scope.prefilter_id,
+            retriever_id=retrieval.retriever_id,
+            encoder=encoder,
+            searched=retrieval.searched,
+            keyword_found=retrieval.keyword_found,
+            vector_found=retrieval.vector_found,
+            vector_leg=retrieval.vector_leg,
+            notes=list(retrieval.notes),
+            hits=[
+                SearchHitView(
+                    rank=hit.rank,
+                    score=hit.score,
+                    chunk_id=hit.chunk.chunk_id,
+                    document_key=hit.chunk.document_key,
+                    title=titles.get(hit.chunk.document_key, ""),
+                    section=list(hit.chunk.section),
+                    text=hit.chunk.text,
+                    sensitivity=hit.chunk.sensitivity,
+                    readers=AclView.of(hit.chunk.acl) if hit.chunk.acl is not None else None,
+                    keyword_rank=hit.keyword_rank,
+                    keyword_score=hit.keyword_score,
+                    vector_rank=hit.vector_rank,
+                    vector_score=hit.vector_score,
+                )
+                for hit in retrieval.hits
+            ],
+            withheld=[
+                WithheldView(
+                    document_key=key,
+                    title=titles.get(key, ""),
+                    chunks=len(group),
+                    readers=AclView.of(group[0].acl) if group[0].acl is not None else None,
+                )
+                for key, group in sorted(kept_out.items())
+            ],
+            withheld_chunks=len(withheld),
+            ms=round(result.ms, 3),
+        )
 
 
 class EntityLinkView(_View):
