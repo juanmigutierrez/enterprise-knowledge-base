@@ -26,14 +26,19 @@ from ekb.contracts import (
     ChangeOp,
     Chunk,
     DiffAction,
+    DocumentAcl,
     Entity,
     EntityKind,
     EntityMention,
+    Membership,
     PiiKind,
     Sensitivity,
+    admits,
+    readers_now,
 )
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkEntry, LoggedDecision, LoggedEvent, ParsedEntry
+from ekb.operate.inspector.permissions import PermissionSnapshot
 from ekb.platform.gateway.config import split_ref
 from ekb.platform.gateway.models import CallRecord, Outcome
 from ekb.platform.gateway.status import ProviderStatus
@@ -487,7 +492,8 @@ class ChunkView(_View):
     """``none`` before T7; ``current`` when made by what T7 embeds with now; ``stale``
     when another model, size or input recipe made it (embed it again before searching)."""
     publishable: bool
-    """Always false before T8 (S11): the publication gate also needs the ACL."""
+    """Whether it has readers, a sensitivity and a vector: true once T8 has published it
+    (S11). The readers themselves are on the T8 tab, which reads the search store."""
 
     @classmethod
     def of(
@@ -547,6 +553,123 @@ class ChunkedDocumentView(_View):
                 for chunk, reason, mentions in zip(entry.chunks, why, found, strict=True)
             ],
         )
+
+
+# ------------------------------------------------------------------ T8 permissions (S11)
+
+PublicationStatus = Literal["published", "readers_only", "waiting"]
+"""``published``: its chunks are in the search store. ``readers_only``: its readers
+are recorded but nothing is published (first seen as a permissions change, or a
+version with no text). ``waiting``: chunked, but T8 has not published it."""
+
+
+class PublicationView(_View):
+    """One document's readers and what of it is searchable."""
+
+    document_key: str
+    title: str
+    status: PublicationStatus
+    chunks: int
+    """Chunks of it in the search store."""
+    text_version: str | None
+    """The version of the published text (``Chunk.document_version``)."""
+    acl: AclView | None
+    """The readers T8 last copied; ``None`` while waiting."""
+    acl_version: str | None
+    """The source version the readers came from: newer than the text after a fast lane."""
+    changed_at: datetime | None
+    """When the source changed the readers."""
+    resolver_id: str
+    readers: list[str]
+    """The active users who could read it now: its readers against today's groups."""
+    unknown_groups: list[str]
+    """Groups in its readers that no identity user is in."""
+
+
+class MembershipView(_View):
+    """One identity user as the permission store holds them."""
+
+    user_id: str
+    active: bool
+    """An inactive user (a leaver) reads nothing, whatever their groups."""
+    groups: list[str]
+    source_version: str
+    documents: int
+    """Published documents they could read now."""
+
+
+class PermissionsView(_View):
+    resolver_id: str
+    documents: list[PublicationView]
+    users: list[MembershipView]
+    published_chunks: int
+    published_documents: int
+    active_users: int
+
+    @classmethod
+    def of(
+        cls, snapshot: PermissionSnapshot, entries: list[ChunkEntry], resolver_id: str
+    ) -> PermissionsView:
+        by_document: dict[str, list[Chunk]] = {}
+        for chunk in snapshot.chunks:
+            by_document.setdefault(chunk.document_key, []).append(chunk)
+        records = {r.document_key: r for r in snapshot.records}
+        titles = {e.document_key: e.title for e in entries}
+        known = {group for m in snapshot.memberships for group in m.groups}
+        keys = sorted(set(by_document) | set(records) | set(titles))
+        documents = [
+            _publication(key, by_document.get(key, []), records.get(key), titles, snapshot, known)
+            for key in keys
+        ]
+        published = {key: chunks[0].acl for key, chunks in by_document.items() if chunks}
+        return cls(
+            resolver_id=resolver_id,
+            documents=documents,
+            users=[_membership(m, published) for m in snapshot.memberships],
+            published_chunks=len(snapshot.chunks),
+            published_documents=len(by_document),
+            active_users=sum(1 for m in snapshot.memberships if m.active),
+        )
+
+
+def _publication(
+    key: str,
+    chunks: list[Chunk],
+    record: DocumentAcl | None,
+    titles: dict[str, str],
+    snapshot: PermissionSnapshot,
+    known: set[str],
+) -> PublicationView:
+    acl = chunks[0].acl if chunks else record.acl if record else None
+    status: PublicationStatus = (
+        "published" if chunks else "readers_only" if record is not None else "waiting"
+    )
+    return PublicationView(
+        document_key=key,
+        title=titles.get(key, ""),
+        status=status,
+        chunks=len(chunks),
+        text_version=chunks[0].document_version if chunks else None,
+        acl=AclView.of(acl) if acl is not None else None,
+        acl_version=chunks[0].acl_version if chunks else record.acl_version if record else None,
+        changed_at=record.occurred_at if record is not None else None,
+        resolver_id=record.resolver_id if record is not None else "",
+        readers=list(readers_now(acl, snapshot.memberships)) if acl is not None else [],
+        unknown_groups=sorted(acl.groups - known) if acl is not None else [],
+    )
+
+
+def _membership(membership: Membership, published: dict[str, Acl | None]) -> MembershipView:
+    principals = membership.principals
+    return MembershipView(
+        user_id=membership.user_id,
+        active=membership.active,
+        groups=sorted(membership.groups),
+        source_version=membership.source_version,
+        documents=sum(
+            1 for acl in published.values() if acl is not None and admits(acl, principals)
+        ),
+    )
 
 
 # ------------------------------------------------------------------ T6 entities (S9)

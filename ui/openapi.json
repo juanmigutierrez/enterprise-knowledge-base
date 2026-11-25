@@ -1431,6 +1431,43 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "MembershipView": {
+        "description": "One identity user as the permission store holds them.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "source_version": {
+            "title": "Source Version",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "active",
+          "groups",
+          "source_version",
+          "documents"
+        ],
+        "title": "MembershipView",
+        "type": "object"
+      },
       "MentionView": {
         "description": "The words in a chunk that name one entity, and the rule that matched them (S9).",
         "properties": {
@@ -1623,6 +1660,50 @@
         "title": "ParsedSummaryView",
         "type": "object"
       },
+      "PermissionsView": {
+        "properties": {
+          "active_users": {
+            "title": "Active Users",
+            "type": "integer"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationView"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "published_chunks": {
+            "title": "Published Chunks",
+            "type": "integer"
+          },
+          "published_documents": {
+            "title": "Published Documents",
+            "type": "integer"
+          },
+          "resolver_id": {
+            "title": "Resolver Id",
+            "type": "string"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/MembershipView"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resolver_id",
+          "documents",
+          "users",
+          "published_chunks",
+          "published_documents",
+          "active_users"
+        ],
+        "title": "PermissionsView",
+        "type": "object"
+      },
       "PiiKind": {
         "description": "Kinds of personal data T5 flags on a chunk.\n\nThe first four identify a person or their money on their own, so a chunk\nholding one is at least confidential. An email address, a phone number or\na name is flagged but does not raise the chunk by itself: a policy giving\nthe HR team's address is not confidential.",
         "enum": [
@@ -1636,6 +1717,109 @@
         ],
         "title": "PiiKind",
         "type": "string"
+      },
+      "PublicationView": {
+        "description": "One document's readers and what of it is searchable.",
+        "properties": {
+          "acl": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AclView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acl_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acl Version"
+          },
+          "changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed At"
+          },
+          "chunks": {
+            "title": "Chunks",
+            "type": "integer"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "readers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Readers",
+            "type": "array"
+          },
+          "resolver_id": {
+            "title": "Resolver Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "published",
+              "readers_only",
+              "waiting"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Version"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unknown_groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_key",
+          "title",
+          "status",
+          "chunks",
+          "text_version",
+          "acl",
+          "acl_version",
+          "changed_at",
+          "resolver_id",
+          "readers",
+          "unknown_groups"
+        ],
+        "title": "PublicationView",
+        "type": "object"
       },
       "RecordCountView": {
         "description": "A source whose items T3 found to be structured records, not documents (D7).",
@@ -2521,6 +2705,24 @@
           }
         },
         "summary": "T6 Entities"
+      }
+    },
+    "/api/t8/permissions": {
+      "get": {
+        "operationId": "t8_permissions_api_t8_permissions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "T8 Permissions"
       }
     }
   }

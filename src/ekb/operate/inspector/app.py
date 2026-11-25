@@ -16,6 +16,8 @@ GET /api/t4/chunks[?source=]                    chunked documents, sizes and lab
 GET /api/t4/chunks/document?document_key=       one document's chunks, headers, labels, links
                                                 (S6, S8, S9)
 GET /api/t6/entities[?kind=]                    the entity store and the chunks linked to each (S9)
+GET /api/t8/permissions                         readers and publication status per document, and
+                                                who is in which group (S11)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================
@@ -25,7 +27,8 @@ refuses any profile but ``local``.
 
 Deleted content is never returned: T3's and T4's output of an item whose
 lifetime a delete closed is hidden at once, even before T2's purge drops it,
-and so is an entity whose HR record was deleted (S9).
+and so is an entity whose HR record was deleted (S9) and a deleted document's
+published chunks and readers (S11).
 The gateway's cost log holds no prompt or reply at all, only hashes and numbers.
 """
 
@@ -64,10 +67,12 @@ from ekb.operate.inspector.models import (
     ParsedDocumentView,
     ParsedListView,
     ParsedSummaryView,
+    PermissionsView,
     RecordCountView,
     RecordView,
     SourceView,
 )
+from ekb.operate.inspector.permissions import PermissionPanel
 from ekb.platform.gateway.usage import totals
 
 LOCAL_PROFILE = "local"
@@ -92,6 +97,7 @@ def create_inspector_app(
     current_lifetime: Callable[[str], int],
     gateway: GatewayPanel | None = None,
     entities: EntityPanel | None = None,
+    permissions: PermissionPanel | None = None,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -243,6 +249,21 @@ def create_inspector_app(
         prefix = f"{kind.value}:"
         stale = [link for link in view.stale_links if link.entity_id.startswith(prefix)]
         return view.model_copy(update={"stale_links": stale})
+
+    @app.get("/api/t8/permissions")
+    def t8_permissions() -> PermissionsView:
+        live = [e for e in chunks.entries() if e.lifetime == current_lifetime(e.document_key)]
+        if permissions is None:
+            return PermissionsView(
+                resolver_id="",
+                documents=[],
+                users=[],
+                published_chunks=0,
+                published_documents=0,
+                active_users=0,
+            )
+        snapshot = permissions.snapshot(current_lifetime)
+        return PermissionsView.of(snapshot, live, permissions.resolver_id)
 
     panel = gateway or GatewayPanel()
 

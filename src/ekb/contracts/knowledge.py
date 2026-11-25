@@ -71,11 +71,12 @@ class Chunk(BaseModel):
     ``chunker_id``, then writes its context header (S8): ``context_header`` and
     ``header_id``. T5 labels it (S8): ``department``, ``sensitivity``, ``pii``
     and ``classifier_id``. T6 links it (S9): ``entity_ids`` and ``linker_id``.
-    T7 embeds it (S10): ``vector`` and ``embedding_model``. T8 sets the ACL (S11).
+    T7 embeds it (S10): ``vector`` and ``embedding_model``. T8 sets its readers
+    (S11): ``acl``, ``acl_version`` and ``resolver_id``.
 
     A chunk is only published to the search index once ``acl``,
     ``sensitivity`` and ``vector`` are set; see the publication test in
-    docs/option-evaluation.md 4.14.
+    docs/option-evaluation.md 4.14. The search store refuses any other.
 
     ``chunk_id`` is ``<document_key>#<position>`` (``hr_docs:HR-PL-01#2``). It
     names a place in a document, so ``document_version`` says which version's
@@ -86,6 +87,10 @@ class Chunk(BaseModel):
 
     document_key: str
     document_version: str
+    original_lifetime: int = 0
+    """Change-log lifetime of the text T8 published."""
+    source_content_hash: str | None = None
+    """Hash of the published original, for ACL notifications about a newer text."""
     chunk_id: str
     text: str
     section: tuple[str, ...] = ()
@@ -124,6 +129,15 @@ class Chunk(BaseModel):
     linker_id: str = ""
     """Which T6 option linked it, e.g. ``exact_match@2``. Empty until T6 has run."""
     acl: Acl | None = None
+    """Who may read the passage (T8, S11): the source's readers as canonical user and
+    group IDs. ``None`` until T8 has run: one of the three fields the publication gate
+    needs. Groups stay groups; who is in them is looked up when someone asks
+    (``ekb.contracts.permissions``)."""
+    acl_version: str = ""
+    """The source version the readers came from. T2's fast lane changes the readers
+    and this, never the text, so ``document_version`` stays the version of the text."""
+    resolver_id: str = ""
+    """Which T8 option set the readers, e.g. ``source_acl@1``. Empty until T8 has run."""
     embedding_model: str | None = None
     """What made the vector (T7, S10): the option, the input recipe, the model and the
     size, e.g. ``model@1(input@1, ollama:bge-m3, 1024)`` (D10). Vectors are comparable

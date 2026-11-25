@@ -12,9 +12,12 @@ It builds a small live system in one process:
    (S5) parses what T2 sends on, T4 (S6) chunks it and writes the context
    headers through the model gateway (S8), T5 (S8) labels the chunks, T6
    (S9) links them to the people and teams of the entity store, which the HR
-   records keep current, and T7 (S10) embeds them (bge-m3 through the gateway,
-   or ``--embed fake``); all of them forget what T2 purges, the gateway's
-   cached replies and vectors and a deleted record's entity included. The
+   records keep current, T7 (S10) embeds them (bge-m3 through the gateway,
+   or ``--embed fake``) and T8 (S11) publishes them to the search store with
+   their readers, against the memberships the identity records keep current;
+   T2's fast lane sends a readers-only change straight to T8. All of them
+   forget what T2 purges, the gateway's cached replies and vectors, a deleted
+   record's entity and a deleted page's published chunks included. The
    inspector's own consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``), with the
    model gateway's panel (S7): its routes, free quotas and the cost log that
@@ -33,7 +36,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import Annotated
 
@@ -51,7 +54,16 @@ from ekb.app.diff import T2_GROUP, diff_step, run_t2
 from ekb.app.embed import EMBEDDER_OPTIONS, MODEL_EMBEDDERS, embed_help, embed_step, probe
 from ekb.app.entities import entity_store, entity_sync, link_step
 from ekb.app.gateway import build_gateway, max_spend, provider_status
-from ekb.app.parse import parse_after_t2, parse_step
+from ekb.app.parse import DOCUMENT_SOURCES, parse_after_t2, parse_step
+from ekb.app.permissions import (
+    membership_sync,
+    permission_step,
+    permission_store,
+    readers_after_t2,
+    resolver,
+    search_store,
+    unpublisher,
+)
 from ekb.changelog.bus.consume import drain
 from ekb.connect.docs_api import DocsApi
 from ekb.connect.hr_api import HrApi
@@ -77,6 +89,7 @@ from ekb.operate.inspector.app import (
 from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
+from ekb.operate.inspector.permissions import PermissionPanel
 from ekb.platform.config import Settings, load_settings
 from ekb.platform.gateway.gateway import ModelGateway
 from ekb.process.t2_diff.step import DiffResult, DiffStep
@@ -85,6 +98,7 @@ from ekb.process.t4_chunk.step import ChunkStep
 from ekb.process.t5_classify.step import ClassifyStep
 from ekb.process.t6_entities.step import LinkStep
 from ekb.process.t7_embed.step import EmbedStep
+from ekb.process.t8_permissions.step import PermissionResult, PermissionStep
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +170,9 @@ class SyncLoop:
     """T7's option (S10): ``fake`` (no model, the default for tests) or ``model``."""
     entities: EntityPanel = field(default_factory=lambda: EntityPanel(entity_store()), kw_only=True)
     """The entity store T6 reads and the HR records fill (S9), as the inspector shows it."""
+    permission_stores: InitVar[PermissionPanel | None] = field(default=None, kw_only=True)
+    permissions: PermissionPanel = field(init=False)
+    """The search and permission stores T8 writes and the identity records fill (S11)."""
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
@@ -165,14 +182,23 @@ class SyncLoop:
     t5: ClassifyStep = field(init=False)
     t6: LinkStep = field(init=False)
     t7: EmbedStep = field(init=False)
+    t8: PermissionStep = field(init=False)
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, permission_stores: PermissionPanel | None) -> None:
+        self.permissions = permission_stores or permission_panel(self.changelog)
+        published = self.permissions.lifetimes
+
+        def readers(result: PermissionResult) -> None:
+            published.record(result.event.document_key, result.event.original_lifetime)
+
         def processed(result: Processed) -> None:
             event, parsed = result.parse.event, result.parse.parsed
             self.parsed.record(event, parsed)
             if result.record is not None and result.record.entity is not None:
                 source_key = result.record.entity.source_key
                 self.entities.lifetimes.record(source_key, event.original_lifetime)
+            if result.published is not None:
+                readers(result.published)
             if parsed is not None and result.chunks is not None:
                 headers, labels, links = result.chunks.headers, result.labels, result.links
                 vectors = result.vectors
@@ -192,17 +218,27 @@ class SyncLoop:
                 )
 
         records = entity_sync(self.changelog, self.entities.store)
-        forget = forgetter(self.gateway, self.parsed.drop, self.chunks.drop, records.forget)
+        index, stores = self.permissions.index, self.permissions.permissions
+        members = membership_sync(self.changelog, stores)
+        unpublish = unpublisher(index, stores, members)
+        forget = forgetter(
+            self.gateway, unpublish, self.parsed.drop, self.chunks.drop, records.forget
+        )
         self.t3 = parse_step(self.changelog)
         self.t4 = chunk_step(header=header_writer(self.header, self.gateway))
         self.t5 = classify_step(self.classifier, self.gateway)
         self.t6 = link_step(self.entities.store)
         self.t7 = embed_step(self.embedder, self.gateway)
-        then = chunk_after_t3(self.t4, processed, self.t5, self.t6, records, self.t7)
-        then_parse = parse_after_t2(self.t3, then, forget)
+        self.t8 = permission_step(stores, index)
+        then = chunk_after_t3(
+            self.t4, processed, self.t5, self.t6, records, self.t7, self.t8, members
+        )
+        then_parse = readers_after_t2(
+            self.t8, parse_after_t2(self.t3, then, forget), DOCUMENT_SOURCES, readers
+        )
 
         def keep(result: DiffResult) -> None:
-            then_parse(result)  # first: if T3 or T4 fails, T2 records nothing; the event comes back
+            then_parse(result)  # first: if T3 ... T8 fails, T2 records nothing; it comes back
             self.decisions.append(result.decision, result.purged)
 
         self.t2 = diff_step(self.changelog, downstream=keep)
@@ -316,8 +352,8 @@ def inspector(
     settings = load_settings()
     profile = settings.profile
     log, decisions, parsed, chunks = EventLog(), DecisionLog(), ParsedStore(), ChunkStore()
-    entities = EntityPanel(entity_store())
     changelog = ChangeLog.in_memory()
+    entities, permissions = EntityPanel(entity_store()), permission_panel(changelog)
     try:
         gateway = build_gateway(settings.gateway)
         app = _create_app(
@@ -329,6 +365,7 @@ def inspector(
             chunks=chunks,
             gateway=gateway_panel(settings, gateway),
             entities=entities,
+            permissions=permissions,
         )
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
@@ -365,6 +402,7 @@ def inspector(
             classifier=classifier,
             embedder=embed,
             entities=entities,
+            permission_stores=permissions,
             listing_every=listing_every,
         )
         loaded = loop.run_round()
@@ -395,6 +433,13 @@ def inspector(
         )
         embedded = sum(1 for e in chunks.entries() for c in e.chunks if c.vector is not None)
         typer.echo(f"T7 embedded {embedded} of {cut} chunks ({loop.t7.model_id}).")
+        published = permissions.index.chunks()
+        members = permissions.permissions.memberships()
+        typer.echo(
+            f"T8 published {len(published)} of {cut} chunks with their readers "
+            f"({loop.t8.resolver_id}); {sum(1 for m in members if m.active)} active users "
+            "in the permission store."
+        )
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -402,6 +447,16 @@ def inspector(
         typer.echo(f"Inspector API: http://{HOST}:{port}/docs")
         typer.echo("UI: in ui/, run `npm install` once, then `npm run dev`. Ctrl+C stops.")
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
+
+
+def permission_panel(changelog: ChangeLog) -> PermissionPanel:
+    """T8's stores as the inspector shows them: fresh in-memory search and permission
+    stores, and the resolver the loop's T8 uses (S11)."""
+    return PermissionPanel(
+        search_store(current_lifetime=changelog.current_lifetime),
+        permission_store(current_lifetime=changelog.current_lifetime),
+        resolver().resolver_id,
+    )
 
 
 def gateway_panel(settings: Settings, gateway: ModelGateway) -> GatewayPanel:
@@ -427,6 +482,7 @@ def _create_app(
     chunks: ChunkStore,
     gateway: GatewayPanel | None = None,
     entities: EntityPanel | None = None,
+    permissions: PermissionPanel | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -440,4 +496,5 @@ def _create_app(
         current_lifetime=changelog.current_lifetime,
         gateway=gateway,
         entities=entities,
+        permissions=permissions,
     )
