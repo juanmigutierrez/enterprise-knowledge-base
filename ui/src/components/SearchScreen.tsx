@@ -7,10 +7,16 @@ import {
     legClass,
     legsLabel,
     otherCanRead,
+    planLabel,
+    redactionsLabel,
+    releasedLabel,
+    releasedParts,
     searchFor,
     searchedLabel,
     snippet,
     trail,
+    verdictClass,
+    verdictLabel,
     withheldLabel,
 } from "../search";
 import { usePolling } from "../usePolling";
@@ -19,12 +25,15 @@ import { usePolling } from "../usePolling";
 const UNKNOWN = "mallory";
 
 /**
- * Search as user (S13): the same question asked by two people, side by side.
- * Each column is the real query path, Q2 then Q3: the person's principals now,
- * then the chunks those admit, ranked by keywords (BM25) and by vectors, fused.
- * Each column also shows what the pre-filter kept out: an inspector's view
- * that no agent ever gets. Both columns ask again every few seconds, so a group
- * change or a revoke made in the mocks shows up without asking again.
+ * Search as user (S13, S14): the same question asked by two people, side by side.
+ * Each column is the real query path, Q1 to Q4: the searches Q1 planned, the
+ * person's principals now, the chunks those admit ranked by keywords (BM25) and
+ * by vectors, fused; then Q4's check against the source for each hit: cited as
+ * [n] with personal data removed, or held back with the source's reason. Each
+ * column also shows what the pre-filter kept out and what Q4 held back: an
+ * inspector's view that no agent ever gets. Both columns ask again every few
+ * seconds, so a group change or a revoke made in the mocks shows up without
+ * asking again, first through Q4, then, once the worker has synced, through Q2.
  */
 export function SearchScreen() {
     const people = usePolling(api.t8Permissions, 10000);
@@ -45,14 +54,16 @@ export function SearchScreen() {
     return (
         <section className="stack flow">
             <div className="pane compact">
-                <h2>Q2 + Q3 · The same question, asked by two people</h2>
+                <h2>Q1 to Q4 · The same question, asked by two people</h2>
                 <p className="muted">
-                    Q2 turns the person asking into the principals they read with now:
-                    their user ID and the groups the identity provider lists today (none
-                    for a leaver or a stranger). Q3 ranks only the chunks those admit, by
-                    keywords (BM25) and by meaning (vectors), and fuses the two lists by
-                    rank (RRF). A chunk someone may not read is never scored, so it can’t
-                    take one of their places. The grey box is the inspector’s view only.
+                    Q1 splits a question with several parts into one search each. Q2 turns
+                    the person asking into the principals they read with now: their user ID
+                    and the groups the permission store lists (none for a leaver or a
+                    stranger). Q3 ranks only the chunks those admit, by keywords (BM25) and
+                    by meaning (vectors), and fuses the lists by rank (RRF). Q4 then asks the
+                    source whether this person may read each page now: what it confirms is
+                    cited, with personal data removed; anything else is held back. The grey
+                    box and the held-back hits are the inspector’s view only.
                 </p>
                 <form
                     className="ask"
@@ -141,6 +152,9 @@ function SearchColumn({
                 {view && (
                     <>
                         <p className={view.reads_nothing ? "error" : "muted"}>{view.reason}</p>
+                        <p className="muted small">
+                            Q1: {planLabel(view)} · {releasedLabel(view)}
+                        </p>
                         {view.notes.map((note) => (
                             <p key={note} className="note">
                                 {note}
@@ -174,8 +188,8 @@ function SearchColumn({
                             ))}
                         </ol>
                         <p className="muted small">
-                            {view.prefilter_id} · {view.retriever_id} · {view.encoder} ·{" "}
-                            {view.ms.toFixed(1)} ms
+                            {view.planner_id} · {view.prefilter_id} · {view.retriever_id} ·{" "}
+                            {view.postcheck_id} · {view.encoder} · {view.ms.toFixed(1)} ms
                         </p>
                     </>
                 )}
@@ -184,22 +198,51 @@ function SearchColumn({
     );
 }
 
-/** One hit; `hidden` names the other column's person when they may not read it. */
+/**
+ * One hit; `hidden` names the other column's person when they may not read it.
+ * Released: the text as Q4 released it, with its markers. Held back: the reason,
+ * and the indexed text greyed out (the inspector shows it; the agent never does).
+ */
 function HitCard({ hit, hidden }: { hit: SearchHitView; hidden: string | null }) {
+    const released = hit.released_text;
     return (
-        <li className="hit">
+        <li className={hit.citation !== null ? "hit" : "hit held"}>
             <div className="hit-head">
                 <strong className="num">{hit.rank}.</strong>
+                <span className={verdictClass(hit)} title={hit.access_reason}>
+                    {verdictLabel(hit)}
+                </span>
                 <span className="mono" title={hit.title}>
                     {shortKey(hit.chunk_id)}
                 </span>
                 <span className={legClass(hit)}>{legsLabel(hit)}</span>
                 {hidden && <span className="only">{hidden} can’t read this</span>}
+                {hit.source_changed && <span className="changed">source changed since indexing</span>}
                 <span className="spacer" />
                 <span className="muted mono">rrf {fused(hit.score)}</span>
             </div>
             <div className="section-label">{trail(hit.section)}</div>
-            <p className="hit-text">{snippet(hit.text)}</p>
+            {released !== null ? (
+                <p className="hit-text">
+                    {releasedParts(snippet(released, 400)).map((part, index) =>
+                        part.removed ? (
+                            <mark key={index} className="redacted">
+                                {part.text}
+                            </mark>
+                        ) : (
+                            <span key={index}>{part.text}</span>
+                        ),
+                    )}
+                </p>
+            ) : (
+                <>
+                    <p className="note">Q4: {hit.access_reason}</p>
+                    <p className="hit-text muted">{snippet(hit.text)}</p>
+                </>
+            )}
+            {hit.redactions.length > 0 && (
+                <div className="muted small">{redactionsLabel(hit.redactions)}</div>
+            )}
             <div className="muted small">
                 readers {readersLabel(hit.readers)}
                 {hit.sensitivity ? ` · ${hit.sensitivity}` : ""}

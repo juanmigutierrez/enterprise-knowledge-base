@@ -22,7 +22,9 @@ It builds a small live system in one process:
    model gateway's panel (S7): its routes, free quotas and the cost log that
    ``ekb demo gateway`` and the headers write to; and the query path (S13,
    ``ekb.app.search``) over the same stores, for the **Search as user** tab: Q2
-   and Q3 as the profile names them, questions embedded by T7's model.
+   and Q3 as the profile names them, questions embedded by T7's model; with Q1's
+   plan and Q4's check against the running mocks (S14, ``ekb.app.answer``),
+   wired once the mocks have started.
 
 Change something in a mock's ``/docs`` page and watch the event appear.
 """
@@ -46,6 +48,7 @@ import typer
 import uvicorn
 from fastapi import FastAPI
 
+from ekb.app.answer import KnowledgeQuery, access_check, build_query
 from ekb.app.changelog import ChangeLog
 from ekb.app.choices import Choices, choose, choose_query
 from ekb.app.chunk import HEADER_OPTIONS
@@ -67,11 +70,11 @@ from ekb.app.pipeline import (
     build_pipeline,
     build_stores,
 )
-from ekb.app.search import build_search, encoder_note, query_encoder
+from ekb.app.search import encoder_note, query_encoder
 from ekb.changelog.bus.consume import drain
 from ekb.connect.port import Connector
 from ekb.connect.receiver import DOCS_WEBHOOK_PATH, create_receiver_app
-from ekb.contracts import DiffAction
+from ekb.contracts import AnswerResult, DiffAction
 from ekb.operate.inspector.app import (
     DEFAULT_PORT,
     HOST,
@@ -344,10 +347,9 @@ def inspector(
         gateway = build_gateway(settings.gateway)
         query = choose_query(settings)
         encoder = query_encoder(choices, gateway)
+        late = LateQuery()
         search = SearchPanel(
-            ask=build_search(query, stores, encoder).ask,
-            index=stores.search,
-            encoder=encoder_note(choices, encoder),
+            ask=late.ask, index=stores.search, encoder=encoder_note(choices, encoder)
         )
         app = _create_app(
             log,
@@ -381,6 +383,7 @@ def inspector(
         run_mock_command("sources.mock_hr_db", ["init", "--path", str(db_path)])
 
         connectors = build_connectors(docs, hr, idp, db_path, changelog)
+        late.knowledge = build_query(query, stores, access_check(docs, idp), encoder)
         receiver = stack.enter_context(serving(create_receiver_app(connectors.webhook.receive)))
         hook = call(docs, "POST", "/subscriptions", json={"url": receiver.url + DOCS_WEBHOOK_PATH})
         stack.callback(lambda: call(docs, "DELETE", f"/subscriptions/{hook['id']}"))
@@ -438,7 +441,7 @@ def inspector(
             "in the permission store."
         )
         typer.echo(
-            "Q2 + Q3: " + "; ".join(c.describe() for c in query.steps) + f"; {search.encoder}."
+            "Q1 to Q4: " + "; ".join(c.describe() for c in query.steps) + f"; {search.encoder}."
         )
         typer.echo("  Ask as anyone, two people side by side, in the Search as user tab.")
         parked = len(loop.pipeline.dead_letters)
@@ -452,6 +455,22 @@ def inspector(
         typer.echo(f"Inspector API: http://{HOST}:{port}/docs")
         typer.echo("UI: in ui/, run `npm install` once, then `npm run dev`. Ctrl+C stops.")
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
+
+
+@dataclass
+class LateQuery:
+    """The query path for the Search as user tab, wired once the mocks are running.
+
+    Q4 checks against the mock sources, whose addresses are known only after they
+    start, while the inspector's API is built before; nothing asks before then.
+    """
+
+    knowledge: KnowledgeQuery | None = None
+
+    def ask(self, user_id: str, question: str) -> AnswerResult:
+        if self.knowledge is None:
+            raise RuntimeError("the query path is not wired yet: the mocks have not started")
+        return self.knowledge.ask(user_id, question)
 
 
 def permission_panel(changelog: ChangeLog) -> PermissionPanel:

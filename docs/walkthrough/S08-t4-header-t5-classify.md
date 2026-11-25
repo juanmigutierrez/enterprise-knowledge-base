@@ -32,7 +32,7 @@ Both run only where T2 decided `process`. `skip` (same text) and `acl_only` (onl
 | `src/ekb/process/t4_chunk/options/header_none.py`, `header_model.py` | `t4_header: none` and `t4_header: model`: prompt, schema, reading the reply, failure handling |
 | `src/ekb/process/t4_chunk/step.py` | `ChunkStep(chunker, header)`, `with_headers()`: one header per chunk, nothing else changed |
 | `src/ekb/process/t5_classify/port.py` | `Classifier`, `Labels`, `Classification`, `DEPARTMENTS` |
-| `src/ekb/process/t5_classify/pii.py` | Personal-data patterns with check digits (IBAN, card, DNI / NIE) and masking |
+| `src/ekb/process/t5_classify/pii.py` (moved to `src/ekb/platform/pii.py` in S14, shared with Q4's redaction) | Personal-data patterns with check digits (IBAN, card, DNI / NIE) and masking |
 | `src/ekb/process/t5_classify/rules.py` | Markers, department keywords, `labels()`: the rules shared by both options |
 | `src/ekb/process/t5_classify/options/rules.py`, `model_plus_rules.py` | `t5_classify: rules` and `t5_classify: model_plus_rules` |
 | `src/ekb/process/t5_classify/step.py` | `ClassifyStep`, `ClassifyResult`, `check_input()`, `labelled()`, `summary()` |

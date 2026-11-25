@@ -112,7 +112,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ✅ |
 | S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks · UI: full pipeline trace per document | 40 min | ✅ |
 | S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ✅ |
-| S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations · UI: citations and redactions in search results | 40 min | ⬜ |
+| S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations · UI: citations and redactions in search results | 40 min | ✅ |
 | S14b | 5 · Metrics store + 6 · Q1 | *Optional.* Structured path: database change events → in-memory metrics store (DuckDB option later); Q1 sends counting questions ("how many people work in Madrid?") to SQL instead of search (D7) | Why structured data takes a different path from documents | `ekb demo answer "how many people work in Madrid?"` → answer from SQL, cited to the table | 45 min | ⬜ |
 | S15 | 6 · MCP + 7 · Agent | Knowledge API as MCP tools; static test users; small HR assistant | How an agent uses the knowledge base safely | Ask the HR assistant from Claude Code / MCP Inspector | 40 min | ⬜ |
 | S16 | Self-maintenance | Scripted scenario across the sources: add, edit, delete a page; delete an HR record (found by the full listing); revoke on the page **and** by removing a user from a group → answers change; re-link the pages an entity change affects (a hire, a leaver; left open in S9); gate tests | The "maintains itself" requirement, proven | `ekb demo lifecycle` · UI: **Lifecycle** screen (add, edit, delete, revoke → see the effect) | 70 min | ⬜ |
@@ -183,7 +183,19 @@ S13 (Q2 + Q3) is complete and reviewed (✅). The [S13 walkthrough](walkthrough/
 - `ekb demo search` runs offline (`--models` for both legs); the inspector gains `GET /api/search` and the **Search as user** tab.
 - Both ranking legs use the same readable snapshot after question encoding. If the readable corpus or the asker's membership changes during ranking, the response discards the results and asks for a fresh search.
 
-Next is **S14** (Q4 + Q1) with `/plan-task S14`.
+S14 (Q4 + Q1) is complete and reviewed (✅). The [S14 walkthrough](walkthrough/S14-q4-q1-answer.md) covers the plan, the merged searches, the current access check, redaction, citations and the inspector's view. Settled in S14's plan on 25 November 2026:
+- Q4 (`source_recheck`) asks the docs tool for each page's readers now and the identity provider for the person's status and groups now, not the synced permission store: one identity read per question, one page read per document, 2 seconds each. Only a clear yes releases a passage; a denial, a deletion, a timeout, an error or a source without an access check holds it back.
+- The check's port is Q4's (`SourceAccessCheck`); the connect layer implements it (`ekb.connect.access_check`), wired in `ekb.app.answer`.
+- What leaves (`Answer`) never names a held-back page. Only "N passages could not be checked" is said, without names, when a source did not answer. The demo and the inspector show everything held back, with the reason. Nothing is fetched to refill the top 5.
+- A page edited since indexing, with access confirmed, is released and its citation marked "source changed since indexing".
+- `q4_redact: rules` (the default when Q4 has no `redact` setting) removes IBANs, payment card numbers, Italian fiscal codes and Spanish DNI / NIE numbers for every asker; emails and phone numbers stay. T5's patterns moved unchanged to `ekb.platform.pii` and are shared.
+- `q1_plan: rules` splits on `?`, `;` and line breaks into at most 3 searches, merged by reciprocal rank fusion into one top 5. It runs as the stand-in for `rewrite_when_needed` (card 4.8); `ci` keeps `none`. No route to SQL yet (S14b).
+- No generated answer and no answer cache yet: both come with the HR assistant in S15; the full card 4.13 test, cached path included, runs in S16.
+- `ekb demo answer` runs offline; the inspector's **Search as user** screen shows each hit's Q4 verdict, citation and redactions.
+
+Q4 checks the first revision of the current page lifetime before releasing indexed text. Q3 ranks and scores stay in inspector diagnostics.
+
+Next is **S14b** (optional) or **S15** with `/plan-task`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

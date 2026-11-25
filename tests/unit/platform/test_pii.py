@@ -1,11 +1,11 @@
-"""Personal data found by patterns (T5's rules, S8): what is found, and what is not."""
+"""Personal data found by patterns (T5's labels, Q4's redaction): what is found, and what is not."""
 
 from __future__ import annotations
 
 import pytest
 
 from ekb.contracts import PiiKind
-from ekb.process.t5_classify import pii
+from ekb.platform import pii
 
 
 @pytest.mark.parametrize(

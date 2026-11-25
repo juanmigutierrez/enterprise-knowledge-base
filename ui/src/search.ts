@@ -1,4 +1,4 @@
-import type { AclView, SearchHitView, SearchView } from "./api/client";
+import type { AclView, RedactionView, SearchHitView, SearchView } from "./api/client";
 
 /** Polling keeps its last response while the next selection is loading. */
 export function searchFor(view: SearchView | null, user: string, question: string): SearchView | null {
@@ -76,4 +76,57 @@ export function otherCanRead(
         readers.users.includes(other.user_id) ||
         readers.groups.some((group) => other.groups.includes(group))
     );
+}
+
+/** `1 search`, or `2 searches: "…" · "…"`: what Q1 planned (S14). */
+export function planLabel(view: Pick<SearchView, "searches">): string {
+    const count = view.searches.length;
+    if (count <= 1) return "1 search";
+    return `${count} searches: ${view.searches.map((s) => `“${s}”`).join(" · ")}`;
+}
+
+/** `Q4: 3 cited, 2 held back`, or `Q4: nothing to check`. */
+export function releasedLabel(view: Pick<SearchView, "released" | "held_back">): string {
+    if (!view.released && !view.held_back) return "Q4: nothing to check";
+    const held = view.held_back ? `, ${view.held_back} held back` : "";
+    return `Q4: ${view.released} cited${held}`;
+}
+
+/** `[1] cited`, or `held back: denied`: what Q4 decided about one hit. */
+export function verdictLabel(hit: Pick<SearchHitView, "verdict" | "citation">): string {
+    if (hit.citation !== null) return `[${hit.citation}] cited`;
+    return `held back: ${hit.verdict}`;
+}
+
+/** The badge's class: released and cited, or held back. */
+export function verdictClass(hit: Pick<SearchHitView, "citation">): string {
+    return hit.citation !== null ? "q4 q4-cited" : "q4 q4-held";
+}
+
+/** `1 IBAN removed`, or an empty string. */
+export function redactionsLabel(redactions: readonly RedactionView[]): string {
+    const names: Record<string, string> = {
+        iban: "IBAN",
+        payment_card: "card number",
+        it_fiscal_code: "fiscal code",
+        es_national_id: "ID number",
+    };
+    return redactions
+        .map((r) => `${r.count} ${names[r.kind] ?? r.kind.replace(/_/g, " ")} removed`)
+        .join(", ");
+}
+
+/** A released text cut into plain pieces and the markers Q4 put where personal data was. */
+export function releasedParts(text: string): { text: string; removed: boolean }[] {
+    const parts: { text: string; removed: boolean }[] = [];
+    const marker = /\[[^\]]+ removed\]/g;
+    let cursor = 0;
+    for (const match of text.matchAll(marker)) {
+        const at = match.index ?? 0;
+        if (at > cursor) parts.push({ text: text.slice(cursor, at), removed: false });
+        parts.push({ text: match[0], removed: true });
+        cursor = at + match[0].length;
+    }
+    if (cursor < text.length) parts.push({ text: text.slice(cursor), removed: false });
+    return parts;
 }

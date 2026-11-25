@@ -35,7 +35,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ekb.contracts import Chunk, ParsedDocument, Sensitivity
-from ekb.process.t5_classify import pii
+from ekb.platform import pii
 from ekb.process.t5_classify.port import DEPARTMENTS, Labels, passage
 
 VERSION = 1

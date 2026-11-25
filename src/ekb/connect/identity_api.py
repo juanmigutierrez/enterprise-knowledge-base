@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
 class IdpUser(BaseModel):
@@ -19,7 +19,7 @@ class IdpUser(BaseModel):
 
     id: str
     display_name: str
-    active: bool
+    active: StrictBool
     groups: tuple[str, ...]
     data: dict[str, Any] = Field(repr=False)
 
@@ -29,7 +29,7 @@ class IdpUser(BaseModel):
             id=data["id"],
             display_name=data["displayName"],
             active=data["active"],
-            groups=tuple(data["groups"]),
+            groups=data["groups"],
             data=data,
         )
 
@@ -54,8 +54,16 @@ class IdentityApi:
         response.raise_for_status()
         return [IdpUser.parse(item) for item in response.json()["Resources"]]
 
-    def get_user(self, user_id: str) -> IdpUser | None:
-        response = self._client.get(f"/scim/v2/Users/{user_id}")
+    def get_user(self, user_id: str, *, timeout: float | None = None) -> IdpUser | None:
+        """The user now, or ``None`` if the identity provider does not know them.
+
+        ``timeout`` (seconds) overrides the client's for this call (Q4's access check, S14).
+        """
+        path = f"/scim/v2/Users/{user_id}"
+        if timeout is None:
+            response = self._client.get(path)
+        else:
+            response = self._client.get(path, timeout=timeout)
         if response.status_code == httpx.codes.NOT_FOUND:
             return None
         response.raise_for_status()

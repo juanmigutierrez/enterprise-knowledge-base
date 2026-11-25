@@ -331,6 +331,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccessVerdict
+         * @description What the source says about one person and one document, right now.
+         * @enum {string}
+         */
+        AccessVerdict: "allowed" | "denied" | "deleted" | "unavailable";
         /** AclView */
         AclView: {
             /** Groups */
@@ -1101,12 +1107,25 @@ export interface components {
             version: string;
         };
         /**
+         * RedactionView
+         * @description Personal data Q4 removed from a released passage: the kind and how often.
+         */
+        RedactionView: {
+            /** Count */
+            count: number;
+            kind: components["schemas"]["PiiKind"];
+        };
+        /**
          * SearchHitView
-         * @description One chunk Q3 kept for this person, and where each leg ranked it.
+         * @description One chunk Q3 kept for this person, where each leg ranked it, and what Q4 decided.
          */
         SearchHitView: {
+            /** Access Reason */
+            access_reason: string;
             /** Chunk Id */
             chunk_id: string;
+            /** Citation */
+            citation: number | null;
             /** Document Key */
             document_key: string;
             /** Keyword Rank */
@@ -1116,11 +1135,17 @@ export interface components {
             /** Rank */
             rank: number;
             readers: components["schemas"]["AclView"] | null;
+            /** Redactions */
+            redactions: components["schemas"]["RedactionView"][];
+            /** Released Text */
+            released_text: string | null;
             /** Score */
             score: number;
             /** Section */
             section: string[];
             sensitivity: components["schemas"]["Sensitivity"] | null;
+            /** Source Changed */
+            source_changed: boolean;
             /** Text */
             text: string;
             /** Title */
@@ -1129,16 +1154,19 @@ export interface components {
             vector_rank: number | null;
             /** Vector Score */
             vector_score: number | null;
+            verdict: components["schemas"]["AccessVerdict"];
         };
         /**
          * SearchView
-         * @description One question asked as one person: Q2's scope, Q3's hits and notes.
+         * @description One question asked as one person: Q1's plan, Q2's scope, Q3's hits, Q4's decisions.
          */
         SearchView: {
             /** Encoder */
             encoder: string;
             /** Groups */
             groups: string[];
+            /** Held Back */
+            held_back: number;
             /** Hits */
             hits: components["schemas"]["SearchHitView"][];
             /** Keyword Found */
@@ -1147,6 +1175,10 @@ export interface components {
             ms: number;
             /** Notes */
             notes: string[];
+            /** Planner Id */
+            planner_id: string;
+            /** Postcheck Id */
+            postcheck_id: string;
             /** Prefilter Id */
             prefilter_id: string;
             /** Question */
@@ -1155,10 +1187,14 @@ export interface components {
             reads_nothing: boolean;
             /** Reason */
             reason: string;
+            /** Released */
+            released: number;
             /** Retriever Id */
             retriever_id: string;
             /** Searched */
             searched: number;
+            /** Searches */
+            searches: string[];
             /** User Id */
             user_id: string;
             /** Vector Found */

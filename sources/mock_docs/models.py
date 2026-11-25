@@ -60,6 +60,7 @@ class Page(PageSummary):
     """A page with its body."""
 
     body: str
+    first_rev: int = Field(ge=1)
 
 
 class PageCreate(BaseModel):

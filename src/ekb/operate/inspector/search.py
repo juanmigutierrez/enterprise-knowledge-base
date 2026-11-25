@@ -1,10 +1,15 @@
-"""What the inspector shows of Q2 + Q3 (S13): one question, asked as one person.
+"""What the inspector shows of the query path (S13, S14): one question, asked as one person.
 
 The **Search as user** screen asks the same question as two people side by side.
 Each side runs the real query path, the one the Knowledge API will run (S15):
-Q2's scope from the permission store, then Q3's two legs over the chunks that
-scope admits. The inspector does not wire it (``ekb.operate`` cannot import the
+Q1's plan, Q2's scope from the permission store, Q3's two legs over the chunks
+that scope admits, then Q4's check against the source, its redaction and its
+citations. The inspector does not wire it (``ekb.operate`` cannot import the
 access layer); ``ekb.app`` passes it in as :attr:`SearchPanel.ask`.
+
+**Held back, for this screen only.** Each hit shows Q4's decision: cited as
+``[n]`` with the text as released, or held back with the source's reason. An
+agent gets the cited passages alone (``AnswerResult.answer``).
 
 **Withheld, for this screen only.** Next to the hits, the inspector counts the
 chunks that share a word with the question but that this person may not read:
@@ -23,12 +28,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ekb.contracts import Chunk, Principals, SearchResult, admits
+from ekb.contracts import AnswerResult, Chunk, Principals, admits
 from ekb.stores.search.port import SearchStore
 from ekb.stores.search.text import indexed_text, terms
 
-Ask = Callable[[str, str], SearchResult]
-"""``ask(user_id, question)``: Q2 then Q3, as ``ekb.app.search`` wires them."""
+Ask = Callable[[str, str], AnswerResult]
+"""``ask(user_id, question)``: Q1 to Q4, as ``ekb.app.answer`` wires them."""
 
 
 @dataclass(frozen=True)

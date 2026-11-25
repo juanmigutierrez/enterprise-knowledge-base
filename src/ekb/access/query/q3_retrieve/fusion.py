@@ -16,6 +16,9 @@ keeps one leg's first place from outweighing broad agreement: a chunk both legs
 rank in their top few beats a chunk only one leg ranks first. Ties are broken
 by the better rank in either leg, then by document and position, so the order is
 always the same.
+
+:func:`merge` applies the same rule to whole searches (S14): when Q1 splits a
+question, each part's ranking counts as one list.
 """
 
 from __future__ import annotations
@@ -79,3 +82,38 @@ def fuse(
 def renumbered(hits: Sequence[Hit]) -> tuple[Hit, ...]:
     """The hits with ranks 1, 2, 3 … in their current order (after a reranker)."""
     return tuple(hit.model_copy(update={"rank": rank}) for rank, hit in enumerate(hits, start=1))
+
+
+def merge(rankings: Sequence[Sequence[Hit]], rrf_k: int = RRF_K) -> tuple[Hit, ...]:
+    """Several searches' hits as one ranking, by the same rule (S14).
+
+    Q1 can split a question into several searches; each gets its own ranking. A
+    chunk at rank ``r`` in a search earns ``1 / (rrf_k + r)`` there, summed over the
+    searches that found it. So each search's first place beats every other search's
+    second place, and a chunk several searches found adds up and rises. A chunk
+    keeps the legs' ranks and scores of the search that ranked it best. Ties: the
+    better rank in any search, then document and position.
+    """
+    if rrf_k < 0:
+        raise ValueError("rrf_k must not be negative")
+    scores: dict[str, float] = {}
+    best: dict[str, Hit] = {}
+    for ranking in rankings:
+        for hit in ranking:
+            key = hit.chunk.chunk_id
+            scores[key] = scores.get(key, 0.0) + 1 / (rrf_k + hit.rank)
+            if key not in best or hit.rank < best[key].rank:
+                best[key] = hit
+    ordered = sorted(
+        best.values(),
+        key=lambda h: (
+            -scores[h.chunk.chunk_id],
+            h.rank,
+            h.chunk.document_key,
+            h.chunk.position,
+        ),
+    )
+    return tuple(
+        hit.model_copy(update={"rank": rank, "score": scores[hit.chunk.chunk_id]})
+        for rank, hit in enumerate(ordered, start=1)
+    )

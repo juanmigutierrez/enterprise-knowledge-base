@@ -24,6 +24,7 @@ from __future__ import annotations
 from ekb.connect.docs_api import DocsAcl, DocsPage, DocsPageSummary
 from ekb.connect.normalize.common import UnknownChangeKindError, delete_event
 from ekb.contracts import Acl, ChangeEvent, ChangeOp
+from ekb.contracts.events import parse_version
 
 __all__ = [
     "UnknownChangeKindError",
@@ -58,14 +59,6 @@ def op_for(kind: str) -> ChangeOp:
 
 def version_of(rev: int, acl_rev: int) -> str:
     return f"{rev}.{acl_rev}"
-
-
-def parse_version(version: str) -> tuple[int, int] | None:
-    """``(rev, acl_rev)`` from a version label, or ``None`` if it isn't one of ours."""
-    rev, dot, acl_rev = version.partition(".")
-    if not dot or not rev.isdigit() or not acl_rev.isdigit():
-        return None
-    return int(rev), int(acl_rev)
 
 
 def acl_of(acl: DocsAcl, users: frozenset[str] | None = None) -> Acl:

@@ -12,12 +12,16 @@ from pathlib import Path
 import httpx
 import pytest
 
+from ekb.access.query.q1_plan.port import Planner
 from ekb.access.query.q2_prefilter.port import PreFilter
 from ekb.access.query.q3_retrieve.port import Reranker, Retriever
+from ekb.access.query.q4_postcheck.options.redact_none import NoRedactor
+from ekb.access.query.q4_postcheck.port import PostCheck, Redactor, SourceAccessCheck
 from ekb.app.bootstrap import load_options
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
+from ekb.connect.access_check import SourceAccessChecker
 from ekb.connect.docs_api import DocsApi
 from ekb.connect.hr_api import HrApi
 from ekb.connect.hr_db import CdcReader
@@ -57,9 +61,12 @@ PORTS: dict[str, type] = {
     "entities": EntityStore,
     "search": SearchStore,
     "permissions": PermissionStore,
+    "q1_plan": Planner,
     "q2_prefilter": PreFilter,
     "q3_retrieve": Retriever,
     "q3_rerank": Reranker,
+    "q4_postcheck": PostCheck,
+    "q4_redact": Redactor,
     "model_client": ModelClient,
     "embedding_client": EmbeddingClient,
     "model_cache": ResponseCache,
@@ -94,6 +101,11 @@ TEST_PARAMS: dict[tuple[str, str], dict[str, object]] = {
     # Query steps (S13) read the stores; empty ones will do.
     ("q2_prefilter", "acl"): {"permissions": InMemoryPermissionStore()},
     ("q3_retrieve", "hybrid_rrf"): {"index": InMemorySearchStore()},
+    # Q4 (S14) asks the sources; building the check opens no connection.
+    ("q4_postcheck", "source_recheck"): {
+        "access": SourceAccessChecker(DocsApi(_CLIENT), IdentityApi(_CLIENT)),
+        "redactor": NoRedactor(),
+    },
 }
 
 load_options()
@@ -104,3 +116,10 @@ CASES = [(step, name) for step in PORTS for name in registry.options(step)]
 def test_option_implements_port(step: str, name: str) -> None:
     instance = registry.create(step, name, **TEST_PARAMS.get((step, name), {}))
     assert isinstance(instance, PORTS[step])
+
+
+def test_the_connectors_current_access_check_implements_q4s_port() -> None:
+    """S14: the check lives with the connectors (it talks to the sources), not in Q4's options."""
+    checker = SourceAccessChecker(DocsApi(_CLIENT), IdentityApi(_CLIENT))
+    assert isinstance(checker, SourceAccessCheck)
+    assert checker.checker_id == "source@1(hr_docs, timeout=2s)"
