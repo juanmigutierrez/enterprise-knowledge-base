@@ -187,7 +187,7 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 | T6 entity extraction and resolution (`entities`, `entities_hard`) | Haiku first, Sonnet 5.5 for hard cases | light chain, then Gemini Flash → gpt-oss-120b → Mistral Large → OpenRouter free | Mistakes pollute the graph |
 | T7 embeddings (`embed`) | Cohere Embed v4 | bge-m3 on Ollama, local and free (S10); exactly one model, no failover | Multilingual and cross-lingual; vectors from two models cannot be compared |
 | Q1 query planning (`plan_query`) | Haiku 5.5 | light chain | Latency |
-| Q3 reranking | Cohere Rerank 3.5 | decided in S13 | Large precision gain for little cost |
+| Q3 reranking | Cohere Rerank 3.5 | none yet (S13): the reranker port runs `none`; card 4.6 decides between a local bge-reranker (Ollama serves no rerankers officially, so it needs its own runtime) and a hosted one | Large precision gain for little cost |
 | HR assistant answers (`answer`) | Sonnet 5.5 | strong chain | Quality users see |
 | Evaluation judge (`judge`) | Opus 5.5, or Sonnet if they agree | strong chain | Judge stronger than what it grades |
 

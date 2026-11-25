@@ -24,3 +24,4 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S10 | [T7 Embed: what a vector is and why the model ID is stored](S10-t7-embed.md) |
 | S11 | [T8 Permissions and the search store: why nothing is searchable before permissions are set](S11-t8-permissions.md) |
 | S12 | [The worker pipeline: the full write path, T2 → T8 on the bus](S12-pipeline.md) |
+| S13 | [Q2 + Q3: how retrieval respects who is asking](S13-q2-q3-search.md) |

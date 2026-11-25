@@ -10,6 +10,7 @@ import { GatewayScreen } from "./components/GatewayScreen";
 import { ParseScreen } from "./components/ParseScreen";
 import { PermissionsScreen } from "./components/PermissionsScreen";
 import { PipelineScreen } from "./components/PipelineScreen";
+import { SearchScreen } from "./components/SearchScreen";
 import { usePolling } from "./usePolling";
 
 type Tab =
@@ -22,6 +23,7 @@ type Tab =
     | "t4"
     | "t6"
     | "t8"
+    | "search"
     | "gateway";
 
 const TABS: Record<Tab, string> = {
@@ -34,6 +36,7 @@ const TABS: Record<Tab, string> = {
     t4: "T4 Chunk",
     t6: "T6 Entities",
     t8: "T8 Permissions",
+    search: "Search as user",
     gateway: "Model gateway",
 };
 
@@ -84,6 +87,7 @@ export function App() {
                 {tab === "t4" && <ChunkScreen sources={names} />}
                 {tab === "t6" && <EntitiesScreen />}
                 {tab === "t8" && <PermissionsScreen />}
+                {tab === "search" && <SearchScreen />}
                 {tab === "gateway" && <GatewayScreen />}
             </main>
         </div>

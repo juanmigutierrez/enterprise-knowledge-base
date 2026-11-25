@@ -21,6 +21,8 @@ GET /api/t8/permissions                         readers and publication status p
 GET /api/pipeline/traces[?source=&status=]      the worker: each item's latest attempt, totals per
                                                 status and per step (S12)
 GET /api/pipeline/trace?document_key=           every attempt at one item, step by step (S12)
+GET /api/search?user=&q=                        one question asked as one person: Q2's scope,
+                                                Q3's hits, what the pre-filter kept out (S13)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================
@@ -32,7 +34,8 @@ Deleted content is never returned: T3's and T4's output of an item whose
 lifetime a delete closed is hidden at once, even before T2's purge drops it,
 and so is an entity whose HR record was deleted (S9) and a deleted document's
 published chunks and readers (S11). The worker's traces (S12) hold no content
-at all, so a deleted item's traces stay, as its history.
+at all, so a deleted item's traces stay, as its history. The search (S13) runs the
+real query path over the same stores, so a deleted page is never a hit, nor withheld.
 The gateway's cost log holds no prompt or reply at all, only hashes and numbers.
 """
 
@@ -76,10 +79,12 @@ from ekb.operate.inspector.models import (
     PipelineView,
     RecordCountView,
     RecordView,
+    SearchView,
     SourceView,
     TraceView,
 )
 from ekb.operate.inspector.permissions import PermissionPanel
+from ekb.operate.inspector.search import SearchPanel, withheld
 from ekb.operate.inspector.trace import TraceLog
 from ekb.platform.gateway.usage import totals
 
@@ -107,6 +112,7 @@ def create_inspector_app(
     entities: EntityPanel | None = None,
     permissions: PermissionPanel | None = None,
     traces: TraceLog | None = None,
+    search: SearchPanel | None = None,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -273,6 +279,37 @@ def create_inspector_app(
             )
         snapshot = permissions.snapshot(current_lifetime)
         return PermissionsView.of(snapshot, live, permissions.resolver_id)
+
+    @app.get("/api/search")
+    def search_as(user: Annotated[str, Query(min_length=1)], q: str = "") -> SearchView:
+        if search is None:
+            return SearchView(
+                question=q,
+                user_id=user,
+                reads_nothing=True,
+                reason="the query path is not wired in this inspector",
+                groups=[],
+                prefilter_id="",
+                retriever_id="",
+                encoder="",
+                searched=0,
+                keyword_found=0,
+                vector_found=0,
+                vector_leg=False,
+                notes=["the query path is not wired in this inspector"],
+                hits=[],
+                withheld=[],
+                withheld_chunks=0,
+                ms=0.0,
+            )
+        result = search.ask(user, q)
+        kept_out = withheld(search.index, result.scope.principals, q)
+        titles = {
+            e.document_key: e.title
+            for e in chunks.entries()
+            if e.lifetime == current_lifetime(e.document_key)
+        }
+        return SearchView.of(result, kept_out, titles, search.encoder)
 
     pipeline = traces or TraceLog()
 

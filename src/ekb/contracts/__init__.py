@@ -16,6 +16,7 @@ from ekb.contracts.permissions import (
     admits,
     readers_now,
 )
+from ekb.contracts.retrieval import Hit, Leg, Retrieval, Scope, SearchResult
 from ekb.contracts.trace import (
     STEP_ORDER,
     StepOutcome,
@@ -39,10 +40,15 @@ __all__ = [
     "Entity",
     "EntityKind",
     "EntityMention",
+    "Hit",
+    "Leg",
     "Membership",
     "ParsedDocument",
     "PiiKind",
     "Principals",
+    "Retrieval",
+    "Scope",
+    "SearchResult",
     "Sensitivity",
     "StepOutcome",
     "StepTrace",

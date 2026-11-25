@@ -39,11 +39,14 @@ export type PermissionsView = Schemas["PermissionsView"];
 export type PipelineView = Schemas["PipelineView"];
 export type PublicationView = Schemas["PublicationView"];
 export type RecordView = Schemas["RecordView"];
+export type SearchHitView = Schemas["SearchHitView"];
+export type SearchView = Schemas["SearchView"];
 export type SourceView = Schemas["SourceView"];
 export type StepTotalsView = Schemas["StepTotalsView"];
 export type TracedDocumentView = Schemas["TracedDocumentView"];
 export type TraceStepView = Schemas["TraceStepView"];
 export type TraceView = Schemas["TraceView"];
+export type WithheldView = Schemas["WithheldView"];
 export type ChangeOp = EventView["op"];
 export type DiffAction = DecisionView["action"];
 export type BlockKind = BlockView["kind"];
@@ -83,6 +86,8 @@ type PipelineQuery = NonNullable<
 >;
 type PipelineTraceQuery =
     operations["pipeline_trace_api_pipeline_trace_get"]["parameters"]["query"];
+export type SearchQuery =
+    operations["search_as_api_search_get"]["parameters"]["query"];
 type GatewayCallsQuery = NonNullable<
     operations["gateway_calls_api_gateway_calls_get"]["parameters"]["query"]
 >;
@@ -143,6 +148,7 @@ export const api = {
         get<PipelineView>("/api/pipeline/traces", query),
     pipelineTrace: (query: PipelineTraceQuery) =>
         getOrNull<DocumentTraceView>("/api/pipeline/trace", query),
+    search: (query: SearchQuery) => get<SearchView>("/api/search", query),
     gateway: () => get<GatewayView>("/api/gateway"),
     gatewayCalls: (query: GatewayCallsQuery = {}) =>
         get<CallPage>("/api/gateway/calls", query),

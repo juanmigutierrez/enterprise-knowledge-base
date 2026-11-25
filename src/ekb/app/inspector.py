@@ -20,7 +20,9 @@ It builds a small live system in one process:
    The inspector's own consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``), with the
    model gateway's panel (S7): its routes, free quotas and the cost log that
-   ``ekb demo gateway`` and the headers write to.
+   ``ekb demo gateway`` and the headers write to; and the query path (S13,
+   ``ekb.app.search``) over the same stores, for the **Search as user** tab: Q2
+   and Q3 as the profile names them, questions embedded by T7's model.
 
 Change something in a mock's ``/docs`` page and watch the event appear.
 """
@@ -45,7 +47,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from ekb.app.changelog import ChangeLog
-from ekb.app.choices import Choices, choose
+from ekb.app.choices import Choices, choose, choose_query
 from ekb.app.chunk import HEADER_OPTIONS
 from ekb.app.classify import CLASSIFIER_OPTIONS
 from ekb.app.connectors import Connectors, build_connectors
@@ -65,6 +67,7 @@ from ekb.app.pipeline import (
     build_pipeline,
     build_stores,
 )
+from ekb.app.search import build_search, encoder_note, query_encoder
 from ekb.changelog.bus.consume import drain
 from ekb.connect.port import Connector
 from ekb.connect.receiver import DOCS_WEBHOOK_PATH, create_receiver_app
@@ -81,6 +84,7 @@ from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.permissions import PermissionPanel
+from ekb.operate.inspector.search import SearchPanel
 from ekb.operate.inspector.trace import TraceLog
 from ekb.platform.config import Settings, load_settings
 from ekb.platform.gateway.gateway import ModelGateway
@@ -338,6 +342,13 @@ def inspector(
     )
     try:
         gateway = build_gateway(settings.gateway)
+        query = choose_query(settings)
+        encoder = query_encoder(choices, gateway)
+        search = SearchPanel(
+            ask=build_search(query, stores, encoder).ask,
+            index=stores.search,
+            encoder=encoder_note(choices, encoder),
+        )
         app = _create_app(
             log,
             decisions,
@@ -349,6 +360,7 @@ def inspector(
             entities=entities,
             permissions=permissions,
             traces=traces,
+            search=search,
         )
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
@@ -425,6 +437,10 @@ def inspector(
             f"({loop.t8.resolver_id}); {sum(1 for m in members if m.active)} active users "
             "in the permission store."
         )
+        typer.echo(
+            "Q2 + Q3: " + "; ".join(c.describe() for c in query.steps) + f"; {search.encoder}."
+        )
+        typer.echo("  Ask as anyone, two people side by side, in the Search as user tab.")
         parked = len(loop.pipeline.dead_letters)
         typer.echo(
             f"Dead letters: {parked} parked events. Follow any document in the Pipeline tab."
@@ -473,6 +489,7 @@ def _create_app(
     entities: EntityPanel | None = None,
     permissions: PermissionPanel | None = None,
     traces: TraceLog | None = None,
+    search: SearchPanel | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -488,4 +505,5 @@ def _create_app(
         entities=entities,
         permissions=permissions,
         traces=traces,
+        search=search,
     )

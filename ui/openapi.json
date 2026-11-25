@@ -2005,6 +2005,229 @@
         "title": "RecordView",
         "type": "object"
       },
+      "SearchHitView": {
+        "description": "One chunk Q3 kept for this person, and where each leg ranked it.",
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "keyword_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keyword Rank"
+          },
+          "keyword_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keyword Score"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "readers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AclView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "section": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Section",
+            "type": "array"
+          },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sensitivity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "vector_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Rank"
+          },
+          "vector_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Score"
+          }
+        },
+        "required": [
+          "rank",
+          "score",
+          "chunk_id",
+          "document_key",
+          "title",
+          "section",
+          "text",
+          "sensitivity",
+          "readers",
+          "keyword_rank",
+          "keyword_score",
+          "vector_rank",
+          "vector_score"
+        ],
+        "title": "SearchHitView",
+        "type": "object"
+      },
+      "SearchView": {
+        "description": "One question asked as one person: Q2's scope, Q3's hits and notes.",
+        "properties": {
+          "encoder": {
+            "title": "Encoder",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHitView"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "keyword_found": {
+            "title": "Keyword Found",
+            "type": "integer"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "number"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "prefilter_id": {
+            "title": "Prefilter Id",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "reads_nothing": {
+            "title": "Reads Nothing",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "retriever_id": {
+            "title": "Retriever Id",
+            "type": "string"
+          },
+          "searched": {
+            "title": "Searched",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "vector_found": {
+            "title": "Vector Found",
+            "type": "integer"
+          },
+          "vector_leg": {
+            "title": "Vector Leg",
+            "type": "boolean"
+          },
+          "withheld": {
+            "items": {
+              "$ref": "#/components/schemas/WithheldView"
+            },
+            "title": "Withheld",
+            "type": "array"
+          },
+          "withheld_chunks": {
+            "title": "Withheld Chunks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "question",
+          "user_id",
+          "reads_nothing",
+          "reason",
+          "groups",
+          "prefilter_id",
+          "retriever_id",
+          "encoder",
+          "searched",
+          "keyword_found",
+          "vector_found",
+          "vector_leg",
+          "notes",
+          "hits",
+          "withheld",
+          "withheld_chunks",
+          "ms"
+        ],
+        "title": "SearchView",
+        "type": "object"
+      },
       "Sensitivity": {
         "description": "How carefully a passage must be handled, from least to most strict.\n\nThe order matters: when two signals disagree (a rule and a model, a\ndocument's marker and a chunk's own content), the stricter one wins,\nbecause a missed restriction is a leak and an extra one is only friction\n(card 4.9).",
         "enum": [
@@ -2310,6 +2533,41 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WithheldView": {
+        "description": "A page the pre-filter kept out: it shares a word with the question, and this person\nmay not read it. Inspector only: Q3 never sees it, and an agent never learns it.",
+        "properties": {
+          "chunks": {
+            "title": "Chunks",
+            "type": "integer"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "readers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AclView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_key",
+          "title",
+          "chunks",
+          "readers"
+        ],
+        "title": "WithheldView",
         "type": "object"
       }
     }
@@ -2754,6 +3012,56 @@
           }
         },
         "summary": "Registry Records"
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "search_as_api_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "User",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search As"
       }
     },
     "/api/sources": {

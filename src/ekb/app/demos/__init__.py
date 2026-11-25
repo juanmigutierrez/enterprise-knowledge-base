@@ -14,6 +14,7 @@ from ekb.app.demos import (  # noqa: F401  (importing registers the commands)
     s1c,
     s1d,
     s3,
+    search,
     t1,
     t2,
     t3,

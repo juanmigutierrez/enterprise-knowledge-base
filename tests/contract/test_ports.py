@@ -12,6 +12,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from ekb.access.query.q2_prefilter.port import PreFilter
+from ekb.access.query.q3_retrieve.port import Reranker, Retriever
 from ekb.app.bootstrap import load_options
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
@@ -33,7 +35,9 @@ from ekb.process.t6_entities.port import EntityLinker
 from ekb.process.t7_embed.port import Embedder
 from ekb.process.t8_permissions.port import PermissionResolver
 from ekb.stores.entities.port import EntityStore
+from ekb.stores.permissions.options.in_memory import InMemoryPermissionStore
 from ekb.stores.permissions.port import PermissionStore
+from ekb.stores.search.options.in_memory import InMemorySearchStore
 from ekb.stores.search.port import SearchStore
 from tests.unit.platform.gateway.helpers import Scripted, make_world
 
@@ -53,6 +57,9 @@ PORTS: dict[str, type] = {
     "entities": EntityStore,
     "search": SearchStore,
     "permissions": PermissionStore,
+    "q2_prefilter": PreFilter,
+    "q3_retrieve": Retriever,
+    "q3_rerank": Reranker,
     "model_client": ModelClient,
     "embedding_client": EmbeddingClient,
     "model_cache": ResponseCache,
@@ -84,6 +91,9 @@ TEST_PARAMS: dict[tuple[str, str], dict[str, object]] = {
     ("t4_header", "model"): {"gateway": Scripted()},
     ("t5_classify", "model_plus_rules"): {"gateway": Scripted()},
     ("t7_embed", "model"): {"gateway": make_world().gateway},
+    # Query steps (S13) read the stores; empty ones will do.
+    ("q2_prefilter", "acl"): {"permissions": InMemoryPermissionStore()},
+    ("q3_retrieve", "hybrid_rrf"): {"index": InMemorySearchStore()},
 }
 
 load_options()

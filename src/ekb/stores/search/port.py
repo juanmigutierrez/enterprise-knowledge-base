@@ -21,8 +21,15 @@ Three rules are part of the port, so no option can break them:
 takes one person's principals (their user ID and groups *now*, from the
 permission store) and returns only the chunks those admit. The search store
 never looks up a group itself: the stores are independent, and who is in a
-group changes without any chunk changing. S11 filters only; S13 adds ranking
-(BM25 + vectors) to this port.
+group changes without any chunk changing.
+
+**Ranking (S13) filters first.** :meth:`~SearchStore.keyword` (BM25) and
+:meth:`~SearchStore.nearest` (vectors) rank only the chunks the principals
+admit: a chunk the asker may not read is never scored, never counted in the
+statistics and never takes one of the ``k`` places (the pre-filter of D8 and
+card 4.13, the way OpenSearch puts the readers in the query's ``filter``
+clause). ``None`` principals rank nothing. Q3 (``ekb.access.query.q3_retrieve``)
+asks both and fuses the two lists.
 """
 
 from __future__ import annotations
@@ -47,6 +54,39 @@ class Published:
     """Chunks of the document in the store now."""
     replaced: int
     """Chunks of its previous version that were dropped."""
+
+
+@dataclass(frozen=True)
+class Scored:
+    """One chunk a leg ranked, and its score (higher is better)."""
+
+    chunk: Chunk
+    score: float
+
+
+@dataclass(frozen=True)
+class Ranking:
+    """One leg's answer: the best ``k`` chunks the principals admit, best first."""
+
+    hits: tuple[Scored, ...]
+    searched: int
+    """Chunks the principals admit: the only ones this leg looked at."""
+    skipped: int = 0
+    """Of those, chunks this leg could not compare: for the vector leg, chunks whose
+    vector came from another embedding model, or has another size (D10: vectors of two
+    models don't compare)."""
+
+
+class RankingSnapshot(Protocol):
+    """Both rankings see the same published versions and ACLs."""
+
+    def keyword(self, query: str, k: int) -> Ranking: ...
+
+    def nearest(self, vector: Sequence[float], space: str, k: int) -> Ranking: ...
+
+    def is_current(self) -> bool:
+        """Whether the readable corpus still matches this snapshot."""
+        ...
 
 
 @runtime_checkable
@@ -94,5 +134,30 @@ class SearchStore(Protocol):
         """The published chunks these principals may read; none for ``None``.
 
         ``None`` is an unknown or inactive person: they read nothing.
+        """
+        ...
+
+    def ranking_snapshot(self, principals: Principals | None) -> RankingSnapshot:
+        """Capture the readable corpus once, after any remote encoding call."""
+        ...
+
+    def keyword(self, query: str, principals: Principals | None, k: int) -> Ranking:
+        """The ``k`` chunks these principals may read that best match ``query``'s words (BM25).
+
+        Only chunks sharing at least one term with the query are returned. The
+        statistics (how rare a term is, how long a chunk is on average) come
+        from the chunks the principals admit, so a page they cannot read never
+        moves their scores.
+        """
+        ...
+
+    def nearest(
+        self, vector: Sequence[float], space: str, principals: Principals | None, k: int
+    ) -> Ranking:
+        """The ``k`` chunks these principals may read whose vectors are closest to ``vector``.
+
+        ``space`` is the embedding model ID the question's vector is comparable
+        with (T7's ``model_id``): chunks with another ``embedding_model`` are
+        skipped and counted, never compared.
         """
         ...
