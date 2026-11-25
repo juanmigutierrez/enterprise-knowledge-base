@@ -9,6 +9,7 @@ steps:
   t7_embed:     { option: fake, params: { dimensions: 32 } }
   q1_plan:      { option: none }
   q3_retrieve:  { option: hybrid_rrf, params: { rerank: none, top_k: 5 } }
+  answer:       { option: extractive }
 
 # Every task goes to the offline fake model; nothing is kept between runs.
 gateway:

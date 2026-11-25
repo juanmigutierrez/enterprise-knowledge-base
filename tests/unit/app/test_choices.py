@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 
 from ekb.app.choices import (
+    ASSISTANT_STEPS,
     PIPELINE_STEPS,
     QUERY_STEPS,
     Choice,
     NoStandInError,
     choose,
+    choose_assistant,
     choose_query,
 )
 from ekb.platform.config import StepChoice, load_settings
@@ -91,7 +93,7 @@ def test_a_step_the_config_leaves_out_gets_its_stand_in() -> None:
 
 
 def test_the_query_path_runs_its_stand_ins_and_takes_the_reranker_out_of_q3() -> None:
-    """S13: acl_and_cedar runs as acl until S15, the configured reranker as none until 4.6.
+    """S13: acl_and_cedar runs as acl until S15b, the configured reranker as none until 4.6.
     S14: rewrite_when_needed runs as rules until card 4.8; Q4 redacts with rules."""
     choices = choose_query(load_settings(profile="local"))
 
@@ -132,3 +134,19 @@ def test_q4s_redact_setting_names_the_redactor_and_its_absence_means_rules() -> 
     steps["q4_postcheck"] = StepChoice(option="source_recheck", params={"redact": "presidio"})
     with pytest.raises(NoStandInError, match="q4_redact: 'presidio' is not built yet"):
         choose_query(settings.model_copy(update={"steps": steps}))
+
+
+def test_the_knowledge_api_s_steps_come_from_the_profile_and_go_offline_on_request() -> None:
+    """S15: the token check, the answer writer and the answer cache."""
+    local = choose_assistant(load_settings(profile="local"))
+    assert [c.step for c in local.steps] == list(ASSISTANT_STEPS)
+    assert local.option("auth") == "static_tokens"
+    assert local.params("auth")["users"] == ["alice", "bob", "carla", "emma", "olivia"]
+    assert local["answer"].describe() == "answer model"
+    assert local.calls_models
+    offline = choose_assistant(load_settings(profile="local"), offline=True)
+    assert offline["answer"].describe() == "answer model -> extractive (offline: no model)"
+    assert not offline.calls_models
+    ci = choose_assistant(load_settings(profile="ci"))
+    assert ci["answer"].describe() == "answer extractive"
+    assert ci["answer_cache"].describe() == "answer_cache in_memory"

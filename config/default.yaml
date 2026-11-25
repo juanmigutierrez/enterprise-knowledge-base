@@ -38,6 +38,12 @@ steps:
   q3_retrieve:   { option: hybrid_rrf, params: { rerank: bge_reranker, top_k: 5 }, card: "4.5 / 4.6 / 4.7" }
   q4_postcheck:  { option: source_recheck, card: "4.13" }
 
+  # The Knowledge API (S15): who is asking, the HR assistant's answer, answers kept for reuse.
+  # Test tokens for these users are issued on first start and kept in the (git-ignored) path.
+  auth:          { option: static_tokens, params: { agent: hr-assistant, users: [alice, bob, carla, emma, olivia], path: .cache/ekb/test-tokens.json } }
+  answer:        { option: model, card: "4.11" }   # gateway task: answer
+  answer_cache:  { option: in_memory }
+
 # Model gateway (S7, decisions.md D15). Every model call names a task; the gateway
 # tries the task's candidates in order, skipping any without a key in .env, past its
 # free quota, or recently rate-limited. Replies are cached by content hash; every

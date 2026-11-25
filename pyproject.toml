@@ -21,6 +21,8 @@ dependencies = [
   "langchain-openrouter>=0.3",
   # T3 (S5): CommonMark + tables for the docs tool's Markdown pages.
   "markdown-it-py>=4.0",
+  # Knowledge API (S15): the official MCP SDK, for the server and the demo's client (D9).
+  "mcp>=2.3",
   "pydantic>=2.9",
   "pyyaml>=6.0",
   "typer>=0.12",
@@ -88,7 +90,7 @@ select = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src", "sources", "tests"]
+files = ["src", "sources", "agents", "tests"]
 plugins = ["pydantic.mypy"]
 
 # ---------------------------------------------------------------- pytest
@@ -127,6 +129,12 @@ source_modules = ["ekb"]
 forbidden_modules = ["sources"]
 
 [[tool.importlinter.contracts]]
+name = "The product never imports the agents; they reach it over MCP (S15)"
+type = "forbidden"
+source_modules = ["ekb"]
+forbidden_modules = ["agents"]
+
+[[tool.importlinter.contracts]]
 name = "Layers: evaluation > entry points > pipeline stages > infrastructure > platform > contracts"
 type = "layers"
 layers = [
@@ -152,13 +160,14 @@ modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Query steps Q1-Q4 are independent; only the query pipeline wires them together"
+name = "Query steps Q1-Q4 and the answer writer are independent; only the app wires them together"
 type = "independence"
 modules = [
   "ekb.access.query.q1_plan",
   "ekb.access.query.q2_prefilter",
   "ekb.access.query.q3_retrieve",
   "ekb.access.query.q4_postcheck",
+  "ekb.access.answer",
 ]
 
 [[tool.importlinter.contracts]]

@@ -22,8 +22,8 @@ source this check does not cover: ``unavailable``, and Q4 holds the passage
 back (D8). An unknown or inactive person: ``denied`` for every document.
 
 In production the same check is a read of the source under the user's own
-identity (on-behalf-of, S15), or an authoritative permission API that accounts
-for current group membership (D8). Here the mock's permissions are read
+identity (on-behalf-of, with OIDC tokens in S17), or an authoritative permission
+API that accounts for current group membership (D8). Here the mock's permissions are read
 directly, as D8 allows for the HR mock.
 """
 

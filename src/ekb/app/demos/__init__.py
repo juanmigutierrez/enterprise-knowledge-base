@@ -10,6 +10,7 @@ from ekb.app.demos import (  # noqa: F401  (importing registers the commands)
     answer,
     gateway,
     ingest,
+    mcp,
     s1,
     s1b,
     s1c,

@@ -14,10 +14,11 @@ from sources.mock_hr_db.db import create_database
 from sources.mock_idp.app import create_app as idp_app
 from typer.testing import CliRunner
 
-from ekb.app.choices import choose, choose_query
+from ekb.app.choices import choose, choose_assistant, choose_query
 from ekb.app.cli import app
 from ekb.app.demos.answer import run_answer_demo
 from ekb.app.demos.ingest import demo_choices, run_ingest_demo
+from ekb.app.demos.mcp import run_mcp_demo
 from ekb.app.demos.s1 import run_s1
 from ekb.app.demos.s1b import run_s1b
 from ekb.app.demos.s1c import run_s1c
@@ -961,5 +962,81 @@ def test_cli_answer_runs_offline_and_reports_an_unreachable_mock(
     assert 'carla asks "annual leave"' in result.output
     assert "alice asks" not in result.output
     result = CliRunner().invoke(app, ["demo", "answer", "--url", "http://127.0.0.1:9"])
+    assert result.exit_code == 1
+    assert "Demo failed" in result.output
+
+
+def _mcp(tmp_path: Path) -> tuple[str, list[str]]:
+    """``ekb demo mcp`` in-process and offline; the HR assistant runs as its own process."""
+    lines: list[str] = []
+    create_database(tmp_path / "hr.sqlite")
+    settings = load_settings(profile="local")
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        system = run_mcp_demo(
+            as_httpx(docs),
+            as_httpx(hr),
+            as_httpx(idp),
+            tmp_path / "hr.sqlite",
+            lines.append,
+            write=choose(settings, offline=True),
+            query=choose_query(settings),
+            assistant=choose_assistant(settings, offline=True),
+            repo_root=REPO_ROOT,
+        )
+    assert len(system.pipeline.dead_letters) == 0
+    return "\n".join(lines), [t.token for t in system.issued]
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_mcp_refuses_no_token_answers_as_the_token_and_reuses_only_after_a_check(
+    tmp_path: Path,
+) -> None:
+    output, tokens = _mcp(tmp_path)
+    assert "auth static_tokens: static_tokens@1(hr-assistant, 5 users)" in output
+    assert "answer model -> extractive (offline: no model): extractive@1(quotes=3)" in output
+    assert all(token not in output for token in tokens)  # shown masked only
+    refused = output.split("2. No token")[1].split("3. alice")[0]
+    assert refused.count("-> 401 Bearer") == 2
+    tools = output.split("3. alice's token")[1].split("4. The HR")[0]
+    assert "search  question" in tools
+    assert "whoami with user='bob' -> hr-assistant for alice" in tools
+    agent = output.split("4. The HR assistant")[1].split("5. alice")[0]
+    assert "HR assistant (hr-assistant for alice):" in agent
+    assert "[1] HR-PL-01 · Annual leave policy > How much leave you get" in agent
+    assert "inspector view: kept for reuse." in agent
+    reused = output.split("5. alice asks the same")[1].split("6. dana")[0]
+    assert "(cached)" in reused
+    assert "Q4 asked the source again: HR-PL-01 allowed, HR-PL-09 allowed" in reused
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_mcp_drops_a_cached_answer_the_source_no_longer_confirms(tmp_path: Path) -> None:
+    output, _ = _mcp(tmp_path)
+    narrowed = output.split("6. dana narrows")[1].split("7. alice asked")[0]
+    alice, bob = narrowed.split('bob asks "')
+    assert "cached answer dropped: HR-PL-01 is denied now" in alice
+    assert "HR-PL-01 · " not in alice.split("inspector view")[0]
+    assert "[1] HR-PL-01 · Annual leave policy" in bob
+    down = output.split("7. alice asked")[1].split("8. alice")[0]
+    assert "cached answer dropped: 5 passages could not be checked" in down
+    assert "I found nothing about this in the HR documents you can read." in down
+    assert "the answer may be incomplete" in down
+    claims = output.split("8. alice's question claims")[1].split("9. dana")[0]
+    alice_claim, bob_claim = claims.split('bob asks "')
+    assert "HR-CMP-01" not in alice_claim
+    assert "[1] HR-CMP-01 · Salary bands 2026 (restricted)" in bob_claim
+    leaver = output.split("9. dana deactivates olivia")[1]
+    assert "inactive (has left): reads nothing" in leaver
+    assert "I found nothing about this in the HR documents you can read." in leaver
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_cli_mcp_reports_an_unreachable_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    result = CliRunner().invoke(app, ["demo", "mcp", "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
     assert "Demo failed" in result.output

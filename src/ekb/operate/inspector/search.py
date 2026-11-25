@@ -1,7 +1,7 @@
 """What the inspector shows of the query path (S13, S14): one question, asked as one person.
 
 The **Search as user** screen asks the same question as two people side by side.
-Each side runs the real query path, the one the Knowledge API will run (S15):
+Each side runs the real query path, the one the Knowledge API runs (S15):
 Q1's plan, Q2's scope from the permission store, Q3's two legs over the chunks
 that scope admits, then Q4's check against the source, its redaction and its
 citations. The inspector does not wire it (``ekb.operate`` cannot import the

@@ -4,6 +4,7 @@ Changing a model here is a contract change: bump ``schema_version`` (and,
 once connectors in other languages exist, re-export their JSON schemas).
 """
 
+from ekb.contracts.agent import AssistantAnswer, Caller, Identity
 from ekb.contracts.answer import (
     AccessVerdict,
     Answer,
@@ -44,8 +45,10 @@ __all__ = [
     "Acl",
     "Answer",
     "AnswerResult",
+    "AssistantAnswer",
     "Block",
     "BlockKind",
+    "Caller",
     "ChangeEvent",
     "ChangeOp",
     "Chunk",
@@ -57,6 +60,7 @@ __all__ = [
     "EntityKind",
     "EntityMention",
     "Hit",
+    "Identity",
     "Leg",
     "Membership",
     "ParsedDocument",

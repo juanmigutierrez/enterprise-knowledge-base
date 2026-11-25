@@ -13,7 +13,7 @@ Three answers, each with its reason:
 - a user ID the identity provider doesn't know: nothing.
 
 Cedar policies on top (sensitivity, which agent is asking) are the
-``acl_and_cedar`` option, S15.
+``acl_and_cedar`` option, S15b.
 """
 
 from __future__ import annotations
