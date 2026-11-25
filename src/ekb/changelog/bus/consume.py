@@ -1,6 +1,6 @@
 """Consuming the bus the safe way: handle one event, commit it, then the next.
 
-Every consumer (the registry recorder now, the worker pipeline from S12)
+Every consumer (the registry recorder, the worker pipeline since S12)
 follows the same loop, so it is written once here. It is plain code on top of
 the :class:`EventBus` port, so it works with every bus option.
 """

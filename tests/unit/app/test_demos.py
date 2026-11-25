@@ -14,7 +14,9 @@ from sources.mock_hr_db.db import create_database
 from sources.mock_idp.app import create_app as idp_app
 from typer.testing import CliRunner
 
+from ekb.app.choices import choose
 from ekb.app.cli import app
+from ekb.app.demos.ingest import demo_choices, run_ingest_demo
 from ekb.app.demos.s1 import run_s1
 from ekb.app.demos.s1b import run_s1b
 from ekb.app.demos.s1c import run_s1c
@@ -29,8 +31,10 @@ from ekb.app.demos.t6 import run_t6_demo
 from ekb.app.demos.t7 import demo_gateway as t7_gateway
 from ekb.app.demos.t7 import run_t7_demo
 from ekb.app.demos.t8 import run_t8_demo
+from ekb.platform.config import load_settings
 from tests.conftest import REPO_ROOT
 from tests.http import as_httpx
+from tests.unit.platform.gateway.helpers import make_world
 
 Story = Callable[..., None]
 
@@ -675,5 +679,102 @@ def test_cli_t8_runs_offline_and_reports_an_unreachable_mock(
     assert result.exit_code == 0, result.output
     assert "nothing without readers, a sensitivity and a vector is in it." in result.output
     result = CliRunner().invoke(app, ["demo", "t8", "--url", "http://127.0.0.1:9"])
+    assert result.exit_code == 1
+    assert "Demo failed" in result.output
+
+
+def _ingest(tmp_path: Path) -> str:
+    lines: list[str] = []
+    create_database(tmp_path / "hr.sqlite")
+    choices = choose(load_settings(profile="local"), offline=True)
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        story = run_ingest_demo(
+            as_httpx(docs),
+            as_httpx(hr),
+            as_httpx(idp),
+            tmp_path / "hr.sqlite",
+            lines.append,
+            choices=choices,
+        )
+        assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    chunks = story.stores.search.chunks()
+    assert chunks
+    assert all(chunk.publishable for chunk in chunks)
+    assert "hr_docs:HR-PL-99" not in story.stores.search.documents()
+    assert len(story.pipeline.dead_letters) == 0
+    return "\n".join(lines)
+
+
+def test_ingest_names_the_options_and_loads_every_source(tmp_path: Path) -> None:
+    output = _ingest(tmp_path)
+    assert "profile local, offline (--models calls them):" in output
+    assert "t3_parse        docling -> markdown (not built yet)" in output
+    assert "t7_embed        model -> fake (offline: no model)" in output
+    assert "t4_chunk        structure_aware(max_tokens=400)" in output
+    assert "The connectors put 57 events on the bus (3 partitions)" in output
+    assert "(57 attempts, none failed)" in output
+    assert "identity  12 users    -> permission store: 12 active memberships" in output
+    assert "hr_api    17 records  -> entity store: 12 people, 5 teams" in output
+    assert "hr_db     16 rows     -> no store yet: tables for SQL" in output
+    assert "hr_docs   12 pages    -> search store: 48 chunks, 48 publishable" in output
+    assert "Pages each person can find: alice 9, bob 12," in output
+
+
+def test_ingest_follows_one_page_and_each_kind_of_change(tmp_path: Path) -> None:
+    output = _ingest(tmp_path)
+    assert "2. One page end to end: HR-PL-04 v1.1" in output
+    assert "T8 publish" in output
+    assert "Searchable now for 12 people." in output
+    full = "T2 process -> T8 readers first -> T3 -> T4 -> T5 -> T6 -> T7 -> T8 publish = published"
+    assert full in output
+    assert "T2 acl_only -> T8 fast lane = readers" in output
+    assert "Vectors unchanged: True. Who finds it now: carla, javier, lucia." in output
+    assert "T2 skip = skipped" in output
+    assert "T2 process -> T3 -> permission store = record" in output
+    assert "alice: -it-employees; chunks rewritten: 0." in output
+    assert "T2 purge -> purge search -> purge entity = purged" in output
+    assert "4 chunks out of the search store" in output
+
+
+def test_ingest_parks_a_poison_event_and_a_retry_republishes_it(tmp_path: Path) -> None:
+    output = _ingest(tmp_path)
+    assert "run 1: hr_docs:HR-PL-06 v2.1: attempt 1 of 3 failed at T7 embed" in output
+    assert "run 3: parked after 3 failed attempts; withdrawn until it is retried" in output
+    assert "HR-PL-09 -> published (lag 0)." in output
+    assert "Who finds HR-PL-06 now: no one (was 12 people)." in output
+    assert "parked behind v2.1 (2 parked for this item)" in output
+    assert "v2.2: T2 acl_only -> T8 fast lane = readers" in output
+    assert "Who finds HR-PL-06 now: bob, dana, lucia." in output
+    assert "Group worker lag 0; dead letters 0; search store: 34 chunks from 11 pages" in output
+
+
+def test_ingest_with_models_falls_back_to_fake_vectors_when_t7_cannot_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = make_world().gateway  # no SQLite cache or cost log under .cache/
+    monkeypatch.setattr("ekb.app.demos.ingest.build_gateway", lambda config: fake)
+    monkeypatch.setattr("ekb.app.demos.ingest.probe", lambda gateway: "ollama: unavailable")
+    choices, gateway, note = demo_choices(load_settings(profile="local"), models=True)
+    assert gateway is fake
+    assert choices.option("t7_embed") == "fake"
+    assert choices.option("t4_header") == "model"
+    assert "ollama: unavailable" in note
+    offline, none, quiet = demo_choices(load_settings(profile="local"), models=False)
+    assert (offline.calls_models, none, quiet) == (False, None, "")
+
+
+def test_cli_ingest_runs_offline_and_reports_an_unreachable_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setenv("EKB_PROFILE", "local")
+    result = CliRunner().invoke(app, ["demo", "ingest"])
+    assert result.exit_code == 0, result.output
+    assert "Group worker lag 0; dead letters 0" in result.output
+    result = CliRunner().invoke(app, ["demo", "ingest", "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
     assert "Demo failed" in result.output

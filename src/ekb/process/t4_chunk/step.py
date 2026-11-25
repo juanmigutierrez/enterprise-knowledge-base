@@ -10,8 +10,8 @@
 
 T4 runs right after T3, so only where T2 decided ``process``: new or changed
 text. A permission change or an unchanged save never re-chunks a document,
-and a delete removes its chunks with its parsed text (the wiring in
-``ekb.app.chunk`` does that, until the pipeline takes over in S12).
+and a delete removes its chunks with its parsed text (the worker pipeline
+does that, S12).
 
 **The step checks the chunker.** Every option promises the same things (see
 ``port.py``); the step makes sure, so a buggy option fails loudly here

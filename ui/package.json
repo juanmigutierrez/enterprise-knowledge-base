@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
-    "test": "node --experimental-strip-types --test tests/poll.test.mjs tests/originals.test.mjs tests/diff.test.mjs tests/parse.test.mjs tests/chunk.test.mjs tests/entities.test.mjs tests/permissions.test.mjs tests/gateway.test.mjs",
+    "test": "node --experimental-strip-types --test tests/poll.test.mjs tests/originals.test.mjs tests/diff.test.mjs tests/parse.test.mjs tests/chunk.test.mjs tests/entities.test.mjs tests/permissions.test.mjs tests/pipeline.test.mjs tests/gateway.test.mjs",
     "lint": "eslint .",
     "gen:types": "openapi-typescript openapi.json -o src/api/schema.d.ts",
     "preview": "vite preview"

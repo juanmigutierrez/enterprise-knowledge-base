@@ -145,7 +145,7 @@ class PermissionStep:
         record = self._record(event, resolution)
         previous = self._permissions.readers(event.document_key)
         readers = readers_now(record.acl, self._permissions.memberships())
-        published = self._index.chunks(event.document_key)
+        published = self._index.chunks_for_update(event.document_key)
         withdrawn = 0
         if published:
             old = published[0]

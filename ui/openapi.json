@@ -810,6 +810,28 @@
         "title": "DiffCounts",
         "type": "object"
       },
+      "DocumentTraceView": {
+        "description": "Every attempt at one item, newest first (S12).",
+        "properties": {
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/components/schemas/TraceView"
+            },
+            "title": "Traces",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_key",
+          "traces"
+        ],
+        "title": "DocumentTraceView",
+        "type": "object"
+      },
       "DocumentView": {
         "description": "An item's current state: its latest event, and how many it has had.",
         "properties": {
@@ -1718,6 +1740,47 @@
         "title": "PiiKind",
         "type": "string"
       },
+      "PipelineView": {
+        "description": "The worker as the inspector saw it (S12): every item's latest attempt, the totals\nper status (of the latest attempts) and per step (of every attempt).",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/TracedDocumentView"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/TraceStatus"
+            },
+            "title": "Statuses",
+            "type": "object"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepTotalsView"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents",
+          "statuses",
+          "steps",
+          "attempts"
+        ],
+        "title": "PipelineView",
+        "type": "object"
+      },
       "PublicationView": {
         "description": "One document's readers and what of it is searchable.",
         "properties": {
@@ -1992,6 +2055,221 @@
           "last_event_at"
         ],
         "title": "SourceView",
+        "type": "object"
+      },
+      "StepOutcome": {
+        "description": "How one step ended.",
+        "enum": [
+          "done",
+          "failed"
+        ],
+        "title": "StepOutcome",
+        "type": "string"
+      },
+      "StepTotalsView": {
+        "description": "One step over every attempt so far: how often it ran, failed, and its time.",
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          },
+          "total_ms": {
+            "title": "Total Ms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "step",
+          "runs",
+          "failed",
+          "total_ms"
+        ],
+        "title": "StepTotalsView",
+        "type": "object"
+      },
+      "TraceStatus": {
+        "description": "Where one attempt left the event's item.",
+        "enum": [
+          "published",
+          "readers",
+          "record",
+          "skipped",
+          "purged",
+          "failed",
+          "parked",
+          "rebuilt"
+        ],
+        "title": "TraceStatus",
+        "type": "string"
+      },
+      "TraceStepView": {
+        "description": "One step of one attempt (S12): ``T3 parse``, ``T8 publish``, ``purge search`` \u2026",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "number"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/StepOutcome"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "outcome",
+          "detail",
+          "ms"
+        ],
+        "title": "TraceStepView",
+        "type": "object"
+      },
+      "TraceView": {
+        "description": "One attempt at one event, step by step (S12). No content: keys, versions,\ndecisions, counts, IDs and readers only.",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiffAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "number"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          },
+          "op": {
+            "$ref": "#/components/schemas/ChangeOp"
+          },
+          "partition": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partition"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TraceStatus"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/TraceStepView"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "document_key",
+          "source",
+          "source_id",
+          "op",
+          "version",
+          "partition",
+          "offset",
+          "attempt",
+          "action",
+          "status",
+          "steps",
+          "error",
+          "started_at",
+          "ms"
+        ],
+        "title": "TraceView",
+        "type": "object"
+      },
+      "TracedDocumentView": {
+        "description": "One item in the Pipeline tab's list: its latest attempt and how many it has had.",
+        "properties": {
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "last": {
+            "$ref": "#/components/schemas/TraceView"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "traces": {
+            "title": "Traces",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_key",
+          "source",
+          "traces",
+          "last"
+        ],
+        "title": "TracedDocumentView",
         "type": "object"
       },
       "ValidationError": {
@@ -2322,6 +2600,110 @@
           }
         },
         "summary": "Originals"
+      }
+    },
+    "/api/pipeline/trace": {
+      "get": {
+        "operationId": "pipeline_trace_api_pipeline_trace_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "document_key",
+            "required": true,
+            "schema": {
+              "title": "Document Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTraceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Never traced"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pipeline Trace"
+      }
+    },
+    "/api/pipeline/traces": {
+      "get": {
+        "operationId": "pipeline_traces_api_pipeline_traces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TraceStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pipeline Traces"
       }
     },
     "/api/registry": {

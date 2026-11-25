@@ -23,6 +23,14 @@ class InMemorySearchStore:
         self._current_lifetime = current_lifetime
         self._by_document: dict[str, tuple[Chunk, ...]] = {}
         self._lock = threading.Lock()
+        self._hidden: set[str] = set()
+
+    def set_visible(self, document_key: str, *, visible: bool) -> None:
+        with self._lock:
+            if visible:
+                self._hidden.discard(document_key)
+            else:
+                self._hidden.add(document_key)
 
     def publish(self, document_key: str, chunks: Sequence[Chunk]) -> Published:
         batch = tuple(sorted(chunks, key=lambda c: c.position))
@@ -56,13 +64,23 @@ class InMemorySearchStore:
             keys = [document_key] if document_key is not None else sorted(self._by_document)
             visible: list[Chunk] = []
             for key in keys:
-                batch = self._by_document.get(key, ())
-                if batch and (
-                    self._current_lifetime is None
-                    or batch[0].original_lifetime == self._current_lifetime(key)
-                ):
-                    visible.extend(batch)
+                if key not in self._hidden:
+                    visible.extend(self._live_chunks(key))
             return tuple(visible)
+
+    def _live_chunks(self, key: str) -> tuple[Chunk, ...]:
+        batch = self._by_document.get(key, ())
+        if (
+            batch
+            and self._current_lifetime
+            and batch[0].original_lifetime != self._current_lifetime(key)
+        ):
+            return ()
+        return batch
+
+    def chunks_for_update(self, document_key: str) -> tuple[Chunk, ...]:
+        with self._lock:
+            return self._live_chunks(document_key)
 
     def documents(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(c.document_key for c in self.chunks()))

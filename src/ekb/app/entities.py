@@ -2,11 +2,10 @@
 
 Three choices are made here, in the composition root, and nowhere else:
 
-- **Which store and which linker.** ``in_memory`` and ``exact_match``, by
-  hand, as the earlier steps chose theirs; choosing from config comes with the
-  pipeline (S12). ``config/default.yaml`` names ``cascade`` and ``dynamodb``
-  (card 4.10's and 4.17's starting choices); the ``ci`` profile names
-  ``exact_match``.
+- **Which store and which linker.** By name: the worker pipeline (S12) passes
+  what the profile names. ``config/default.yaml`` names ``cascade`` and
+  ``dynamodb`` (card 4.10's and 4.17's starting choices), which run as their
+  stand-ins, ``exact_match`` and ``in_memory``, until they are built.
 - **Which sources define entities**, and how to read their records:
   ``RECORD_SOURCES``. Only the HR record API today: its employees and teams.
 - **When each half runs.** A record T3 reports as "not a document" updates

@@ -31,6 +31,10 @@ class PermissionStore(Protocol):
 
     # ------------------------------------------------------------ memberships
 
+    def set_visible(self, document_key: str, *, visible: bool) -> None:
+        """Hide an item during recovery, or release its completed state to readers."""
+        ...
+
     def put_membership(self, membership: Membership) -> Membership | None:
         """Add or replace a user's membership; return the one before, if any."""
         ...

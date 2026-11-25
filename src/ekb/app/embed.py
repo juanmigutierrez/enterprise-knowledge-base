@@ -2,10 +2,10 @@
 
 Two choices are made here, in the composition root, and nowhere else:
 
-- **Which embedder.** ``model`` (the gateway's ``embed`` task: bge-m3 on Ollama
-  in ``config/default.yaml``) or ``fake`` (offline, no meaning: the ``ci``
-  profile and the tests), by hand, as the earlier steps chose theirs; choosing
-  from config comes with the pipeline (S12).
+- **Which embedder.** By name: ``model`` (the gateway's ``embed`` task: bge-m3
+  on Ollama in ``config/default.yaml``) or ``fake`` (offline, no meaning: the
+  ``ci`` profile and the tests). The worker pipeline (S12) passes the one the
+  profile names.
 - **What a purge forgets.** Nothing new to wire: each vector is cached in the
   gateway tagged with its document, and :func:`ekb.app.classify.forgetter`
   already calls ``gateway.forget`` on a purge, so a deleted document's vectors
