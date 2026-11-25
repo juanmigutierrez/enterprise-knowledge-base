@@ -1,4 +1,5 @@
-"""A small gateway world: two free fake models with their own quotas, one paid, a fake clock.
+"""A small gateway world: two free fake models with their own quotas, one paid, one fake
+embedding model (S10), a fake clock.
 
 Used by the gateway tests and the app tests:
 ``from tests.unit.platform.gateway.helpers import ...``.
@@ -14,7 +15,7 @@ from ekb.platform.gateway.config import GatewayConfig, ModelSpec, Price, Provide
 from ekb.platform.gateway.gateway import ModelGateway
 from ekb.platform.gateway.models import GatewayReply
 from ekb.platform.gateway.options.cache_memory import InMemoryCache
-from ekb.platform.gateway.options.fake import FakeClient
+from ekb.platform.gateway.options.fake import FakeClient, FakeEmbeddingClient
 from ekb.platform.gateway.options.log_memory import InMemoryCostLog
 
 START = datetime(2026, 11, 24, 12, 0, tzinfo=UTC)
@@ -49,11 +50,13 @@ def make_config(**overrides: object) -> GatewayConfig:
             "fake:one": ModelSpec(quota="one_q"),
             "fake:two": ModelSpec(quota="two_q"),
             "fake:paid": ModelSpec(price=Price(input=1.0, output=2.0)),
+            "fake:vec": ModelSpec(kind="embedding", dimensions=8),
         },
         "tasks": {
             "header": ("fake:one", "fake:two"),
             "answer": ("fake:two",),
             "paid": ("fake:paid", "fake:two"),
+            "embed": ("fake:vec",),
         },
         "max_wait_s": 20,
         "cooldown_s": 600,
@@ -69,6 +72,7 @@ class World:
     cache: InMemoryCache
     log: InMemoryCostLog
     clock: FakeClock
+    embedders: dict[str, FakeEmbeddingClient]
 
     def build(self, config: GatewayConfig, max_spend_usd: float | None = None) -> ModelGateway:
         """Another gateway over the same clients, cache, log and clock."""
@@ -77,6 +81,7 @@ class World:
             self.clients,
             self.cache,
             self.log,
+            embedding_clients=self.embedders,
             max_spend_usd=max_spend_usd,
             clock=self.clock,
             sleep=self.clock.sleep,
@@ -85,12 +90,28 @@ class World:
 
 def make_world(config: GatewayConfig | None = None, *, max_spend_usd: float | None = None) -> World:
     config = config or make_config()
-    clients = {ref: FakeClient(ref.partition(":")[2]) for ref in config.models}
+    clients = {
+        ref: FakeClient(ref.partition(":")[2])
+        for ref, spec in config.models.items()
+        if spec.kind == "chat"
+    }
+    embedders = {
+        ref: FakeEmbeddingClient(ref.partition(":")[2], dimensions=spec.dimensions or 1)
+        for ref, spec in config.models.items()
+        if spec.kind == "embedding"
+    }
     cache, log, clock = InMemoryCache(), InMemoryCostLog(), FakeClock()
     gateway = ModelGateway(
-        config, clients, cache, log, max_spend_usd=max_spend_usd, clock=clock, sleep=clock.sleep
+        config,
+        clients,
+        cache,
+        log,
+        embedding_clients=embedders,
+        max_spend_usd=max_spend_usd,
+        clock=clock,
+        sleep=clock.sleep,
     )
-    return World(gateway, clients, cache, log, clock)
+    return World(gateway, clients, cache, log, clock, embedders)
 
 
 def ask(

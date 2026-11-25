@@ -14,21 +14,31 @@ Shape (``config/default.yaml``)::
         "groq:openai/gpt-oss-20b": { quota: groq_gpt_oss_20b, params: { reasoning_effort: low } }
       tasks:                          # task -> candidates, tried in order
         context_header: ["google_genai:gemini-3.5-flash-lite", "groq:openai/gpt-oss-20b"]
+        embed: ["ollama:bge-m3"]      # an embedding task: exactly one model (S10)
 
 A model is named ``provider:model`` (``openrouter:openrouter/free``); only the
 first ``:`` separates them, because some model IDs contain one
 (``ollama:gemma4:e4b``). Everything a task names must be declared, so a typo
 fails when the settings load, not on the first call.
+
+**Two kinds of model** (S10): ``chat`` (the default) writes text; ``embedding``
+turns texts into vectors and declares how many numbers each has
+(``dimensions``). A task routes to one kind only. An embedding task names
+**exactly one** model: vectors from two models live in different spaces and
+cannot be compared, so failing over to another model would silently split the
+index into vectors that never match each other.
 """
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PER_MILLION = 1_000_000
+
+ModelKind = Literal["chat", "embedding"]
 
 
 def split_ref(ref: str) -> tuple[str, str]:
@@ -98,6 +108,26 @@ class ModelSpec(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     """Extra settings for the model (``reasoning_effort: low``). They change the
     reply, so they are part of the cache key."""
+    kind: ModelKind = "chat"
+    """``chat`` writes text; ``embedding`` returns vectors (S10)."""
+    dimensions: int | None = Field(default=None, gt=0)
+    """An embedding model's vector size (bge-m3: 1024). Required for, and only for,
+    an embedding model: every vector it returns is checked against it."""
+
+    @property
+    def int8(self) -> bool:
+        """Cohere selects its response representation in the request parameters."""
+        kwargs = self.params.get("model_kwargs")
+        types: object = kwargs.get("embedding_types") if isinstance(kwargs, dict) else None
+        return types == ["int8"]
+
+    @model_validator(mode="after")
+    def _dimensions_match_kind(self) -> Self:
+        if self.kind == "embedding" and self.dimensions is None:
+            raise ValueError("an embedding model must declare its dimensions")
+        if self.kind == "chat" and self.dimensions is not None:
+            raise ValueError("only an embedding model has dimensions")
+        return self
 
 
 class ProviderSpec(BaseModel):
@@ -155,7 +185,19 @@ class GatewayConfig(BaseModel):
             for ref in candidates:
                 if ref not in self.models:
                     raise ValueError(f"task {task!r}: model {ref!r} is not under models")
+            kinds = {self.models[ref].kind for ref in candidates}
+            if len(kinds) > 1:
+                raise ValueError(f"task {task!r} mixes chat and embedding models")
+            if kinds == {"embedding"} and len(candidates) > 1:
+                raise ValueError(
+                    f"embedding task {task!r} names {len(candidates)} models; it may name "
+                    "exactly one, because vectors from two models cannot be compared"
+                )
         return self
+
+    def task_kind(self, task: str) -> ModelKind:
+        """Whether ``task`` writes text or returns vectors (``KeyError`` if unknown)."""
+        return self.models[self.tasks[task][0]].kind
 
     def used_models(self) -> list[str]:
         """Every model some task may call, in first-seen order."""

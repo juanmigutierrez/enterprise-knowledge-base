@@ -65,9 +65,10 @@ This is what makes the option evaluation plan possible without rewriting code pe
 1. **Port.** Each step has `port.py`, a `typing.Protocol`. Example: `process/t7_embed/port.py` defines `Embedder` with `model_id`, `dimensions` and `embed(texts)`.
 2. **Options.** Each implementation is one file in `options/`, registered by name:
    ```python
-   @register("t7_embed", "cohere_embed_v4")
-   class CohereEmbedV4: ...
+   @register("t7_embed", "model")
+   class ModelEmbedder: ...
    ```
+   An option that calls a model names a gateway task (`embed`); which model answers it is configuration (`gateway: tasks:`), so swapping bge-m3 for Cohere Embed v4 is a config change, not a new option (S10).
 3. **Config chooses.** `config/default.yaml` names the starting option per step and links its option card. Profiles override it: `ci` (no models, deterministic), `bedrock` (recommended models).
 4. **Experiments compare.** `evaluation/experiments/<card>-<topic>.yaml` fixes every other step, lists the options to compare, the gates, the primary metric and the decision rule (cheapest option within 2 points of the best). The runner builds each option through the same registry and writes a result file.
 5. **Evidence changes defaults.** A pull request that changes `config/default.yaml` must link the result file (PR template).

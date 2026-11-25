@@ -344,6 +344,8 @@ export interface components {
             error: string | null;
             /** Input Tokens */
             input_tokens: number;
+            /** Items */
+            items: number;
             /** Key */
             key: string;
             /** Latency Ms */
@@ -409,6 +411,12 @@ export interface components {
             classifier_note: string;
             /** Document Key */
             document_key: string;
+            /** Embed Note */
+            embed_note: string;
+            /** Embedded */
+            embedded: number;
+            /** Embedder Id */
+            embedder_id: string;
             /** Entities */
             entities: string[];
             /** Header Note */
@@ -442,7 +450,7 @@ export interface components {
         };
         /**
          * ChunkView
-         * @description One chunk, as T4, T5 and T6 left it: header, labels, links; no vector or ACL yet.
+         * @description One chunk, as T4 to T7 left it: header, labels, links, vector; no ACL yet.
          */
         ChunkView: {
             /** Chunk Id */
@@ -453,6 +461,10 @@ export interface components {
             context_header: string;
             /** Department */
             department: string | null;
+            /** Dimensions */
+            dimensions: number | null;
+            /** Embedding Model */
+            embedding_model: string | null;
             /** Entity Ids */
             entity_ids: string[];
             /** Header Id */
@@ -474,6 +486,13 @@ export interface components {
             text: string;
             /** Tokens */
             tokens: number;
+            /** Vector Preview */
+            vector_preview: number[];
+            /**
+             * Vector State
+             * @enum {string}
+             */
+            vector_state: "none" | "current" | "stale";
             /** Why */
             why: string;
         };
@@ -681,10 +700,14 @@ export interface components {
         };
         /** GatewayModelView */
         GatewayModelView: {
+            /** Dimensions */
+            dimensions: number | null;
             /** Free */
             free: boolean;
             /** Input Usd Per Million */
             input_usd_per_million: number;
+            /** Kind */
+            kind: string;
             /** Model */
             model: string;
             /** Output Usd Per Million */

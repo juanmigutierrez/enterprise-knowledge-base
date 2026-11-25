@@ -2,16 +2,20 @@
 
 - :class:`ModelClient` calls one model. ``fake`` (offline, deterministic) and
   ``langchain`` (every real provider, through LangChain's chat models).
+- :class:`EmbeddingClient` calls one embedding model (S10). ``fake`` and
+  ``langchain`` (LangChain's embedding classes: Ollama for bge-m3).
 - :class:`ResponseCache` keeps replies by cache key. ``in_memory`` and ``sqlite``.
 - :class:`CostLog` keeps one record per call. ``in_memory`` and ``jsonl``.
 
-And one port the other way round: :class:`Completer` is what a pipeline step
-needs from the gateway (S8). :class:`~ekb.platform.gateway.gateway.ModelGateway`
-implements it; a step's tests can pass anything with the same ``complete``.
+And two ports the other way round, what a pipeline step needs from the gateway:
+:class:`Completer` (S8) and :class:`TextEmbedder` (S10).
+:class:`~ekb.platform.gateway.gateway.ModelGateway` implements both; a step's
+tests can pass anything with the same methods.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
@@ -19,6 +23,8 @@ from ekb.platform.gateway.models import (
     CachedReply,
     CallRecord,
     ChatRequest,
+    EmbeddingReply,
+    EmbedReply,
     GatewayReply,
     ModelReply,
 )
@@ -43,6 +49,25 @@ class ModelClient(Protocol):
         """Call the model. Failures are raised as
         :class:`~ekb.platform.gateway.errors.ModelCallError`, already sorted
         into rate-limited, unavailable or invalid."""
+        ...
+
+
+@runtime_checkable
+class EmbeddingClient(Protocol):
+    """Calls one embedding model of one provider (S10)."""
+
+    @property
+    def candidate(self) -> str:
+        """``provider:model``, as the configuration names it."""
+        ...
+
+    def check(self) -> str | None:
+        """Why this client cannot be used right now, or ``None`` (as :class:`ModelClient`)."""
+        ...
+
+    def embed(self, texts: Sequence[str]) -> EmbeddingReply:
+        """One vector per text, in order. Failures are raised as
+        :class:`~ekb.platform.gateway.errors.ModelCallError`, as for a chat call."""
         ...
 
 
@@ -110,3 +135,29 @@ class Completer(Protocol):
         json_schema: dict[str, Any] | None = None,
         document_key: str | None = None,
     ) -> GatewayReply: ...
+
+
+@runtime_checkable
+class TextEmbedder(Protocol):
+    """What T7 asks of the gateway (S10): the vectors of these texts, for this task.
+
+    ``embedding_model`` answers before any call: an embedding task routes to
+    exactly one model, so a step can name it, and its vector size, in the ID it
+    stores with every vector. ``embed`` raises :class:`~ekb.platform.gateway.errors.GatewayError`
+    when the model cannot answer.
+    """
+
+    def embedding_is_int8(self, task: str) -> bool: ...
+
+    def embedding_model(self, task: str) -> tuple[str, int]:
+        """The task's ``provider:model`` and its vector size."""
+        ...
+
+    def embed(
+        self,
+        task: str,
+        texts: Sequence[str],
+        *,
+        input_version: str,
+        document_key: str | None = None,
+    ) -> EmbedReply: ...

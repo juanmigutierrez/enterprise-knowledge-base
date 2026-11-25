@@ -9,6 +9,9 @@ import {
     sensitivityCounts,
     sizeRange,
     sizeShare,
+    vectorClass,
+    vectorLabel,
+    vectorPreview,
 } from "../src/chunk.ts";
 
 test("deleted and re-created rows cannot display a previous chunking", () => {
@@ -59,4 +62,25 @@ test("each sensitivity has its own badge class; an unlabelled chunk a neutral on
 test("personal data reads as a list, or nothing", () => {
     assert.equal(piiLabel(["email", "phone"]), "PII: email, phone");
     assert.equal(piiLabel([]), "");
+});
+
+test("a vector reads as its size, stale or not, or as missing before T7", () => {
+    assert.equal(vectorLabel({ dimensions: 1024, vector_state: "current" }), "1024 numbers");
+    assert.equal(
+        vectorLabel({ dimensions: 32, vector_state: "stale" }),
+        "32 numbers, stale: embed again",
+    );
+    assert.equal(vectorLabel({ dimensions: null, vector_state: "none" }), "no vector yet");
+});
+
+test("the preview shows the first numbers and how many are left", () => {
+    assert.equal(vectorPreview([0.01234, -0.5], 1024), "[0.0123, -0.5000, … 1022 more]");
+    assert.equal(vectorPreview([1, 0], 2), "[1.0000, 0.0000]");
+    assert.equal(vectorPreview([], null), "");
+});
+
+test("a stale vector gets a warning badge", () => {
+    assert.equal(vectorClass("stale"), "gate vec-stale");
+    assert.equal(vectorClass("current"), "gate vec");
+    assert.equal(vectorClass("none"), "gate");
 });

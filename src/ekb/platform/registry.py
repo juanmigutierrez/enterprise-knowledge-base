@@ -4,8 +4,8 @@ Each step (``t7_embed``, ``q3_retrieve``, ``bus`` ...) defines a port, a
 ``typing.Protocol``. Each option is a class in that step's ``options/`` folder,
 registered under a name::
 
-    @register("t7_embed", "bge_m3_ollama")
-    class BgeM3Ollama: ...
+    @register("t7_embed", "model")
+    class ModelEmbedder: ...
 
 The composition root (``ekb.app``) reads the configured option name for each
 step and calls :func:`create`. Experiments in ``evaluation/experiments`` do the

@@ -11,7 +11,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict
 
-from ekb.platform.gateway.config import GatewayConfig, split_ref
+from ekb.platform.gateway.config import GatewayConfig, ModelKind, split_ref
 
 
 class ProviderStatus(BaseModel):
@@ -26,12 +26,21 @@ class ProviderStatus(BaseModel):
 
 
 def provider_status(
-    config: GatewayConfig, environ: Mapping[str, str] | None = None
+    config: GatewayConfig,
+    environ: Mapping[str, str] | None = None,
+    *,
+    kind: ModelKind | None = None,
 ) -> list[ProviderStatus]:
-    """For each provider some task routes to, in first-seen order."""
+    """For each provider some task routes to, in first-seen order.
+
+    ``kind="chat"`` leaves out the providers that only serve embedding models (S10):
+    Ollama needs no key, so it would count as "ready" for a question about chat calls.
+    """
     env = os.environ if environ is None else environ
     used: dict[str, list[str]] = {}
     for ref in config.used_models():
+        if kind is not None and config.models[ref].kind != kind:
+            continue
         used.setdefault(split_ref(ref)[0], []).append(ref)
     statuses: list[ProviderStatus] = []
     for name, refs in used.items():

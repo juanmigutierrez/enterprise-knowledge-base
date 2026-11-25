@@ -160,7 +160,7 @@ Built now, chosen in `config/*.yaml` under `gateway:`:
 Declared but not in any chain, each one line away in `tasks`: `openrouter:anthropic/claude-haiku-5.5` (paid, $0.10 / $0.50 per million tokens, so the spend cap applies) and `ollama:gemma4:e4b`.
 
 Later, on the same gateway:
-- `embed()` for T7 (S10). The `t7_embed: bge_m3_ollama` default needs an API model now that there are no local models.
+- `embed()` for T7: built in S10 (bge-m3 on Ollama, one model per embedding task, no failover). See the [S10 walkthrough](S10-t7-embed.md).
 - Prompt caching of the document prefix (D16 #2, S8).
 - Batch inference (D16 #3, S18).
 - More free providers: Cohere's trial key for embeddings and reranking, Cerebras (now credit-based), Groq's other models.

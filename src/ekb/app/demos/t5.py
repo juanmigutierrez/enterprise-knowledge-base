@@ -450,7 +450,7 @@ def demo_gateway(fake: bool) -> tuple[ModelGateway, str | None]:
     if fake:
         return build_gateway(FAKE_CONFIG, cache=InMemoryCache(), log=InMemoryCostLog()), None
     config = load_settings().gateway
-    ready = any(p.ready for p in provider_status(config, os.environ))
+    ready = any(p.ready for p in provider_status(config, os.environ, kind="chat"))
     warning = None if ready else "no model provider has a key: headers will be empty"
     return build_gateway(config), warning
 

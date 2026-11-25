@@ -76,7 +76,7 @@ def test_the_overview_shows_routes_models_quotas_and_the_cap() -> None:
             "provider": "fake",
             "key_env": None,
             "ready": True,
-            "models": ["fake:one", "fake:two", "fake:paid"],
+            "models": ["fake:one", "fake:two", "fake:paid", "fake:vec"],
         }
     ]
 

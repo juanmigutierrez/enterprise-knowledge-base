@@ -195,14 +195,16 @@ def run_gateway_demo(
     openrouter: Callable[[str], FreeRequests | None] = openrouter_free_requests,
 ) -> Story:
     """The whole story. ``workdir`` holds this run's cache; ``log`` is kept as given."""
-    ready = [p for p in provider_status(config, environ) if p.ready]
+    # This demo is about chat calls; T7's embedding model (S10) has its own demo.
+    chat = [ref for ref in config.used_models() if config.models[ref].kind == "chat"]
+    ready = [p for p in provider_status(config, environ, kind="chat") if p.ready]
     if not ready:
         raise DemoSetupError(
             f"no model provider has a key. Put {KEY_VARIABLES} in .env (see "
             "docs/walkthrough/S07-model-gateway.md, 'Get the free API keys'), then run "
             "`uv run --env-file .env ekb demo gateway`; or run it offline with --fake."
         )
-    clients = {ref: build_client(config, ref, environ) for ref in config.used_models()}
+    clients = {ref: build_client(config, ref, environ) for ref in chat}
     caches: list[SqliteCache] = []
 
     def gateway(cfg: GatewayConfig = config) -> ModelGateway:
@@ -242,7 +244,7 @@ def _intro(
     echo("   model, reuses a reply already made, keeps within each free quota, and logs")
     echo("   tokens and cost (never the text) for every call.\n")
     echo("1. Who can answer (keys from the environment, never shown):")
-    for status in provider_status(config, environ):
+    for status in provider_status(config, environ, kind="chat"):
         key = (
             f"{status.key_env} {'set' if status.ready else 'NOT set: skipped'}"
             if status.key_env

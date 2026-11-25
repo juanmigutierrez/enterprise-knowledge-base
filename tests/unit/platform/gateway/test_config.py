@@ -12,7 +12,7 @@ from ekb.platform.gateway.config import GatewayConfig, Price, split_ref
 from tests.conftest import REPO_ROOT
 from tests.unit.platform.gateway.helpers import make_config
 
-D15_TASKS = {
+CHAT_TASKS = {
     "context_header",
     "classify",
     "entities",
@@ -21,6 +21,8 @@ D15_TASKS = {
     "answer",
     "judge",
 }
+EMBEDDING_TASKS = {"embed"}  # T7 (S10)
+D15_TASKS = CHAT_TASKS | EMBEDDING_TASKS
 
 
 @pytest.mark.parametrize(
@@ -54,6 +56,25 @@ def test_a_model_name_without_both_halves_is_refused(ref: str) -> None:
         ({"providers": {"groq": {}}, "models": {"groq:test": {}}}, "explicit price"),
         ({"max_spend_usd": float("inf")}, "finite"),
         ({"surprise": 1}, "Extra inputs are not permitted"),
+        ({"models": {"fake:v": {"kind": "embedding"}}}, "must declare its dimensions"),
+        ({"models": {"fake:one": {"dimensions": 8}}}, "only an embedding model has dimensions"),
+        (
+            {
+                "models": {"fake:one": {}, "fake:v": {"kind": "embedding", "dimensions": 8}},
+                "tasks": {"mixed": ("fake:one", "fake:v")},
+            },
+            "mixes chat and embedding models",
+        ),
+        (
+            {
+                "models": {
+                    "fake:v": {"kind": "embedding", "dimensions": 8},
+                    "fake:w": {"kind": "embedding", "dimensions": 8},
+                },
+                "tasks": {"embed": ("fake:v", "fake:w")},
+            },
+            "may name exactly one",
+        ),
     ],
 )
 def test_a_broken_reference_fails_when_the_settings_load(
@@ -80,13 +101,24 @@ def test_the_local_profile_routes_every_d15_task_across_several_free_providers()
     config = _gateway("local")
 
     assert set(config.tasks) == D15_TASKS
-    for task, chain in config.tasks.items():
+    for task in CHAT_TASKS:
+        chain = config.tasks[task]
         providers = {split_ref(ref)[0] for ref in chain}
         assert len(providers) >= 3, f"{task} has no real fallback"
         assert all(config.models[ref].price.free for ref in chain), f"{task} would spend money"
         assert all(config.models[ref].quota for ref in chain), f"{task} has an unguarded model"
     assert config.cache.option == "sqlite"
     assert config.cost_log.option == "jsonl"
+
+
+def test_the_local_profile_embeds_with_bge_m3_on_ollama_and_nothing_else() -> None:
+    config = _gateway("local")
+
+    assert config.tasks["embed"] == ("ollama:bge-m3",)  # one model: no failover (S10)
+    spec = config.models["ollama:bge-m3"]
+    assert (spec.kind, spec.dimensions, spec.price.free) == ("embedding", 1024, True)
+    assert config.task_kind("embed") == "embedding"
+    assert config.task_kind("answer") == "chat"
 
 
 def test_the_local_profile_keeps_secrets_out_naming_only_their_variables() -> None:
@@ -121,8 +153,12 @@ def test_the_ci_profile_never_calls_a_real_model() -> None:
 def test_the_bedrock_profile_is_the_production_design() -> None:
     config = _gateway("bedrock")
 
-    assert {split_ref(ref)[0] for ref in config.used_models()} == {"bedrock_converse"}
+    assert {split_ref(ref)[0] for ref in config.used_models()} == {"bedrock_converse", "bedrock"}
     assert config.tasks["context_header"] == ("bedrock_converse:eu.anthropic.claude-haiku-5-5",)
+    assert config.tasks["embed"] == ("bedrock:cohere.embed-v4:0",)  # D10
+    spec = config.models[config.tasks["embed"][0]]
+    assert spec.int8
+    assert spec.dimensions == 1024
     assert all(not config.models[ref].price.free for ref in config.used_models())
 
 

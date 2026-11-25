@@ -9,17 +9,23 @@ profile never calls a real model.
 
 ``fail`` scripts failures: each call takes the next kind from it and raises it,
 which is how the tests (and the demo) show what a 429 or an outage does.
+
+:class:`FakeEmbeddingClient` (S10) does the same for vectors: a SHA-256 of each
+text, spread over the declared dimensions and scaled to length 1. Two texts get
+the same vector only if they are identical; meaning plays no part.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from ekb.platform.gateway.errors import ModelCallError
-from ekb.platform.gateway.models import ChatRequest, FailureKind, ModelReply
+from ekb.platform.gateway.models import ChatRequest, EmbeddingReply, FailureKind, ModelReply
 from ekb.platform.registry import register
 
 _WORD = re.compile(r"\w+|[^\w\s]")
@@ -89,3 +95,69 @@ def _fill(schema: dict[str, Any], name: str, model: str) -> object:
     if kind == "boolean":
         return False
     return f"{model} {name}"
+
+
+@register("embedding_client", "fake")
+class FakeEmbeddingClient:
+    """An offline embedding model: deterministic vectors with no meaning (S10).
+
+    ``dimensions`` is the size it returns; ``wrong_size`` makes it return another,
+    to test that the gateway refuses vectors of the wrong size.
+    """
+
+    def __init__(
+        self,
+        model: str = "fake-embed",
+        *,
+        dimensions: int = 32,
+        fail: Iterable[FailureKind] = (),
+        missing: str | None = None,
+        wrong_size: int | None = None,
+    ) -> None:
+        if dimensions <= 0:
+            raise ValueError("dimensions must be positive")
+        self._model = model
+        self._dimensions = dimensions
+        self._fail = list(fail)
+        self._missing = missing
+        self._wrong_size = wrong_size
+        self.calls = 0
+        """How many requests reached this client (cache hits never do)."""
+        self.sent: list[list[str]] = []
+        """The texts of each request, in order: what the cache did not answer."""
+
+    @property
+    def candidate(self) -> str:
+        return f"fake:{self._model}"
+
+    def check(self) -> str | None:
+        return self._missing
+
+    def fail_next(self, *kinds: FailureKind) -> None:
+        self._fail.extend(kinds)
+
+    def embed(self, texts: Sequence[str]) -> EmbeddingReply:
+        self.calls += 1
+        self.sent.append(list(texts))
+        if self._fail:
+            kind = self._fail.pop(0)
+            raise ModelCallError(kind, f"FakeEmbeddingClient scripted failure ({kind})")
+        size = self._wrong_size or self._dimensions
+        return EmbeddingReply(
+            vectors=tuple(hashed_vector(text, size) for text in texts),
+            input_tokens=sum(len(_words(text)) for text in texts),
+            served_model=self._model,
+        )
+
+
+def hashed_vector(text: str, dimensions: int) -> tuple[float, ...]:
+    """A unit-length vector made from SHA-256 digests of ``text``: same text, same vector."""
+    values: list[float] = []
+    counter = 0
+    while len(values) < dimensions:
+        digest = hashlib.sha256(f"{counter}:{text}".encode()).digest()
+        values.extend((byte - 127.5) / 127.5 for byte in digest)
+        counter += 1
+    vector = values[:dimensions]
+    norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+    return tuple(v / norm for v in vector)

@@ -4,7 +4,9 @@
 
 - one **client** per model a task may use: ``fake:*`` models get the offline
   :class:`FakeClient`, every other provider a :class:`LangChainClient` with its
-  API key read from the environment variable the configuration names;
+  API key read from the environment variable the configuration names. An
+  embedding model (S10) gets :class:`FakeEmbeddingClient` or
+  :class:`LangChainEmbeddingClient` the same way;
 - the **cache** and the **cost log** the configuration chooses (``sqlite`` and
   ``jsonl`` locally, ``in_memory`` in the ``ci`` profile);
 - the **spend cap**, from ``EKB_MAX_SPEND_USD`` when set.
@@ -28,14 +30,23 @@ from ekb.platform.gateway.config import GatewayConfig, OptionChoice, split_ref
 from ekb.platform.gateway.gateway import ModelGateway, utc_now
 from ekb.platform.gateway.options.cache_memory import InMemoryCache
 from ekb.platform.gateway.options.cache_sqlite import SqliteCache
-from ekb.platform.gateway.options.fake import FakeClient
-from ekb.platform.gateway.options.langchain import LangChainClient
+from ekb.platform.gateway.options.fake import FakeClient, FakeEmbeddingClient
+from ekb.platform.gateway.options.langchain import LangChainClient, LangChainEmbeddingClient
 from ekb.platform.gateway.options.log_jsonl import JsonlCostLog
 from ekb.platform.gateway.options.log_memory import InMemoryCostLog
-from ekb.platform.gateway.port import CostLog, ModelClient, ResponseCache
+from ekb.platform.gateway.port import CostLog, EmbeddingClient, ModelClient, ResponseCache
 from ekb.platform.gateway.status import ProviderStatus, provider_status
 
-OPTIONS = (FakeClient, LangChainClient, InMemoryCache, SqliteCache, InMemoryCostLog, JsonlCostLog)
+OPTIONS = (
+    FakeClient,
+    LangChainClient,
+    FakeEmbeddingClient,
+    LangChainEmbeddingClient,
+    InMemoryCache,
+    SqliteCache,
+    InMemoryCostLog,
+    JsonlCostLog,
+)
 """Imported, so every gateway option is registered."""
 
 __all__ = ["ProviderStatus", "build_gateway", "provider_status"]
@@ -66,6 +77,35 @@ def build_client(config: GatewayConfig, ref: str, environ: Environ) -> ModelClie
         )
     if not isinstance(built, ModelClient):
         raise TypeError(f"the client for {ref} does not implement the ModelClient port")
+    return built
+
+
+def build_embedding_client(config: GatewayConfig, ref: str, environ: Environ) -> EmbeddingClient:
+    """The client for one embedding ``provider:model`` (S10)."""
+    provider, model = split_ref(ref)
+    spec = config.models[ref]
+    if provider == "fake":
+        built = registry.create(
+            "embedding_client", "fake", model=model, dimensions=spec.dimensions or 1
+        )
+    else:
+        provider_spec = config.providers[provider]
+        key_env = provider_spec.key_env
+        built = registry.create(
+            "embedding_client",
+            "langchain",
+            provider=provider,
+            model=model,
+            api_key=environ.get(key_env) if key_env else None,
+            key_env=key_env,
+            params=spec.params,
+            settings={
+                arg: environ[var] for arg, var in provider_spec.env.items() if environ.get(var)
+            },
+            timeout_s=config.timeout_s,
+        )
+    if not isinstance(built, EmbeddingClient):
+        raise TypeError(f"the client for {ref} does not implement the EmbeddingClient port")
     return built
 
 
@@ -103,6 +143,7 @@ def build_gateway(
     *,
     environ: Environ | None = None,
     clients: Mapping[str, ModelClient] | None = None,
+    embedding_clients: Mapping[str, EmbeddingClient] | None = None,
     cache: ResponseCache | None = None,
     log: CostLog | None = None,
     clock: Callable[[], datetime] = utc_now,
@@ -110,10 +151,18 @@ def build_gateway(
 ) -> ModelGateway:
     """The gateway as configured. Tests and the demo replace any part."""
     env = os.environ if environ is None else environ
+    used = config.used_models()
+    chat = [ref for ref in used if config.models[ref].kind == "chat"]
+    vectors = [ref for ref in used if config.models[ref].kind == "embedding"]
     built = (
         dict(clients)
         if clients is not None
-        else {ref: build_client(config, ref, env) for ref in config.used_models()}
+        else {ref: build_client(config, ref, env) for ref in chat}
+    )
+    built_embedding = (
+        dict(embedding_clients)
+        if embedding_clients is not None
+        else {ref: build_embedding_client(config, ref, env) for ref in vectors}
     )
     extra = {"sleep": sleep} if sleep is not None else {}
     return ModelGateway(
@@ -121,6 +170,7 @@ def build_gateway(
         built,
         cache if cache is not None else build_cache(config.cache),
         log if log is not None else build_cost_log(config.cost_log),
+        embedding_clients=built_embedding,
         max_spend_usd=max_spend(config, env),
         clock=clock,
         **extra,

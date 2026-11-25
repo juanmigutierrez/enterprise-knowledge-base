@@ -11,6 +11,7 @@ contract can evolve without breaking the UI, and lists are plain sorted lists
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -389,6 +390,13 @@ class ChunkSummaryView(_View):
     """What T6 did (S9): how many entities it matched against, any name it skipped."""
     entities: list[str]
     """Every entity ID any of its chunks is linked to, sorted (S9)."""
+    embed_note: str
+    """What T7 did (S10): which model, how many chunks were sent and how many came
+    from the cache. Empty when T7 did not run."""
+    embedder_id: str
+    """What T7 embeds with now (S10), e.g. ``model@1(input@1, ollama:bge-m3, 1024)``."""
+    embedded: int
+    """Chunks with a vector (S10)."""
 
     @classmethod
     def of(cls, entry: ChunkEntry) -> ChunkSummaryView:
@@ -417,6 +425,9 @@ class ChunkSummaryView(_View):
             },
             linker_note=entry.linker_note,
             entities=sorted({e for chunk in entry.chunks for e in chunk.entity_ids}),
+            embed_note=entry.embed_note,
+            embedder_id=entry.embedder_id,
+            embedded=sum(1 for chunk in entry.chunks if chunk.vector is not None),
         )
 
 
@@ -438,8 +449,13 @@ class MentionView(_View):
         return cls(entity_id=mention.entity_id, text=mention.text, rule=mention.rule)
 
 
+VectorState = Literal["none", "current", "stale"]
+VECTOR_PREVIEW = 8
+"""How many of a vector's numbers the UI shows: enough to see it is just numbers."""
+
+
 class ChunkView(_View):
-    """One chunk, as T4, T5 and T6 left it: header, labels, links; no vector or ACL yet."""
+    """One chunk, as T4 to T7 left it: header, labels, links, vector; no ACL yet."""
 
     chunk_id: str
     position: int
@@ -461,11 +477,34 @@ class ChunkView(_View):
     linker_id: str
     mentions: list[MentionView]
     """The words behind each link."""
+    embedding_model: str | None
+    """What made the vector (T7, S10): option, input recipe, model and size."""
+    dimensions: int | None
+    """How many numbers the vector has; ``None`` before T7."""
+    vector_preview: list[float]
+    """Its first numbers, rounded: the whole vector is not worth reading."""
+    vector_state: VectorState
+    """``none`` before T7; ``current`` when made by what T7 embeds with now; ``stale``
+    when another model, size or input recipe made it (embed it again before searching)."""
     publishable: bool
-    """Always false after T6: the publication gate opens only once T7 and T8 ran too."""
+    """Always false before T8 (S11): the publication gate also needs the ACL."""
 
     @classmethod
-    def of(cls, chunk: Chunk, why: str = "", mentions: tuple[EntityMention, ...] = ()) -> ChunkView:
+    def of(
+        cls,
+        chunk: Chunk,
+        why: str = "",
+        mentions: tuple[EntityMention, ...] = (),
+        embedder_id: str = "",
+    ) -> ChunkView:
+        vector = chunk.vector
+        state: VectorState = (
+            "none"
+            if vector is None
+            else "current"
+            if chunk.embedding_model == embedder_id
+            else "stale"
+        )
         return cls(
             chunk_id=chunk.chunk_id,
             position=chunk.position,
@@ -482,6 +521,10 @@ class ChunkView(_View):
             entity_ids=list(chunk.entity_ids),
             linker_id=chunk.linker_id,
             mentions=[MentionView.of(m) for m in mentions],
+            embedding_model=chunk.embedding_model,
+            dimensions=len(vector) if vector is not None else None,
+            vector_preview=[round(v, 4) for v in (vector or ())[:VECTOR_PREVIEW]],
+            vector_state=state,
             publishable=chunk.publishable,
         )
 
@@ -500,7 +543,7 @@ class ChunkedDocumentView(_View):
         return cls(
             summary=ChunkSummaryView.of(entry),
             chunks=[
-                ChunkView.of(chunk, reason, mentions)
+                ChunkView.of(chunk, reason, mentions, entry.embedder_id)
                 for chunk, reason, mentions in zip(entry.chunks, why, found, strict=True)
             ],
         )
@@ -629,6 +672,10 @@ class GatewayModelView(_View):
     output_usd_per_million: float
     free: bool
     quota: str | None
+    kind: str
+    """``chat`` writes text; ``embedding`` returns vectors (S10)."""
+    dimensions: int | None
+    """An embedding model's vector size; ``None`` for a chat model."""
 
 
 class GatewayQuotaView(_View):
@@ -686,6 +733,8 @@ class GatewayView(_View):
                     output_usd_per_million=spec.price.output,
                     free=spec.price.free,
                     quota=spec.quota,
+                    kind=spec.kind,
+                    dimensions=spec.dimensions,
                 )
             )
         quotas = {config.models[ref].quota for ref in used}
@@ -726,6 +775,9 @@ class CallView(_View):
     latency_ms: int
     document_key: str | None
     error: str | None
+    items: int
+    """Texts the record covers: 1 for a chat call; for an embedding call (S10), the
+    texts answered from the cache or sent in one request."""
 
     @classmethod
     def of(cls, seq: int, record: CallRecord) -> CallView:

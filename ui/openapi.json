@@ -218,6 +218,10 @@
             "title": "Input Tokens",
             "type": "integer"
           },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -279,7 +283,8 @@
           "cost_usd",
           "latency_ms",
           "document_key",
-          "error"
+          "error",
+          "items"
         ],
         "title": "CallView",
         "type": "object"
@@ -374,6 +379,18 @@
             "title": "Document Key",
             "type": "string"
           },
+          "embed_note": {
+            "title": "Embed Note",
+            "type": "string"
+          },
+          "embedded": {
+            "title": "Embedded",
+            "type": "integer"
+          },
+          "embedder_id": {
+            "title": "Embedder Id",
+            "type": "string"
+          },
           "entities": {
             "items": {
               "type": "string"
@@ -456,13 +473,16 @@
           "classifier_note",
           "sensitivity",
           "linker_note",
-          "entities"
+          "entities",
+          "embed_note",
+          "embedder_id",
+          "embedded"
         ],
         "title": "ChunkSummaryView",
         "type": "object"
       },
       "ChunkView": {
-        "description": "One chunk, as T4, T5 and T6 left it: header, labels, links; no vector or ACL yet.",
+        "description": "One chunk, as T4 to T7 left it: header, labels, links, vector; no ACL yet.",
         "properties": {
           "chunk_id": {
             "title": "Chunk Id",
@@ -486,6 +506,28 @@
               }
             ],
             "title": "Department"
+          },
+          "dimensions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dimensions"
+          },
+          "embedding_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model"
           },
           "entity_ids": {
             "items": {
@@ -549,6 +591,22 @@
             "title": "Tokens",
             "type": "integer"
           },
+          "vector_preview": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Vector Preview",
+            "type": "array"
+          },
+          "vector_state": {
+            "enum": [
+              "none",
+              "current",
+              "stale"
+            ],
+            "title": "Vector State",
+            "type": "string"
+          },
           "why": {
             "title": "Why",
             "type": "string"
@@ -570,6 +628,10 @@
           "entity_ids",
           "linker_id",
           "mentions",
+          "embedding_model",
+          "dimensions",
+          "vector_preview",
+          "vector_state",
           "publishable"
         ],
         "title": "ChunkView",
@@ -1076,6 +1138,17 @@
       },
       "GatewayModelView": {
         "properties": {
+          "dimensions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dimensions"
+          },
           "free": {
             "title": "Free",
             "type": "boolean"
@@ -1083,6 +1156,10 @@
           "input_usd_per_million": {
             "title": "Input Usd Per Million",
             "type": "number"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
           },
           "model": {
             "title": "Model",
@@ -1119,7 +1196,9 @@
           "input_usd_per_million",
           "output_usd_per_million",
           "free",
-          "quota"
+          "quota",
+          "kind",
+          "dimensions"
         ],
         "title": "GatewayModelView",
         "type": "object"

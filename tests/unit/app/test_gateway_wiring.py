@@ -24,7 +24,7 @@ from ekb.platform.gateway.errors import NoModelAvailableError
 from ekb.platform.gateway.options.cache_memory import InMemoryCache
 from ekb.platform.gateway.options.cache_sqlite import SqliteCache
 from ekb.platform.gateway.options.fake import FakeClient
-from ekb.platform.gateway.options.langchain import LangChainClient
+from ekb.platform.gateway.options.langchain import LangChainClient, LangChainEmbeddingClient
 from ekb.platform.gateway.options.log_jsonl import JsonlCostLog
 from ekb.platform.gateway.options.log_memory import InMemoryCostLog
 from tests.conftest import REPO_ROOT
@@ -40,6 +40,10 @@ def test_the_ci_gateway_answers_every_task_offline() -> None:
     gateway = build_gateway(load_settings().gateway, environ={})
 
     for task in gateway.tasks:
+        if gateway.config.task_kind(task) == "embedding":
+            vectors = gateway.embed(task, ["Where is the leave policy?"], input_version="t@1")
+            assert vectors.candidate == "fake:fake-embed"
+            continue
         reply = gateway.complete(
             task, "Where is the leave policy?", prompt_version="t@1", max_output_tokens=20
         )
@@ -88,6 +92,21 @@ def test_the_cache_and_log_options_build_where_configured(tmp_path: Path) -> Non
     assert isinstance(log, JsonlCostLog)
 
 
+def test_the_local_gateway_embeds_through_ollama_with_the_url_from_the_environment() -> None:
+    gateway = build_gateway(
+        local_config(),
+        environ={"OLLAMA_URL": "http://localhost:11434"},
+        cache=InMemoryCache(),
+        log=InMemoryCostLog(),
+    )
+
+    client = gateway.embedding_client("ollama:bge-m3")
+    assert isinstance(client, LangChainEmbeddingClient)
+    assert client._settings == {"base_url": "http://localhost:11434"}
+    assert gateway.client("ollama:bge-m3") is None  # an embedding model has no chat client
+    assert gateway.embedding_model("embed") == ("ollama:bge-m3", 1024)
+
+
 def test_the_spend_cap_comes_from_the_environment_when_set() -> None:
     config = local_config()
 
@@ -105,7 +124,10 @@ def test_the_spend_cap_comes_from_the_environment_when_set() -> None:
 def test_provider_status_says_whether_a_key_is_set_never_what_it_is() -> None:
     statuses = {s.provider: s for s in provider_status(local_config(), KEYS)}
 
-    assert set(statuses) == {"google_genai", "groq", "mistralai", "openrouter"}  # ollama: no task
+    assert set(statuses) == {"google_genai", "groq", "mistralai", "openrouter", "ollama"}
+    assert statuses["ollama"].ready  # T7's embed task (S10): a local model needs no key
+    chat = {s.provider for s in provider_status(local_config(), KEYS, kind="chat")}
+    assert "ollama" not in chat  # so "no chat model has a key" is still said when true
     assert statuses["groq"].ready
     assert not statuses["google_genai"].ready
     dumped = json.dumps([s.model_dump() for s in statuses.values()])

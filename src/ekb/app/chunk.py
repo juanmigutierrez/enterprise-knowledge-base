@@ -1,4 +1,5 @@
-"""T4 wired behind T3 (S6), with its context header (S8), T5 (S8) and T6 (S9) behind it.
+"""T4 wired behind T3 (S6), with its context header (S8), T5 (S8), T6 (S9) and T7 (S10)
+behind it.
 
 Three choices are made here, in the composition root, and nowhere else:
 
@@ -9,20 +10,21 @@ Three choices are made here, in the composition root, and nowhere else:
 - **Which header writer** (S8): ``none`` or ``model``, its own port next to the
   chunker (``t4_header`` in the config, card 4.3). ``model`` needs the model
   gateway. Without one (the S6 wiring), chunks keep an empty header.
-- **When T4 runs, and T5 and T6 after it.** Right after T3, on the same
+- **When T4 runs, and T5, T6 and T7 after it.** Right after T3, on the same
   document, inside T2's ``downstream`` until S12 puts the steps on the bus. A
-  record (T3's "not a document") is never chunked, labelled or linked; a record
-  that defines an entity (an HR employee or team) updates the entity store
-  instead (S9, ``ekb.app.entities``).
+  record (T3's "not a document") is never chunked, labelled, linked or
+  embedded; a record that defines an entity (an HR employee or team) updates
+  the entity store instead (S9, ``ekb.app.entities``).
 
-T4, T5 and T6 run *before* anything is kept: if any of them fails, no result
-is recorded, T2 records nothing, and the event comes back (S4's rule).
+T4 to T7 run *before* anything is kept: if any of them fails (T7's model is
+down, say), no result is recorded, T2 records nothing, and the event comes back
+(S4's rule).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ekb.contracts import Chunk
 from ekb.platform import registry
@@ -38,6 +40,7 @@ from ekb.process.t4_chunk.step import ChunkResult, ChunkStep
 from ekb.process.t5_classify.step import ClassifyResult, ClassifyStep
 from ekb.process.t6_entities.step import LinkResult, LinkStep
 from ekb.process.t6_entities.sync import EntitySync, RecordResult
+from ekb.process.t7_embed.step import EmbedResult, EmbedStep
 
 CHUNKERS = (StructureAwareChunker, FixedChunker)  # imported, so both are registered
 HEADERS = (NoHeader, ModelHeaderWriter)
@@ -88,10 +91,14 @@ class Processed:
     """T6's result (S9); ``None`` without T6, or with nothing to link."""
     record: RecordResult | None = None
     """For a record that defines an entity: what it did to the entity store (S9)."""
+    vectors: EmbedResult | None = None
+    """T7's result (S10); ``None`` without T7, or with nothing to embed."""
 
     @property
     def final(self) -> tuple[Chunk, ...]:
-        """The chunks as the last step that ran left them: linked if T6 ran."""
+        """The chunks as the last step that ran left them: embedded if T7 ran."""
+        if self.vectors is not None:
+            return self.vectors.chunks
         if self.links is not None:
             return self.links.chunks
         if self.labels is not None:
@@ -105,10 +112,11 @@ def chunk_after_t3(
     t5: ClassifyStep | None = None,
     t6: LinkStep | None = None,
     records: EntitySync | None = None,
+    t7: EmbedStep | None = None,
 ) -> Callable[[ParseResult], None]:
     """T3's ``keep`` until S12: chunk what T3 parsed, label it (with ``t5``), link
-    it (with ``t6``), then hand every result on. A record that defines an entity
-    goes to ``records`` instead.
+    it (with ``t6``), embed it (with ``t7``), then hand every result on. A record
+    that defines an entity goes to ``records`` instead.
 
     Use it as the ``keep`` of :func:`ekb.app.parse.parse_after_t2`; its
     ``forget`` must drop the document's chunks as well as its parsed text, its
@@ -129,6 +137,8 @@ def chunk_after_t3(
         links = None
         if t6 is not None:
             links = t6.handle(chunks.document, labels.chunks if labels else chunks.chunks)
-        keep(Processed(result, chunks, labels, links))  # only after T4-T6: a failure keeps nothing
+        linked = Processed(result, chunks, labels, links)
+        vectors = t7.handle(chunks.document, linked.final) if t7 is not None else None
+        keep(replace(linked, vectors=vectors))  # only after T4-T7: a failure keeps nothing
 
     return then

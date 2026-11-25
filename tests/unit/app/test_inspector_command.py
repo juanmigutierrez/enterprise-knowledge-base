@@ -13,6 +13,7 @@ from sources.mock_hr_db.db import create_database
 from sources.mock_idp.app import create_app as idp_app
 from typer.testing import CliRunner
 
+from ekb.app import inspector as inspector_module
 from ekb.app.changelog import ChangeLog
 from ekb.app.cli import app
 from ekb.app.gateway import build_gateway
@@ -23,6 +24,7 @@ from ekb.operate.inspector.log import EventLog
 from ekb.platform.config import load_settings
 from tests.http import as_httpx
 from tests.unit.changelog.factories import acl_change
+from tests.unit.platform.gateway.helpers import make_world
 
 
 @pytest.fixture
@@ -188,6 +190,59 @@ def test_headers_and_labels_in_the_live_loop_and_a_purge_forgets_the_replies(
     assert gateway.cache.size() == 11  # its header reply went with it
 
 
+def test_t7_embeds_in_the_live_loop_and_a_delete_forgets_the_vectors(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    """S10: the loop embeds every chunk through the gateway (the ci profile's fake
+    embedding model); a deleted page's cached vectors go with it."""
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
+    gateway = build_gateway(load_settings().gateway)
+    loop = SyncLoop(
+        connectors, changelog, EventLog(), listing_every=1, gateway=gateway, embedder="model"
+    )
+    loop.run_round()
+
+    model_id = "model@1(input@1, fake:fake-embed, 32)"
+    assert loop.t7.model_id == model_id
+    entries = loop.chunks.entries()
+    assert all(c.vector is not None for e in entries for c in e.chunks)
+    assert {c.embedding_model for e in entries for c in e.chunks} == {model_id}
+    assert {e.embedder_id for e in entries} == {model_id}
+    remote = loop.chunks.get("hr_docs:HR-PL-04")
+    assert remote is not None
+    assert remote.embed_note.endswith("4 chunks embedded: 4 sent, 0 from the cache")
+    page = loop.chunks.get("hr_docs:HR-PL-99")
+    assert page is not None
+    before = gateway.cache.size()
+
+    docs.delete("/pages/HR-PL-99")
+    loop.run_round()
+    assert loop.chunks.get("hr_docs:HR-PL-99") is None
+    assert gateway.cache.size() == before - len(page.chunks)  # its vectors went with it
+
+
+def test_the_command_stops_when_the_embedding_model_cannot_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S10: T7 fails closed, so the inspector checks its model before loading anything."""
+    monkeypatch.setenv("EKB_PROFILE", "local")
+    monkeypatch.setattr(inspector_module, "build_gateway", lambda config: make_world().gateway)
+    monkeypatch.setattr(inspector_module, "probe", lambda gateway: "ollama:bge-m3: unavailable")
+
+    result = CliRunner().invoke(app, ["inspector"])
+
+    assert result.exit_code == 2
+    assert "T7 cannot embed: ollama:bge-m3: unavailable" in result.output
+    assert "ollama pull bge-m3" in result.output
+    assert "--extra ollama" in result.output
+    assert "--embed fake" in result.output
+
+
 def test_t6_links_in_the_live_loop_and_a_leaver_leaves_the_store(
     clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
 ) -> None:
@@ -226,14 +281,18 @@ def test_the_loop_needs_no_gateway_without_a_model_option(
     connectors = build_connectors(
         as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "missing.sqlite", changelog
     )
-    loop = SyncLoop(connectors, changelog, EventLog())  # header none, classifier rules
+    loop = SyncLoop(connectors, changelog, EventLog())  # header none, rules, fake vectors
     assert (loop.t4.header_id, loop.t5.classifier_id) == ("none@1", "rules@1")
+    assert loop.t7.model_id == "fake@1(input@1, sha256, 32)"
     with pytest.raises(ValueError, match="needs the model gateway"):
         SyncLoop(connectors, changelog, EventLog(), header="model")
+    with pytest.raises(ValueError, match="needs the model gateway"):
+        SyncLoop(connectors, changelog, EventLog(), embedder="model")
 
 
 @pytest.mark.parametrize(
-    ("option", "value"), [("--header", "sonnet"), ("--classifier", "presidio")]
+    ("option", "value"),
+    [("--header", "sonnet"), ("--classifier", "presidio"), ("--embed", "bge_m3_ollama")],
 )
 def test_the_command_refuses_unknown_header_or_classifier_options(option: str, value: str) -> None:
     result = CliRunner().invoke(app, ["inspector", option, value])

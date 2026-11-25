@@ -19,6 +19,7 @@ gateway:
   models:
     "fake:fake-small": { quota: fake }
     "fake:fake-large": { quota: fake }
+    "fake:fake-embed": { quota: fake, kind: embedding, dimensions: 32 }
   tasks:
     context_header: &fake ["fake:fake-small", "fake:fake-large"]
     classify:       *fake
@@ -27,3 +28,4 @@ gateway:
     entities_hard:  *fake
     answer:         *fake
     judge:          *fake
+    embed:          ["fake:fake-embed"]

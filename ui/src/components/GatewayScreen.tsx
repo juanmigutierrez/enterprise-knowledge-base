@@ -140,6 +140,11 @@ function CallTable({ calls }: { calls: CallView[] }) {
                             <span className={`out out-${c.outcome}`}>
                                 {OUTCOME_LABEL[c.outcome]}
                             </span>
+                            {c.items > 1 && (
+                                <span className="muted" title="texts embedded in this record (S10)">
+                                    {" "}×{c.items}
+                                </span>
+                            )}
                         </td>
                         <td className="num">
                             {c.input_tokens}/{c.output_tokens}
