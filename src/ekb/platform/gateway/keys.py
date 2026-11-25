@@ -13,13 +13,18 @@ D16 #1 says model + prompt version + input. In full, the key is a SHA-256 of:
 - the **request**: system prompt, prompt, output limit, temperature and JSON schema.
 
 The key is written in the cost log; the prompt is not.
+
+An embedding (S10) is cached **per text** (:func:`embed_key`): the candidate,
+its params, the input version (what ``prompt_version`` is for a chat call: how
+the step builds the text it embeds) and the text. So an edited document sends
+only its changed chunks to the model; the others are found under their keys.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ekb.platform.gateway.models import ChatRequest
@@ -40,3 +45,22 @@ def cache_key(
     }
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def embed_key(candidate: str, params: Mapping[str, Any], input_version: str, text: str) -> str:
+    """The cache key of one text's embedding."""
+    payload = {
+        "key_version": KEY_VERSION,
+        "kind": "embedding",
+        "candidate": candidate,
+        "params": dict(params),
+        "input_version": input_version,
+        "text": text,
+    }
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def batch_key(keys: Sequence[str]) -> str:
+    """One label for a group of texts' keys, for the cost log's ``key`` (S10)."""
+    return hashlib.sha256("\n".join(keys).encode("ascii")).hexdigest()

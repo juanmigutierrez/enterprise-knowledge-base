@@ -14,6 +14,11 @@ gateway's choice, not the library's.
 Errors are sorted into the gateway's three kinds (see :func:`classify`):
 LangChain's standard model errors where the integration raises them (Google,
 Mistral), the HTTP status otherwise (Groq, OpenRouter), network errors last.
+
+Embedding models (S10) go through LangChain's embedding classes the same way
+(:class:`LangChainEmbeddingClient`, :data:`EMBEDDING_PROVIDERS`): Ollama for
+bge-m3 in the POC, Bedrock for the production design. Their interface returns
+vectors only, no token counts.
 """
 
 from __future__ import annotations
@@ -21,11 +26,13 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from itertools import batched
+from typing import Any, Protocol, cast
 
 import httpx
+from langchain_core.embeddings import Embeddings
 from langchain_core.exceptions import (
     ContextOverflowError,
     ModelError,
@@ -36,7 +43,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from ekb.platform.gateway.errors import ModelCallError
-from ekb.platform.gateway.models import ChatRequest, FailureKind, ModelReply
+from ekb.platform.gateway.models import ChatRequest, EmbeddingReply, FailureKind, ModelReply
 from ekb.platform.registry import register
 
 
@@ -188,6 +195,146 @@ class LangChainClient:
                 usage=(usage["input_tokens"], usage["output_tokens"]) if usage else None,
             )
         return raw, json.dumps(out["parsed"], ensure_ascii=False, sort_keys=True)
+
+
+@dataclass(frozen=True)
+class EmbeddingClass:
+    """Where a provider's LangChain embedding class lives and how it names its settings."""
+
+    module: str
+    cls: str
+    package: str
+    model_arg: str = "model"
+    timeout: Callable[[float], dict[str, Any]] | None = None
+    """How the class takes a timeout in seconds, if it takes one."""
+
+
+EMBEDDING_PROVIDERS: dict[str, EmbeddingClass] = {
+    # bge-m3 and any other local embedding model (S10): `ollama pull bge-m3`.
+    "ollama": EmbeddingClass(
+        "langchain_ollama",
+        "OllamaEmbeddings",
+        "langchain-ollama (uv sync --extra ollama)",
+        timeout=lambda seconds: {"client_kwargs": {"timeout": seconds}},
+    ),
+    # Cohere Embed v4 in the production design (D10); not installed in the POC.
+    "bedrock": EmbeddingClass(
+        "langchain_aws", "BedrockEmbeddings", "langchain-aws (the aws extra)", model_arg="model_id"
+    ),
+}
+
+
+class _BedrockTransport(Protocol):
+    """BedrockEmbeddings merges model_kwargs and decodes the Bedrock JSON reply."""
+
+    def _invoke_model(self, input_body: dict[str, Any]) -> dict[str, Any]: ...
+
+
+EmbeddingsFactory = Callable[..., Embeddings]
+
+
+@register("embedding_client", "langchain")
+class LangChainEmbeddingClient:
+    """One embedding ``provider:model``, called through its LangChain embedding class.
+
+    LangChain's ``embed_documents`` takes many texts and returns one vector each,
+    nothing else: no token count, so ``usage_reported`` is ``False``. ``build``
+    replaces the provider's class (tests pass a fake).
+    """
+
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        *,
+        api_key: str | None = None,
+        key_env: str | None = None,
+        params: Mapping[str, Any] | None = None,
+        settings: Mapping[str, str] | None = None,
+        timeout_s: float = 60.0,
+        build: EmbeddingsFactory | None = None,
+    ) -> None:
+        if provider not in EMBEDDING_PROVIDERS:
+            known = ", ".join(sorted(EMBEDDING_PROVIDERS))
+            raise ValueError(f"no LangChain embedding provider {provider!r} (known: {known})")
+        self._provider = provider
+        self._spec = EMBEDDING_PROVIDERS[provider]
+        self._model = model
+        self._api_key = api_key
+        self._key_env = key_env
+        self._params = dict(params or {})
+        self._settings = dict(settings or {})
+        self._timeout_s = timeout_s
+        self._build = build
+
+    @property
+    def candidate(self) -> str:
+        return f"{self._provider}:{self._model}"
+
+    def check(self) -> str | None:
+        if self._key_env is not None and not self._api_key:
+            return f"{self._key_env} is not set"
+        if self._build is None and importlib.util.find_spec(self._spec.module) is None:
+            return f"{self._spec.package} is not installed"
+        return None
+
+    def embed(self, texts: Sequence[str]) -> EmbeddingReply:
+        try:
+            model = self._embeddings()
+            if self._provider == "bedrock" and self._params.get("model_kwargs", {}).get(
+                "embedding_types"
+            ) == ["int8"]:
+                return self._embed_int8(cast(_BedrockTransport, model), texts)
+            vectors = model.embed_documents(list(texts))
+            return EmbeddingReply(
+                vectors=tuple(tuple(vector) for vector in vectors),
+                usage_reported=False,
+                served_model=self._model,
+            )
+        except ModelCallError:
+            raise
+        except Exception as exc:
+            raise ModelCallError(classify(exc), describe(exc)) from exc
+
+    def _embed_int8(self, model: _BedrockTransport, texts: Sequence[str]) -> EmbeddingReply:
+        # BedrockEmbeddings.embed_documents only unwraps the float response.
+        vectors: list[tuple[int, ...]] = []
+        received = False
+        try:
+            for batch in batched(texts, 96, strict=False):
+                response = model._invoke_model(
+                    {"input_type": "search_document", "texts": list(batch)}
+                )
+                received = True
+                rows = response.get("embeddings", {}).get("int8")
+                if not isinstance(rows, list) or len(rows) != len(batch):
+                    raise ModelCallError("unavailable", "missing int8 vectors", received_reply=True)
+                for row in rows:
+                    if not isinstance(row, list) or not all(type(v) is int for v in row):
+                        raise ModelCallError(
+                            "unavailable", "invalid int8 components", received_reply=True
+                        )
+                    vectors.append(tuple(row))
+        except ModelCallError:
+            raise
+        except Exception as exc:
+            # Earlier batches may already have been billed.
+            raise ModelCallError(classify(exc), describe(exc), received_reply=received) from exc
+        return EmbeddingReply(
+            vectors=tuple(vectors), usage_reported=False, served_model=self._model
+        )
+
+    def _embeddings(self) -> Embeddings:
+        spec = self._spec
+        kwargs: dict[str, Any] = {spec.model_arg: self._model, **self._settings, **self._params}
+        if self._api_key:
+            kwargs["api_key"] = self._api_key
+        if spec.timeout is not None:
+            kwargs.update(spec.timeout(self._timeout_s))
+        factory = self._build or cast(
+            EmbeddingsFactory, getattr(importlib.import_module(spec.module), spec.cls)
+        )
+        return factory(**kwargs)
 
 
 def status_of(exc: BaseException) -> int | None:

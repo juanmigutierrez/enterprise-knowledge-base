@@ -1,4 +1,4 @@
-import type { ChunkedDocumentView, ChunkSummaryView } from "./api/client";
+import type { ChunkedDocumentView, ChunkSummaryView, ChunkView } from "./api/client";
 
 /** The list and detail poll independently. Only display the listed chunking. */
 export function listedChunks(
@@ -60,4 +60,29 @@ export function sensitivityClass(level: string | null | undefined): string {
 /** `PII: email, phone`, or `""` when the chunk holds none. */
 export function piiLabel(kinds: readonly string[]): string {
     return kinds.length ? `PII: ${kinds.join(", ")}` : "";
+}
+
+/**
+ * What T7 made of a chunk (S10): `1024 numbers`, `no vector yet`, or a warning
+ * that another model made it (a stale vector must be embedded again before search).
+ */
+export function vectorLabel(
+    chunk: Pick<ChunkView, "dimensions" | "vector_state">,
+): string {
+    if (chunk.vector_state === "none" || chunk.dimensions == null) return "no vector yet";
+    const size = `${chunk.dimensions} numbers`;
+    return chunk.vector_state === "stale" ? `${size}, stale: embed again` : size;
+}
+
+/** The vector's first numbers, then how many are left: `[0.0123, -0.0456, … 1022 more]`. */
+export function vectorPreview(values: readonly number[], dimensions: number | null): string {
+    if (!values.length || dimensions == null) return "";
+    const shown = values.map((v) => v.toFixed(4)).join(", ");
+    const left = dimensions - values.length;
+    return left > 0 ? `[${shown}, … ${left} more]` : `[${shown}]`;
+}
+
+/** The vector badge's class: neutral before T7, a warning colour when stale. */
+export function vectorClass(state: string): string {
+    return state === "stale" ? "gate vec-stale" : state === "current" ? "gate vec" : "gate";
 }

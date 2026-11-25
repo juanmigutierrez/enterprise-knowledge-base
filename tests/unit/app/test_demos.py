@@ -26,6 +26,8 @@ from ekb.app.demos.t3 import run_t3_demo
 from ekb.app.demos.t4 import run_t4_demo
 from ekb.app.demos.t5 import close_cache, demo_gateway, run_t5_demo
 from ekb.app.demos.t6 import run_t6_demo
+from ekb.app.demos.t7 import demo_gateway as t7_gateway
+from ekb.app.demos.t7 import run_t7_demo
 from tests.conftest import REPO_ROOT
 from tests.http import as_httpx
 
@@ -565,3 +567,59 @@ def test_cli_t6_is_registered() -> None:
     result = CliRunner().invoke(app, ["demo", "t6", "--help"])
     assert result.exit_code == 0
     assert "T6 Entities" in result.output
+
+
+def _t7() -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        gateway, warning = t7_gateway(fake=True)
+        assert warning is None
+        story = run_t7_demo(as_httpx(docs), as_httpx(idp), gateway, lines.append)
+        assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    assert "hr_docs:HR-PL-99" not in story.processed
+    assert all(chunk.vector is not None for chunk in story.kept())
+    assert not any(chunk.publishable for chunk in story.kept())
+    return "\n".join(lines)
+
+
+def test_t7_embeds_every_chunk_and_says_when_the_model_is_a_fake() -> None:
+    output = _t7()
+    assert "Embedder: model@1(input@1, fake:fake-embed, 1024)" in output
+    assert "FAKE MODEL" in output
+    assert "With the fake model every pair is close to 0" in output
+    assert "     A    1.00" in output  # a text points the same way as itself
+    assert "HR-PL-01   4 chunks  4 sent, 0 from the cache" in output
+    assert "48 of 48 chunks from 12 pages have a vector." in output
+    assert "3. One chunk and its vector: hr_docs:HR-PL-01#3." in output
+    assert "embedding_model: model@1(input@1, fake:fake-embed, 1024)" in output
+    assert "publishable:     False  (sensitivity internal, vector yes, ACL no)" in output
+
+
+def test_t7_an_edit_sends_one_chunk_a_revoke_none_and_a_delete_forgets_its_vectors() -> None:
+    output = _t7()
+    assert "HR-PL-01 v2.1: T2 process -> T3-T7: 1 chunk(s) sent, 3 from the cache" in output
+    assert "HR-PL-05 v1.2: T2 acl_only -> T3-T7 not run" in output
+    assert "HR-PL-99 v1.1: T2 purge -> purged: chunks and 4 cached vectors forgotten" in output
+    assert "Against today's model: current" in output
+    assert "Against model@1(input@1, bedrock:cohere.embed-v4:0, 1024, int8): stale" in output
+    assert "would make all 44 chunks stale" in output
+    assert "T7 ran 13 times: once per 'process'" in output
+    assert "Publishable chunks: 0 of 44" in output
+
+
+def test_t7_falls_back_to_the_fake_when_the_configured_model_cannot_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("ekb.app.demos.t7.probe", lambda gateway: "ollama:bge-m3: unavailable")
+
+    gateway, warning = t7_gateway(fake=False)
+
+    assert warning is not None
+    assert "ollama:bge-m3: unavailable" in warning
+    assert gateway.embedding_model("embed") == ("fake:fake-embed", 1024)
+
+
+def test_cli_t7_is_registered() -> None:
+    result = CliRunner().invoke(app, ["demo", "t7", "--help"])
+    assert result.exit_code == 0
+    assert "T7 Embed" in result.output

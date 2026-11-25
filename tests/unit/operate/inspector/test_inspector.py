@@ -459,6 +459,10 @@ def test_t4_shows_one_documents_chunks_none_of_them_publishable(client: TestClie
         "entity_ids": [],  # T6 has not run on these either
         "linker_id": "",
         "mentions": [],
+        "embedding_model": None,  # nor T7 (S10)
+        "dimensions": None,
+        "vector_preview": [],
+        "vector_state": "none",
         "publishable": False,  # the publication gate: no sensitivity, vector or ACL yet
     }
     assert body["summary"]["sensitivity"] == {}

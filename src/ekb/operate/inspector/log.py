@@ -18,7 +18,7 @@ purge drops it: deleted content is never shown, parsed or not.
 
 Since S6 it keeps T4's latest chunks per document (:class:`ChunkStore`), with
 the same rule: a purge drops them. Since S9 they carry T6's links, with the
-words behind each one.
+words behind each one, and since S10 T7's vectors and the ID of what made them.
 """
 
 from __future__ import annotations
@@ -235,6 +235,11 @@ class ChunkEntry:
     """What T6 did for this version (S9): how many entities it matched against."""
     mentions: tuple[tuple[EntityMention, ...], ...] = ()
     """Per chunk: what named each entity T6 linked it to (S9)."""
+    embed_note: str = ""
+    """What T7 did for this version (S10): which model, how many from the cache."""
+    embedder_id: str = ""
+    """The ID T7's embedder had when this version was recorded: a chunk whose vector
+    carries another ID is stale (S10). Empty when T7 did not run."""
 
 
 class ChunkStore:
@@ -262,6 +267,8 @@ class ChunkStore:
         why: tuple[str, ...] = (),
         linker_note: str = "",
         mentions: tuple[tuple[EntityMention, ...], ...] = (),
+        embed_note: str = "",
+        embedder_id: str = "",
     ) -> None:
         """Keep T4's chunks for ``event``'s document, replacing the previous version's."""
         key = event.document_key
@@ -282,6 +289,8 @@ class ChunkStore:
                 why=why,
                 linker_note=linker_note,
                 mentions=mentions,
+                embed_note=embed_note,
+                embedder_id=embedder_id,
             )
 
     def drop(self, document_key: str) -> bool:

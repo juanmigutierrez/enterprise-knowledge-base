@@ -23,7 +23,7 @@ from ekb.connect.identity_api import IdentityApi
 from ekb.connect.people import People, PersonMap
 from ekb.connect.port import Connector
 from ekb.platform import registry
-from ekb.platform.gateway.port import CostLog, ModelClient, ResponseCache
+from ekb.platform.gateway.port import CostLog, EmbeddingClient, ModelClient, ResponseCache
 from ekb.process.t2_diff.port import Differ
 from ekb.process.t3_parse.port import Parser
 from ekb.process.t4_chunk.header import HeaderWriter
@@ -32,7 +32,7 @@ from ekb.process.t5_classify.port import Classifier
 from ekb.process.t6_entities.port import EntityLinker
 from ekb.process.t7_embed.port import Embedder
 from ekb.stores.entities.port import EntityStore
-from tests.unit.platform.gateway.helpers import Scripted
+from tests.unit.platform.gateway.helpers import Scripted, make_world
 
 PORTS: dict[str, type] = {
     "bus": EventBus,
@@ -48,6 +48,7 @@ PORTS: dict[str, type] = {
     "t7_embed": Embedder,
     "entities": EntityStore,
     "model_client": ModelClient,
+    "embedding_client": EmbeddingClient,
     "model_cache": ResponseCache,
     "cost_log": CostLog,
 }
@@ -70,11 +71,13 @@ TEST_PARAMS: dict[tuple[str, str], dict[str, object]] = {
     ("connect", "identity_sync"): {**_COMMON, "api": IdentityApi(_CLIENT)},
     # Building a client sends nothing; a cache in memory; a log path that is never written.
     ("model_client", "langchain"): {"provider": "groq", "model": "openai/gpt-oss-20b"},
+    ("embedding_client", "langchain"): {"provider": "ollama", "model": "bge-m3"},
     ("model_cache", "sqlite"): {"path": ":memory:"},
     ("cost_log", "jsonl"): {"path": str(Path(tempfile.gettempdir()) / "ekb-contract.jsonl")},
     # Options that call a model take the gateway; building them calls nothing.
     ("t4_header", "model"): {"gateway": Scripted()},
     ("t5_classify", "model_plus_rules"): {"gateway": Scripted()},
+    ("t7_embed", "model"): {"gateway": make_world().gateway},
 }
 
 load_options()

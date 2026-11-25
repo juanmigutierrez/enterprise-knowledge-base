@@ -22,7 +22,7 @@ steps:
   t4_header:     { option: model, card: "4.3" }   # gateway task: context_header
   t5_classify:   { option: model_plus_rules, card: "4.9" }   # gateway task: classify
   t6_entities:   { option: cascade, card: "4.10" }
-  t7_embed:      { option: bge_m3_ollama, card: "4.4" }
+  t7_embed:      { option: model, card: "4.4" }   # gateway task: embed (bge-m3 via Ollama)
   t8_permissions: { option: source_acl }
 
   # 5 · Knowledge stores
@@ -81,6 +81,9 @@ gateway:
     # Not in any task by default; one line in `tasks` switches to them.
     "openrouter:anthropic/claude-haiku-5.5": { price: { input: 0.10, output: 0.50 } }  # paid
     "ollama:gemma4:e4b": {}                                                            # local
+    # Embedding models (S10): they return vectors, and say how many numbers each has.
+    # Local and free: `ollama pull bge-m3` (1.2 GB), then start Ollama (see the S10 walkthrough).
+    "ollama:bge-m3": { kind: embedding, dimensions: 1024 }
 
   # Task -> candidates, tried in order (D15). High-volume tasks start on the light
   # models; the harder ones on the stronger models of the same providers.
@@ -100,3 +103,6 @@ gateway:
       - "openrouter:openrouter/free"
     answer:         *strong
     judge:          *strong
+    # T7 (S10). An embedding task names exactly one model: vectors from two models
+    # cannot be compared, so there is no failover; the settings refuse a second one.
+    embed:          ["ollama:bge-m3"]

@@ -13,6 +13,9 @@ import {
     sensitivityCounts,
     sizeRange,
     sizeShare,
+    vectorClass,
+    vectorLabel,
+    vectorPreview,
 } from "../chunk";
 import { entityClass, mentionLabel } from "../entities";
 import { time } from "../format";
@@ -20,13 +23,14 @@ import { trail } from "../parse";
 import { usePolling } from "../usePolling";
 
 /**
- * T4 Chunk (S6), its labels (S8) and links (S9): the passages each document was cut into.
+ * T4 Chunk (S6), its labels (S8), links (S9) and vectors (S10): the passages each
+ * document was cut into.
  * Left: every chunked document, with its number of chunks, their sizes, its
  * chunks per sensitivity and how many times T4 chunked it. Right: one
  * document's chunks in order, each with its size against the chunker's limit,
  * the section it belongs to, its context header (T4), its labels and why (T5),
- * the people and teams it names (T6) and its text. None is publishable yet:
- * that is T8's gate.
+ * the people and teams it names (T6), its vector (T7) and its text. None is
+ * publishable yet: that is T8's gate.
  */
 export function ChunkScreen({ sources }: { sources: string[] }) {
     const [source, setSource] = useState("");
@@ -47,6 +51,7 @@ export function ChunkScreen({ sources }: { sources: string[] }) {
     const documents = list.data?.documents ?? [];
     const runs = documents.reduce((total, d) => total + d.runs, 0);
     const chunkers = [...new Set(documents.map((d) => d.chunker_id))];
+    const embedders = [...new Set(documents.map((d) => d.embedder_id).filter(Boolean))];
     const shown =
         detail.error || list.error ? null : listedChunks(selected, documents, detail.data);
 
@@ -63,8 +68,10 @@ export function ChunkScreen({ sources }: { sources: string[] }) {
                     per document through the gateway, and T5 labels every chunk
                     with a department, a sensitivity and the personal data it
                     holds. T6 links each chunk to the people and teams it names.
-                    T7 and T8 embed and secure them later; until then no chunk is
-                    publishable.
+                    T7 turns each chunk into a vector: a list of numbers that sits
+                    close to the vectors of texts with a similar meaning, stored
+                    with the ID of the model that made it. T8 secures them later;
+                    until then no chunk is publishable.
                 </p>
                 {list.error && <p className="error">{list.error}</p>}
                 <div className="counts">
@@ -84,6 +91,12 @@ export function ChunkScreen({ sources }: { sources: string[] }) {
                         <div key={id} className="count">
                             <strong className="mono">{id}</strong>
                             <span className="muted">chunker</span>
+                        </div>
+                    ))}
+                    {embedders.map((id) => (
+                        <div key={id} className="count">
+                            <strong className="mono">{id}</strong>
+                            <span className="muted">embedder</span>
                         </div>
                     ))}
                 </div>
@@ -158,6 +171,7 @@ function ChunkTable({
                     <th>sizes</th>
                     <th>sensitivity</th>
                     <th>entities</th>
+                    <th>vectors</th>
                     <th>runs</th>
                     <th>chunked at</th>
                 </tr>
@@ -180,6 +194,9 @@ function ChunkTable({
                         <td>{sensitivityCounts(d.sensitivity)}</td>
                         <td className="num" title={d.entities.join(", ")}>
                             {d.entities.length}
+                        </td>
+                        <td className="num" title={d.embedder_id}>
+                            {d.embedded}
                         </td>
                         <td className="num">{d.runs}</td>
                         <td>{time(d.chunked_at)}</td>
@@ -208,6 +225,9 @@ function ChunkedDocument({ doc }: { doc: ChunkedDocumentView }) {
             )}
             {summary.linker_note && (
                 <p className="muted">Links: {summary.linker_note}</p>
+            )}
+            {summary.embed_note && (
+                <p className="muted">Vectors: {summary.embed_note}</p>
             )}
             <div className="chunks">
                 {doc.chunks.map((chunk) => (
@@ -264,6 +284,17 @@ function ChunkCard({ chunk, maxTokens }: { chunk: ChunkView; maxTokens: number }
                         </span>
                     ))}
                 </div>
+            )}
+            <div className="entity-row" title={chunk.embedding_model ?? "T7 has not run"}>
+                <span className={vectorClass(chunk.vector_state)}>{vectorLabel(chunk)}</span>
+                {chunk.embedding_model && (
+                    <span className="mono muted">{chunk.embedding_model}</span>
+                )}
+            </div>
+            {chunk.vector_preview.length > 0 && (
+                <p className="vector-line mono">
+                    {vectorPreview(chunk.vector_preview, chunk.dimensions)}
+                </p>
             )}
             <pre className="clean-text">{chunk.text}</pre>
         </div>

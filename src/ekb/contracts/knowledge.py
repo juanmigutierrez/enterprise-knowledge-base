@@ -71,7 +71,7 @@ class Chunk(BaseModel):
     ``chunker_id``, then writes its context header (S8): ``context_header`` and
     ``header_id``. T5 labels it (S8): ``department``, ``sensitivity``, ``pii``
     and ``classifier_id``. T6 links it (S9): ``entity_ids`` and ``linker_id``.
-    The later steps fill in the rest: the vector (T7) and the ACL (T8).
+    T7 embeds it (S10): ``vector`` and ``embedding_model``. T8 sets the ACL (S11).
 
     A chunk is only published to the search index once ``acl``,
     ``sensitivity`` and ``vector`` are set; see the publication test in
@@ -125,7 +125,12 @@ class Chunk(BaseModel):
     """Which T6 option linked it, e.g. ``exact_match@2``. Empty until T6 has run."""
     acl: Acl | None = None
     embedding_model: str | None = None
-    vector: tuple[float, ...] | None = None
+    """What made the vector (T7, S10): the option, the input recipe, the model and the
+    size, e.g. ``model@1(input@1, ollama:bge-m3, 1024)`` (D10). Vectors are comparable
+    only with vectors of the same ID, so a different ID means "embed again"."""
+    vector: tuple[int | float, ...] | None = None
+    """T7 normalizes float vectors and preserves signed int8 when the model ID specifies it.
+    The publication gate requires a vector."""
 
     @property
     def publishable(self) -> bool:

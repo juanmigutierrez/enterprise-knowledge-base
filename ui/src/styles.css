@@ -427,6 +427,21 @@ pre.code {
     color: var(--acl);
     border-color: var(--acl);
 }
+/* T7 (S10): a chunk's vector, its model ID and its first numbers. */
+.gate.vec {
+    color: var(--upsert);
+    border-color: var(--upsert);
+}
+.gate.vec-stale {
+    color: var(--acl);
+    border-color: var(--acl);
+}
+.vector-line {
+    margin: 0 0 6px;
+    font-size: 11px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
 
 /* Model gateway (S7): one badge per call outcome; each task's chain of models. */
 .out {

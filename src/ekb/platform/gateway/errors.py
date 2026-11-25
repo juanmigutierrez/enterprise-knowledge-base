@@ -28,6 +28,10 @@ class UnknownTaskError(GatewayError, LookupError):
     """The caller asked for a task the configuration does not route."""
 
 
+class TaskKindError(GatewayError, TypeError):
+    """The caller asked a chat task for vectors, or an embedding task for text (S10)."""
+
+
 class ModelCallError(GatewayError):
     """Raised by a client: the call failed, sorted into one of three kinds."""
 

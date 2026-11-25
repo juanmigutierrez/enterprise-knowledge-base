@@ -108,7 +108,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S7 | Platform · Model gateway | Free-tier providers through LangChain (Google AI Studio, Groq, Mistral, OpenRouter; fake offline; Ollama optional), per-task failover on quotas, content-hash cache, cost log, spend cap | How every model call is cached, routed and costed | `ekb demo gateway`: same call twice → second from cache, cost logged · UI: model calls and cost panel | 40 min | ✅ |
 | S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ✅ |
 | S9 | 4 · **T6** Entities | Exact match against the people and teams from the HR record API (S1b) (model cascade later) | How documents get linked to people and teams | `ekb demo t6` · UI: entities panel | 30 min | ✅ |
-| S10 | 4 · **T7** Embed | Ollama bge-m3 option next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ⬜ |
+| S10 | 4 · **T7** Embed | bge-m3 on Ollama through the gateway's new `embed` task (`model` option) next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ✅ |
 | S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ⬜ |
 | S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks · UI: full pipeline trace per document | 40 min | ⬜ |
 | S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ⬜ |
@@ -150,7 +150,14 @@ S9 (T6 entities) is complete and reviewed (✅). The [S9 walkthrough](walkthroug
 - Links are written when a page is processed and are not redone when an entity changes; re-linking joins S16. The inspector lists such stale links.
 - The seed stays at 12 pages (none names a person); the demo creates a contacts page. The demo runs offline.
 
-Next is **S10** (T7 embed) with `/plan-task S10`.
+S10 (T7 embed) is complete (✅). The [S10 walkthrough](walkthrough/S10-t7-embed.md) covers vectors, the gateway's embedding path and the stored model ID. Settled in S10's plan on 25 November 2026:
+- The local default stays bge-m3 on Ollama (`ollama pull bge-m3`), as the config already said; D15's T7 row records it. Gemini's embedding model is the hosted alternative, for card 4.4.
+- Embeddings go through the model gateway: a per-text cache tagged with the document (an edit sends only changed chunks, a purge forgets the vectors), one cost-log record per request. An embedding task names exactly one model: no failover, because vectors from two models cannot be compared.
+- T7 fails closed (nothing kept, the event comes back); the header still fails open. `ekb inspector` stops at startup when the model cannot answer; `ekb demo t7` falls back to a fake model and says so.
+- What is embedded: context header + section trail + text (`input@1`). The stored ID names option, recipe, model and size: `model@1(input@1, ollama:bge-m3, 1024)`. Ollama vectors are normalized. Bedrock preserves Cohere’s signed int8 components and includes int8 in the model ID. T4 keeps its approximate token counter.
+- The T7 option is `model`; the model is the gateway's configuration (`bge_m3_ollama` and `cohere_embed_v4` are gone from the config and experiment 4.04).
+
+Next is **S11** (T8 + search store) with `/plan-task S11`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

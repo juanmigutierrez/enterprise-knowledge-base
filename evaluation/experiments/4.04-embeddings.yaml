@@ -11,11 +11,17 @@ fixed:
   t4_chunk:    { option: structure_aware, params: { max_tokens: 400 } }
   q3_retrieve: { option: hybrid_rrf, params: { rerank: none, top_k: 10 } }
 
+# Since S10, T7's option is `model` for every real model: what changes between runs is
+# the model gateway's `embed` route (one model per run: an embedding task has no
+# failover) and that model's params. `route` names it; the runner (S18) sets it.
 options:
-  - { option: bge_m3_ollama }
-  - { option: cohere_embed_v4, params: { dimensions: 1024, dtype: float } }
-  - { option: cohere_embed_v4, params: { dimensions: 1024, dtype: int8 } }
-  - { option: titan_text_v2,   params: { dimensions: 1024 } }
+  - { option: model, route: "ollama:bge-m3" }
+  - { option: model, route: "bedrock:cohere.embed-v4:0",
+      params: { model_kwargs: { output_dimension: 1024, embedding_types: [float] } } }
+  - { option: model, route: "bedrock:cohere.embed-v4:0",
+      params: { model_kwargs: { output_dimension: 1024, embedding_types: [int8] } } }
+  - { option: model, route: "bedrock:amazon.titan-embed-text-v2:0",
+      params: { model_kwargs: { dimensions: 1024 } } }
 
 gates:                        # pass/fail before any score is compared
   leakage_rate: 0

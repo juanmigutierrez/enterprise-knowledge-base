@@ -7,19 +7,27 @@ steps:
   t4_header:    { option: model }
   t5_classify:  { option: model_plus_rules }
   t6_entities:  { option: cascade }
-  t7_embed:     { option: cohere_embed_v4, params: { dimensions: 1024, dtype: int8 } }
+  t7_embed:     { option: model }   # gateway task: embed (Cohere Embed v4, D10)
   q1_plan:      { option: rewrite_when_needed }
   q3_retrieve:  { option: hybrid_rrf, params: { rerank: cohere_rerank_3_5, top_k: 5 } }
 
 gateway:
   providers:
     bedrock_converse: { env: { region_name: AWS_REGION } }   # AWS credential chain, no key
+    bedrock:          { env: { region_name: AWS_REGION } }   # embeddings (BedrockEmbeddings)
   models:
     # Prices from D15 (USD per million tokens); Haiku 5.5 has an EU profile,
     # Sonnet 5.5 and Opus 5.5 are served through the global one.
     "bedrock_converse:eu.anthropic.claude-haiku-5-5":      { price: { input: 0.10, output: 0.50 } }
     "bedrock_converse:global.anthropic.claude-sonnet-5-5": { price: { input: 3.00, output: 15.00 } }
     "bedrock_converse:global.anthropic.claude-opus-5-5":   { price: { input: 4.00, output: 20.00 } }
+    # Cohere Embed v4 at 1024 dimensions, signed int8 (D10, D15: $0.12 per million input tokens).
+    # Preserve Cohere's signed integer components (D16 #8).
+    "bedrock:cohere.embed-v4:0":
+      kind: embedding
+      dimensions: 1024
+      price: { input: 0.12 }
+      params: { model_kwargs: { output_dimension: 1024, embedding_types: [int8] } }
   tasks:
     context_header: &haiku ["bedrock_converse:eu.anthropic.claude-haiku-5-5"]
     classify:       *haiku
@@ -28,3 +36,4 @@ gateway:
     entities_hard:  ["bedrock_converse:global.anthropic.claude-sonnet-5-5"]
     answer:         ["bedrock_converse:global.anthropic.claude-sonnet-5-5"]
     judge:          ["bedrock_converse:global.anthropic.claude-opus-5-5"]
+    embed:          ["bedrock:cohere.embed-v4:0"]

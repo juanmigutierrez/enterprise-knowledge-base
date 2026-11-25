@@ -10,11 +10,12 @@ It builds a small live system in one process:
    group of connectors T2 (S4) decides every new event, purges deleted items'
    originals and records the registry, keeping its decisions for the UI. T3
    (S5) parses what T2 sends on, T4 (S6) chunks it and writes the context
-   headers through the model gateway (S8), T5 (S8) labels the chunks and T6
+   headers through the model gateway (S8), T5 (S8) labels the chunks, T6
    (S9) links them to the people and teams of the entity store, which the HR
-   records keep current; all of them forget what T2 purges, the gateway's
-   cached replies and a deleted record's entity included. The inspector's own
-   consumer group copies the events into its log;
+   records keep current, and T7 (S10) embeds them (bge-m3 through the gateway,
+   or ``--embed fake``); all of them forget what T2 purges, the gateway's
+   cached replies and vectors and a deleted record's entity included. The
+   inspector's own consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``), with the
    model gateway's panel (S7): its routes, free quotas and the cost log that
    ``ekb demo gateway`` and the headers write to.
@@ -47,6 +48,7 @@ from ekb.app.classify import CLASSIFIER_OPTIONS, classify_step, forgetter
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
 from ekb.app.diff import T2_GROUP, diff_step, run_t2
+from ekb.app.embed import EMBEDDER_OPTIONS, MODEL_EMBEDDERS, embed_help, embed_step, probe
 from ekb.app.entities import entity_store, entity_sync, link_step
 from ekb.app.gateway import build_gateway, max_spend, provider_status
 from ekb.app.parse import parse_after_t2, parse_step
@@ -82,6 +84,7 @@ from ekb.process.t3_parse.step import ParseStep
 from ekb.process.t4_chunk.step import ChunkStep
 from ekb.process.t5_classify.step import ClassifyStep
 from ekb.process.t6_entities.step import LinkStep
+from ekb.process.t7_embed.step import EmbedStep
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +152,8 @@ class SyncLoop:
     """T4's header option: ``none`` (no model, the default for tests) or ``model``."""
     classifier: str = field(default="rules", kw_only=True)
     """T5's option: ``rules`` or ``model_plus_rules``."""
+    embedder: str = field(default="fake", kw_only=True)
+    """T7's option (S10): ``fake`` (no model, the default for tests) or ``model``."""
     entities: EntityPanel = field(default_factory=lambda: EntityPanel(entity_store()), kw_only=True)
     """The entity store T6 reads and the HR records fill (S9), as the inspector shows it."""
     listing_every: int = 10
@@ -159,6 +164,7 @@ class SyncLoop:
     t4: ChunkStep = field(init=False)
     t5: ClassifyStep = field(init=False)
     t6: LinkStep = field(init=False)
+    t7: EmbedStep = field(init=False)
 
     def __post_init__(self) -> None:
         def processed(result: Processed) -> None:
@@ -169,6 +175,7 @@ class SyncLoop:
                 self.entities.lifetimes.record(source_key, event.original_lifetime)
             if parsed is not None and result.chunks is not None:
                 headers, labels, links = result.chunks.headers, result.labels, result.links
+                vectors = result.vectors
                 self.chunks.record(
                     event,
                     parsed.title,
@@ -180,6 +187,8 @@ class SyncLoop:
                     why=labels.why if labels is not None else (),
                     linker_note=links.note if links is not None else "",
                     mentions=links.mentions if links is not None else (),
+                    embed_note=vectors.reason if vectors is not None else "",
+                    embedder_id=self.t7.model_id,
                 )
 
         records = entity_sync(self.changelog, self.entities.store)
@@ -188,7 +197,8 @@ class SyncLoop:
         self.t4 = chunk_step(header=header_writer(self.header, self.gateway))
         self.t5 = classify_step(self.classifier, self.gateway)
         self.t6 = link_step(self.entities.store)
-        then = chunk_after_t3(self.t4, processed, self.t5, self.t6, records)
+        self.t7 = embed_step(self.embedder, self.gateway)
+        then = chunk_after_t3(self.t4, processed, self.t5, self.t6, records, self.t7)
         then_parse = parse_after_t2(self.t3, then, forget)
 
         def keep(result: DiffResult) -> None:
@@ -272,6 +282,10 @@ def inspector(
     classifier: Annotated[
         str, typer.Option(help="T5's classifier: rules or model_plus_rules.")
     ] = "rules",
+    embed: Annotated[
+        str,
+        typer.Option(help="T7's embedder: model (bge-m3 through the gateway) or fake."),
+    ] = "model",
 ) -> None:
     """8 · Inspector (local only): run the connectors and serve the read-only inspector API."""
     if not math.isfinite(interval) or interval <= 0:
@@ -282,6 +296,8 @@ def inspector(
         raise typer.BadParameter(
             f"one of {', '.join(CLASSIFIER_OPTIONS)}", param_hint="--classifier"
         )
+    if embed not in EMBEDDER_OPTIONS:
+        raise typer.BadParameter(f"one of {', '.join(EMBEDDER_OPTIONS)}", param_hint="--embed")
     if export_openapi is not None:
         schema = openapi_json(
             _create_app(
@@ -317,6 +333,13 @@ def inspector(
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(code=2) from exc
+    if embed in MODEL_EMBEDDERS:
+        down = probe(gateway)
+        if down is not None:
+            # T7 fails closed: without its model every document would fail and come back.
+            help_ = embed_help("ekb inspector", "--embed fake")
+            typer.secho(f"T7 cannot embed: {down}\n{help_}", fg="red", err=True)
+            raise typer.Exit(code=2)
 
     with ExitStack() as stack:
         docs = stack.enter_context(mock_client("sources.mock_docs", docs_url))
@@ -340,6 +363,7 @@ def inspector(
             gateway=gateway,
             header=header,
             classifier=classifier,
+            embedder=embed,
             entities=entities,
             listing_every=listing_every,
         )
@@ -369,6 +393,8 @@ def inspector(
             f"T6 linked {linked} of {cut} chunks to {len(known)} people and teams "
             f"({loop.t6.linker_id})."
         )
+        embedded = sum(1 for e in chunks.entries() for c in e.chunks if c.vector is not None)
+        typer.echo(f"T7 embedded {embedded} of {cut} chunks ({loop.t7.model_id}).")
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
