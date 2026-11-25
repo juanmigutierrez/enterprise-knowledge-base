@@ -17,7 +17,8 @@ Since S5 it keeps T3's latest output per document (:class:`ParsedStore`). A
 purge drops it: deleted content is never shown, parsed or not.
 
 Since S6 it keeps T4's latest chunks per document (:class:`ChunkStore`), with
-the same rule: a purge drops them.
+the same rule: a purge drops them. Since S9 they carry T6's links, with the
+words behind each one.
 """
 
 from __future__ import annotations
@@ -27,7 +28,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ekb.changelog.bus.port import Delivery
-from ekb.contracts import ChangeEvent, Chunk, DiffAction, DiffDecision, ParsedDocument
+from ekb.contracts import (
+    ChangeEvent,
+    Chunk,
+    DiffAction,
+    DiffDecision,
+    EntityMention,
+    ParsedDocument,
+)
 
 
 @dataclass(frozen=True)
@@ -223,6 +231,10 @@ class ChunkEntry:
     """What T5 did for this version (S8): where the department came from, which model."""
     why: tuple[str, ...] = ()
     """Per chunk: why T5 gave it its sensitivity."""
+    linker_note: str = ""
+    """What T6 did for this version (S9): how many entities it matched against."""
+    mentions: tuple[tuple[EntityMention, ...], ...] = ()
+    """Per chunk: what named each entity T6 linked it to (S9)."""
 
 
 class ChunkStore:
@@ -248,6 +260,8 @@ class ChunkStore:
         header_note: str = "",
         classifier_note: str = "",
         why: tuple[str, ...] = (),
+        linker_note: str = "",
+        mentions: tuple[tuple[EntityMention, ...], ...] = (),
     ) -> None:
         """Keep T4's chunks for ``event``'s document, replacing the previous version's."""
         key = event.document_key
@@ -266,6 +280,8 @@ class ChunkStore:
                 header_note=header_note,
                 classifier_note=classifier_note,
                 why=why,
+                linker_note=linker_note,
+                mentions=mentions,
             )
 
     def drop(self, document_key: str) -> bool:
@@ -282,3 +298,25 @@ class ChunkStore:
         with self._lock:
             entries = sorted(self._documents.items())
         return [e for key, e in entries if source is None or key.partition(":")[0] == source]
+
+
+class EntityLifetimes:
+    """Which lifetime of its record each entity was read from (S9).
+
+    A delete closes its record's lifetime as soon as it is published; T2's
+    purge removes the entity a moment later. In between, the inspector already
+    hides it, as it hides T3's and T4's output: an entity whose record's
+    lifetime is no longer the one it was read from is a deleted record's.
+    """
+
+    def __init__(self) -> None:
+        self._lifetimes: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def record(self, source_key: str, lifetime: int) -> None:
+        with self._lock:
+            self._lifetimes[source_key] = lifetime
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return self._lifetimes.copy()

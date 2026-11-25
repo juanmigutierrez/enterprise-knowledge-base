@@ -188,6 +188,36 @@ def test_headers_and_labels_in_the_live_loop_and_a_purge_forgets_the_replies(
     assert gateway.cache.size() == 11  # its header reply went with it
 
 
+def test_t6_links_in_the_live_loop_and_a_leaver_leaves_the_store(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    """S9: round 0 fills the entity store from the HR records before the pages are
+    linked; the HR listing finds a leaver's delete and the store drops them."""
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
+    loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
+    loop.run_round()
+    store = loop.entities.store
+    assert loop.t6.linker_id == "exact_match@2"
+    assert len(store.entities()) == 17  # 12 people, 5 teams
+    remote = loop.chunks.get("hr_docs:HR-PL-04")
+    assert remote is not None
+    assert [c.entity_ids for c in remote.chunks] == [(), ("team:T-PPL",), (), ("team:T-PPL",)]
+    assert remote.linker_note == "matched against 12 people and 5 teams"
+    assert [m.text for m in remote.mentions[1]] == ["People team"]
+    lifetime = loop.entities.lifetimes.snapshot()["hr_api:employees/E-1009"]
+    assert lifetime == changelog.current_lifetime("hr_api:employees/E-1009")
+
+    hr.delete("/employees/E-1009")
+    loop.run_round()
+    assert store.get("person:lucia") is None
+    assert len(store.entities()) == 16
+
+
 def test_the_loop_needs_no_gateway_without_a_model_option(
     clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
 ) -> None:

@@ -12,6 +12,8 @@ from ekb.contracts import (
     Chunk,
     DiffAction,
     DiffDecision,
+    Entity,
+    EntityKind,
     ParsedDocument,
     PiiKind,
     Sensitivity,
@@ -251,3 +253,32 @@ def test_render_blocks_is_the_documents_clean_text() -> None:
     assert render_blocks(blocks) == document.text == "Booking\n\n1. Ask\n2. Wait"
     assert render_blocks(blocks[1:]) == "1. Ask\n2. Wait"
     assert render_blocks(()) == ""
+
+
+def test_an_entity_id_starts_with_its_kind() -> None:
+    def build(**kw: object) -> Entity:
+        fields: dict[str, object] = {
+            "entity_id": "person:bob",
+            "kind": EntityKind.PERSON,
+            "name": "Bruno Moretti",
+            "source_key": "hr_api:employees/E-1002",
+            "source_version": "1",
+        }
+        return Entity.model_validate({**fields, **kw})
+
+    assert build(team_id="team:T-PPL").team_id == "team:T-PPL"
+    for bad in (
+        {"entity_id": "team:bob"},
+        {"entity_id": "person:"},
+        {"name": " "},
+        {"team_id": "T-PPL"},
+        {"team_id": "team:"},
+        {"entity_id": "team:T-PPL", "kind": EntityKind.TEAM, "team_id": "team:T-ENG"},
+    ):
+        with pytest.raises(ValidationError):
+            build(**bad)
+
+
+def test_a_chunk_starts_with_no_links() -> None:
+    chunk = Chunk(document_key="hr_docs:X", document_version="1", chunk_id="hr_docs:X#0", text="t")
+    assert (chunk.entity_ids, chunk.linker_id) == ((), "")

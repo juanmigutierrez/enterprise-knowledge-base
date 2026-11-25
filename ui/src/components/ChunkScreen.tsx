@@ -14,17 +14,19 @@ import {
     sizeRange,
     sizeShare,
 } from "../chunk";
+import { entityClass, mentionLabel } from "../entities";
 import { time } from "../format";
 import { trail } from "../parse";
 import { usePolling } from "../usePolling";
 
 /**
- * T4 Chunk (S6) and its labels (S8): the passages each document was cut into.
+ * T4 Chunk (S6), its labels (S8) and links (S9): the passages each document was cut into.
  * Left: every chunked document, with its number of chunks, their sizes, its
  * chunks per sensitivity and how many times T4 chunked it. Right: one
  * document's chunks in order, each with its size against the chunker's limit,
- * the section it belongs to, its context header (T4), its labels and why (T5)
- * and its text. None is publishable yet: that is T8's gate.
+ * the section it belongs to, its context header (T4), its labels and why (T5),
+ * the people and teams it names (T6) and its text. None is publishable yet:
+ * that is T8's gate.
  */
 export function ChunkScreen({ sources }: { sources: string[] }) {
     const [source, setSource] = useState("");
@@ -60,8 +62,9 @@ export function ChunkScreen({ sources }: { sources: string[] }) {
                     A model then writes each chunk a context header, one call
                     per document through the gateway, and T5 labels every chunk
                     with a department, a sensitivity and the personal data it
-                    holds. T7 and T8 embed and secure them later; until then no
-                    chunk is publishable.
+                    holds. T6 links each chunk to the people and teams it names.
+                    T7 and T8 embed and secure them later; until then no chunk is
+                    publishable.
                 </p>
                 {list.error && <p className="error">{list.error}</p>}
                 <div className="counts">
@@ -154,6 +157,7 @@ function ChunkTable({
                     <th>chunks</th>
                     <th>sizes</th>
                     <th>sensitivity</th>
+                    <th>entities</th>
                     <th>runs</th>
                     <th>chunked at</th>
                 </tr>
@@ -174,6 +178,9 @@ function ChunkTable({
                             {d.over_limit > 0 && ` (${d.over_limit} over)`}
                         </td>
                         <td>{sensitivityCounts(d.sensitivity)}</td>
+                        <td className="num" title={d.entities.join(", ")}>
+                            {d.entities.length}
+                        </td>
                         <td className="num">{d.runs}</td>
                         <td>{time(d.chunked_at)}</td>
                     </tr>
@@ -198,6 +205,9 @@ function ChunkedDocument({ doc }: { doc: ChunkedDocumentView }) {
             )}
             {summary.classifier_note && (
                 <p className="muted">Labels: {summary.classifier_note}</p>
+            )}
+            {summary.linker_note && (
+                <p className="muted">Links: {summary.linker_note}</p>
             )}
             <div className="chunks">
                 {doc.chunks.map((chunk) => (
@@ -246,6 +256,15 @@ function ChunkCard({ chunk, maxTokens }: { chunk: ChunkView; maxTokens: number }
                 chunk.header_id && <p className="muted">no header</p>
             )}
             {chunk.why && <p className="why">{chunk.why}</p>}
+            {chunk.mentions.length > 0 && (
+                <div className="entity-row" title={chunk.linker_id}>
+                    {chunk.mentions.map((m) => (
+                        <span key={m.entity_id} className={entityClass(m.entity_id)} title={mentionLabel(m)}>
+                            {m.entity_id}
+                        </span>
+                    ))}
+                </div>
+            )}
             <pre className="clean-text">{chunk.text}</pre>
         </div>
     );

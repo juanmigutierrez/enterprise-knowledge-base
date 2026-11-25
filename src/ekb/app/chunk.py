@@ -1,4 +1,4 @@
-"""T4 wired behind T3 (S6), with its context header (S8) and T5 behind it.
+"""T4 wired behind T3 (S6), with its context header (S8), T5 (S8) and T6 (S9) behind it.
 
 Three choices are made here, in the composition root, and nowhere else:
 
@@ -9,13 +9,14 @@ Three choices are made here, in the composition root, and nowhere else:
 - **Which header writer** (S8): ``none`` or ``model``, its own port next to the
   chunker (``t4_header`` in the config, card 4.3). ``model`` needs the model
   gateway. Without one (the S6 wiring), chunks keep an empty header.
-- **When T4 runs, and T5 after it.** Right after T3, on the same document,
-  inside T2's ``downstream`` until S12 puts the steps on the bus. A record
-  (T3's "not a document") is never chunked or labelled.
+- **When T4 runs, and T5 and T6 after it.** Right after T3, on the same
+  document, inside T2's ``downstream`` until S12 puts the steps on the bus. A
+  record (T3's "not a document") is never chunked, labelled or linked; a record
+  that defines an entity (an HR employee or team) updates the entity store
+  instead (S9, ``ekb.app.entities``).
 
-T4 and T5 run *before* anything is kept: if either fails, neither T3's nor
-T4's nor T5's result is recorded, T2 records nothing, and the event comes back
-(S4's rule).
+T4, T5 and T6 run *before* anything is kept: if any of them fails, no result
+is recorded, T2 records nothing, and the event comes back (S4's rule).
 """
 
 from __future__ import annotations
@@ -35,6 +36,8 @@ from ekb.process.t4_chunk.options.structure_aware import StructureAwareChunker
 from ekb.process.t4_chunk.port import Chunker
 from ekb.process.t4_chunk.step import ChunkResult, ChunkStep
 from ekb.process.t5_classify.step import ClassifyResult, ClassifyStep
+from ekb.process.t6_entities.step import LinkResult, LinkStep
+from ekb.process.t6_entities.sync import EntitySync, RecordResult
 
 CHUNKERS = (StructureAwareChunker, FixedChunker)  # imported, so both are registered
 HEADERS = (NoHeader, ModelHeaderWriter)
@@ -81,31 +84,51 @@ class Processed:
     """``None`` when T3 found a structured record, not a document: nothing to chunk."""
     labels: ClassifyResult | None = None
     """T5's result (S8); ``None`` without T5, or with nothing to label."""
+    links: LinkResult | None = None
+    """T6's result (S9); ``None`` without T6, or with nothing to link."""
+    record: RecordResult | None = None
+    """For a record that defines an entity: what it did to the entity store (S9)."""
 
     @property
     def final(self) -> tuple[Chunk, ...]:
-        """The chunks as the last step that ran left them: labelled if T5 ran."""
+        """The chunks as the last step that ran left them: linked if T6 ran."""
+        if self.links is not None:
+            return self.links.chunks
         if self.labels is not None:
             return self.labels.chunks
         return self.chunks.chunks if self.chunks is not None else ()
 
 
 def chunk_after_t3(
-    t4: ChunkStep, keep: Callable[[Processed], object], t5: ClassifyStep | None = None
+    t4: ChunkStep,
+    keep: Callable[[Processed], object],
+    t5: ClassifyStep | None = None,
+    t6: LinkStep | None = None,
+    records: EntitySync | None = None,
 ) -> Callable[[ParseResult], None]:
-    """T3's ``keep`` until S12: chunk what T3 parsed, label it (with ``t5``), then
-    hand every result on.
+    """T3's ``keep`` until S12: chunk what T3 parsed, label it (with ``t5``), link
+    it (with ``t6``), then hand every result on. A record that defines an entity
+    goes to ``records`` instead.
 
     Use it as the ``keep`` of :func:`ekb.app.parse.parse_after_t2`; its
-    ``forget`` must drop the document's chunks as well as its parsed text, and
-    its cached model replies (:func:`ekb.app.classify.forgetter`).
+    ``forget`` must drop the document's chunks as well as its parsed text, its
+    cached model replies (:func:`ekb.app.classify.forgetter`) and the entity its
+    record defined (:meth:`EntitySync.forget`).
     """
 
     def then(result: ParseResult) -> None:
-        chunks = t4.handle(result.parsed) if result.parsed is not None else None
-        labels = None
-        if t5 is not None and chunks is not None:
-            labels = t5.handle(chunks.document, chunks.chunks)
-        keep(Processed(result, chunks, labels))  # only after T4 and T5: a failure keeps nothing
+        if result.parsed is None:
+            event = result.event
+            record = None
+            if records is not None and records.handles(event.source):
+                record = records.handle(event)
+            keep(Processed(result, None, record=record))
+            return
+        chunks = t4.handle(result.parsed)
+        labels = t5.handle(chunks.document, chunks.chunks) if t5 is not None else None
+        links = None
+        if t6 is not None:
+            links = t6.handle(chunks.document, labels.chunks if labels else chunks.chunks)
+        keep(Processed(result, chunks, labels, links))  # only after T4-T6: a failure keeps nothing
 
     return then

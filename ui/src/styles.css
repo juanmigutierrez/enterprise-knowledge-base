@@ -8,6 +8,7 @@
     --upsert: #2f6f4f;
     --delete: #a33a2c;
     --acl: #8a6d1a;
+    --person: #3b5ba5;
     font-family:
         system-ui,
         -apple-system,
@@ -486,4 +487,34 @@ aside h3:first-child {
 .cand.off {
     color: var(--muted);
     text-decoration: line-through;
+}
+
+/* T6 entities (S9): one chip per linked entity, a colour per kind. */
+.entity {
+    font-size: 11px;
+    border-radius: 999px;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    font-family: ui-monospace, monospace;
+}
+.entity-person {
+    color: var(--person);
+    border-color: var(--person);
+}
+.entity-team {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+.entity-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0 0 6px;
+}
+ul.links {
+    margin: 4px 0 0;
+    padding-left: 16px;
+}
+ul.links li {
+    margin: 2px 0;
 }

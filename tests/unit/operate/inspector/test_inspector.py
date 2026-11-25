@@ -14,13 +14,14 @@ from ekb.changelog.bus.options.in_memory import InMemoryEventBus
 from ekb.changelog.rawstore.options.in_memory import InMemoryRawStore
 from ekb.changelog.registry.options.in_memory import InMemoryRegistry
 from ekb.changelog.registry.port import record_event
-from ekb.contracts import Acl, ChangeEvent, ChangeOp
+from ekb.contracts import Acl, ChangeEvent, ChangeOp, Entity, EntityKind
 from ekb.operate.inspector.app import (
     HOST,
     InspectorNotAllowedError,
     create_inspector_app,
     openapi_json,
 )
+from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.process.t2_diff.options.content_hash import ContentHashDiffer
 from ekb.process.t2_diff.step import DiffResult, DiffStep
@@ -29,7 +30,11 @@ from ekb.process.t3_parse.port import MARKDOWN, SourceFile
 from ekb.process.t4_chunk.options.structure_aware import StructureAwareChunker
 from ekb.process.t5_classify.options.rules import RulesClassifier
 from ekb.process.t5_classify.step import ClassifyStep
+from ekb.process.t6_entities.options.exact_match import ExactMatchLinker
+from ekb.process.t6_entities.step import LinkStep
+from ekb.stores.entities.options.in_memory import InMemoryEntityStore
 from tests.conftest import REPO_ROOT
+from tests.unit.process.t6_entities.conftest import ENTITIES
 
 AT = datetime(2026, 11, 24, 9, 0, tzinfo=UTC)
 
@@ -451,6 +456,9 @@ def test_t4_shows_one_documents_chunks_none_of_them_publishable(client: TestClie
         "pii": [],
         "classifier_id": "",
         "why": "",
+        "entity_ids": [],  # T6 has not run on these either
+        "linker_id": "",
+        "mentions": [],
         "publishable": False,  # the publication gate: no sensitivity, vector or ACL yet
     }
     assert body["summary"]["sensitivity"] == {}
@@ -539,3 +547,153 @@ def test_a_re_created_document_starts_counting_chunk_runs_again(chunks: ChunkSto
     again = chunks.get("hr_docs:HR-PL-04")
     assert again is not None
     assert again.runs == 1
+
+
+# ------------------------------------------------------------------ T6 entities (S9)
+
+CONTACTS = (
+    "# Contacts\n\n## Milan\nAsk Bruno Moretti or the People team.\n\n## Madrid\nLucía Navarro.\n"
+)
+
+
+def _entity_world(
+    current_lifetime: int = 0,
+) -> tuple[TestClient, InMemoryEntityStore, EntityPanel, ChunkStore]:
+    """The inspector over a full entity store and one linked contacts page."""
+    store = InMemoryEntityStore()
+    panel = EntityPanel(store)
+    for entity in ENTITIES:
+        store.put(entity)
+        panel.lifetimes.record(entity.source_key, 0)
+    file = SourceFile("hr_docs:HR-C", "1.1", "Contacts", "en", MARKDOWN, CONTACTS.encode())
+    document = MarkdownParser().parse(file)
+    result = LinkStep(ExactMatchLinker(), store).handle(
+        document, StructureAwareChunker().chunk(document)
+    )
+    chunks = ChunkStore()
+    chunks.record(
+        EVENTS[0].model_copy(update={"source_id": "HR-C"}),
+        "Contacts",
+        result.chunks,
+        chunker_id="structure_aware@1(max_tokens=400)",
+        max_tokens=400,
+        linker_note=result.note,
+        mentions=result.mentions,
+    )
+    app = create_inspector_app(
+        EventLog(),
+        profile="local",
+        bus=InMemoryEventBus(),
+        registry=InMemoryRegistry(),
+        rawstore=InMemoryRawStore(),
+        decisions=DecisionLog(),
+        parsed=ParsedStore(),
+        chunks=chunks,
+        current_lifetime=lambda key: current_lifetime if key.startswith("hr_api:") else 0,
+        entities=panel,
+    )
+    return TestClient(app), store, panel, chunks
+
+
+def test_t4_shows_t6_s_links_and_the_words_behind_them() -> None:
+    client, *_ = _entity_world()
+    view = client.get("/api/t4/chunks/document", params={"document_key": "hr_docs:HR-C"}).json()
+    assert view["summary"]["entities"] == ["person:bob", "person:lucia", "team:T-PPL"]
+    assert view["summary"]["linker_note"] == "matched against 12 people and 5 teams"
+    milan, madrid = view["chunks"]
+    assert milan["entity_ids"] == ["person:bob", "team:T-PPL"]
+    assert milan["linker_id"] == "exact_match@2"
+    assert milan["mentions"] == [
+        {"entity_id": "person:bob", "text": "Bruno Moretti", "rule": "name"},
+        {"entity_id": "team:T-PPL", "text": "People team", "rule": "team"},
+    ]
+    assert madrid["entity_ids"] == ["person:lucia"]
+    assert madrid["publishable"] is False  # linked, but no vector or ACL yet
+
+
+def test_t6_lists_every_entity_with_the_chunks_that_name_it() -> None:
+    client, *_ = _entity_world()
+    view = client.get("/api/t6/entities").json()
+    assert (view["people"], view["teams"], view["linked_chunks"]) == (12, 5, 2)
+    by_id = {e["entity_id"]: e for e in view["entities"]}
+    bob = by_id["person:bob"]
+    assert (bob["name"], bob["aliases"], bob["team_id"]) == (
+        "Bruno Moretti",
+        ["bruno.moretti@example.com"],
+        "team:T-PPL",
+    )
+    assert [(link["chunk_id"], link["text"]) for link in bob["links"]] == [
+        ("hr_docs:HR-C#0", "Bruno Moretti")
+    ]
+    assert by_id["team:T-ENG"]["links"] == []
+    assert view["stale_links"] == []
+    teams = client.get("/api/t6/entities", params={"kind": "team"}).json()
+    assert [e["entity_id"] for e in teams["entities"]] == [
+        "team:T-ENG",
+        "team:T-FIN",
+        "team:T-PPL",
+        "team:T-PRD",
+        "team:T-SAL",
+    ]
+
+
+def test_a_link_to_an_entity_the_store_no_longer_holds_is_listed_as_stale() -> None:
+    """S9's stated limit, made visible: the page keeps a leaver's ID until it changes."""
+    client, store, *_ = _entity_world()
+    store.remove("hr_api:employees/lucia")
+    view = client.get("/api/t6/entities").json()
+    assert "person:lucia" not in {e["entity_id"] for e in view["entities"]}
+    assert [(s["entity_id"], s["chunk_id"]) for s in view["stale_links"]] == [
+        ("person:lucia", "hr_docs:HR-C#1")
+    ]
+    teams = client.get("/api/t6/entities", params={"kind": "team"}).json()
+    assert teams["stale_links"] == []  # a person's stale link is not a team's
+
+
+def test_an_entity_whose_record_was_deleted_is_hidden_before_the_purge() -> None:
+    """Deletion gate, inspector side: a delete closed every HR record's lifetime 0."""
+    client, store, *_ = _entity_world(current_lifetime=1)
+    assert len(store.entities()) == 17  # T2 has not purged them yet
+    view = client.get("/api/t6/entities").json()
+    assert view["entities"] == []
+    assert (view["people"], view["teams"]) == (0, 0)
+
+
+def test_a_purged_page_takes_its_links_off_the_entities() -> None:
+    client, _, _, chunks = _entity_world()
+    chunks.drop("hr_docs:HR-C")
+    view = client.get("/api/t6/entities").json()
+    assert view["linked_chunks"] == 0
+    assert all(e["links"] == [] for e in view["entities"])
+
+
+def test_recreation_during_listing_cannot_validate_deleted_entity_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old = ENTITIES[0]
+    store = InMemoryEntityStore()
+    panel = EntityPanel(store)
+    store.put(old)
+    panel.lifetimes.record(old.source_key, 0)
+    read = store.entities
+
+    def recreate_after_read(kind: EntityKind | None = None) -> tuple[Entity, ...]:
+        previous = read(kind)
+        store.remove(old.source_key)
+        store.put(old.model_copy(update={"name": "Replacement"}))
+        panel.lifetimes.record(old.source_key, 1)
+        return previous
+
+    monkeypatch.setattr(store, "entities", recreate_after_read)
+    assert panel.visible(lambda _: 1) == ()
+
+
+def test_without_an_entity_store_the_list_is_empty() -> None:
+    client = TestClient(_app(EventLog()))
+    assert client.get("/api/t6/entities").json() == {
+        "entities": [],
+        "people": 0,
+        "teams": 0,
+        "linked_chunks": 0,
+        "stale_links": [],
+    }

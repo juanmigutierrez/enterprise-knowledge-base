@@ -18,6 +18,9 @@ export type DecisionPage = Schemas["DecisionPage"];
 export type DecisionView = Schemas["DecisionView"];
 export type DiffCounts = Schemas["DiffCounts"];
 export type DocumentView = Schemas["DocumentView"];
+export type EntityLinkView = Schemas["EntityLinkView"];
+export type EntityListView = Schemas["EntityListView"];
+export type EntityView = Schemas["EntityView"];
 export type EventPage = Schemas["EventPage"];
 export type EventView = Schemas["EventView"];
 export type GatewayProviderView = Schemas["GatewayProviderView"];
@@ -25,6 +28,7 @@ export type GatewayQuotaView = Schemas["GatewayQuotaView"];
 export type GatewayRouteView = Schemas["GatewayRouteView"];
 export type GatewayView = Schemas["GatewayView"];
 export type GroupView = Schemas["GroupView"];
+export type MentionView = Schemas["MentionView"];
 export type OriginalView = Schemas["OriginalView"];
 export type ParsedDocumentView = Schemas["ParsedDocumentView"];
 export type ParsedListView = Schemas["ParsedListView"];
@@ -34,6 +38,7 @@ export type SourceView = Schemas["SourceView"];
 export type ChangeOp = EventView["op"];
 export type DiffAction = DecisionView["action"];
 export type BlockKind = BlockView["kind"];
+export type EntityKind = EntityView["kind"];
 
 export type EventsQuery = NonNullable<
     operations["events_api_events_get"]["parameters"]["query"]
@@ -59,6 +64,9 @@ type ChunksQuery = NonNullable<
 >;
 type ChunkedDocumentQuery =
     operations["t4_chunks_document_api_t4_chunks_document_get"]["parameters"]["query"];
+type EntitiesQuery = NonNullable<
+    operations["t6_entities_api_t6_entities_get"]["parameters"]["query"]
+>;
 type GatewayCallsQuery = NonNullable<
     operations["gateway_calls_api_gateway_calls_get"]["parameters"]["query"]
 >;
@@ -112,6 +120,8 @@ export const api = {
         get<ChunkListView>("/api/t4/chunks", query),
     t4Document: (query: ChunkedDocumentQuery) =>
         getOrNull<ChunkedDocumentView>("/api/t4/chunks/document", query),
+    t6Entities: (query: EntitiesQuery = {}) =>
+        get<EntityListView>("/api/t6/entities", query),
     gateway: () => get<GatewayView>("/api/gateway"),
     gatewayCalls: (query: GatewayCallsQuery = {}) =>
         get<CallPage>("/api/gateway/calls", query),

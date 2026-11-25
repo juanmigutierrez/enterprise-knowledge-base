@@ -25,6 +25,9 @@ from ekb.contracts import (
     ChangeOp,
     Chunk,
     DiffAction,
+    Entity,
+    EntityKind,
+    EntityMention,
     PiiKind,
     Sensitivity,
 )
@@ -382,6 +385,10 @@ class ChunkSummaryView(_View):
     """What T5 did (S8): where the department came from, which model, or rules only."""
     sensitivity: dict[str, int]
     """Chunks per sensitivity label, e.g. ``{"internal": 3, "confidential": 1}`` (S8)."""
+    linker_note: str
+    """What T6 did (S9): how many entities it matched against, any name it skipped."""
+    entities: list[str]
+    """Every entity ID any of its chunks is linked to, sorted (S9)."""
 
     @classmethod
     def of(cls, entry: ChunkEntry) -> ChunkSummaryView:
@@ -408,6 +415,8 @@ class ChunkSummaryView(_View):
             sensitivity={
                 level.value: levels.count(level) for level in Sensitivity if level in levels
             },
+            linker_note=entry.linker_note,
+            entities=sorted({e for chunk in entry.chunks for e in chunk.entity_ids}),
         )
 
 
@@ -417,8 +426,20 @@ class ChunkListView(_View):
     """Chunks across the listed documents."""
 
 
+class MentionView(_View):
+    """The words in a chunk that name one entity, and the rule that matched them (S9)."""
+
+    entity_id: str
+    text: str
+    rule: str
+
+    @classmethod
+    def of(cls, mention: EntityMention) -> MentionView:
+        return cls(entity_id=mention.entity_id, text=mention.text, rule=mention.rule)
+
+
 class ChunkView(_View):
-    """One chunk, as T4 and T5 left it: header and labels, no vector or ACL yet."""
+    """One chunk, as T4, T5 and T6 left it: header, labels, links; no vector or ACL yet."""
 
     chunk_id: str
     position: int
@@ -435,11 +456,16 @@ class ChunkView(_View):
     classifier_id: str
     why: str
     """Why T5 gave it its sensitivity, in plain words."""
+    entity_ids: list[str]
+    """The people and teams it names (T6, S9), as canonical entity IDs."""
+    linker_id: str
+    mentions: list[MentionView]
+    """The words behind each link."""
     publishable: bool
-    """Always false after T5: the publication gate opens only once T7 and T8 ran too."""
+    """Always false after T6: the publication gate opens only once T7 and T8 ran too."""
 
     @classmethod
-    def of(cls, chunk: Chunk, why: str = "") -> ChunkView:
+    def of(cls, chunk: Chunk, why: str = "", mentions: tuple[EntityMention, ...] = ()) -> ChunkView:
         return cls(
             chunk_id=chunk.chunk_id,
             position=chunk.position,
@@ -453,6 +479,9 @@ class ChunkView(_View):
             pii=list(chunk.pii),
             classifier_id=chunk.classifier_id,
             why=why,
+            entity_ids=list(chunk.entity_ids),
+            linker_id=chunk.linker_id,
+            mentions=[MentionView.of(m) for m in mentions],
             publishable=chunk.publishable,
         )
 
@@ -465,12 +494,100 @@ class ChunkedDocumentView(_View):
 
     @classmethod
     def of(cls, entry: ChunkEntry) -> ChunkedDocumentView:
-        why = list(entry.why) + [""] * (len(entry.chunks) - len(entry.why))
+        n = len(entry.chunks)
+        why = list(entry.why[:n]) + [""] * (n - len(entry.why))
+        found = list(entry.mentions[:n]) + [()] * (n - len(entry.mentions))
         return cls(
             summary=ChunkSummaryView.of(entry),
             chunks=[
-                ChunkView.of(chunk, reason)
-                for chunk, reason in zip(entry.chunks, why, strict=False)  # why may be longer
+                ChunkView.of(chunk, reason, mentions)
+                for chunk, reason, mentions in zip(entry.chunks, why, found, strict=True)
+            ],
+        )
+
+
+# ------------------------------------------------------------------ T6 entities (S9)
+
+
+class EntityLinkView(_View):
+    """One chunk that names an entity, and how."""
+
+    entity_id: str
+    document_key: str
+    title: str
+    chunk_id: str
+    text: str
+    rule: str
+
+
+class EntityView(_View):
+    """One person or team in the entity store, and the chunks linked to it."""
+
+    entity_id: str
+    kind: EntityKind
+    name: str
+    aliases: list[str]
+    team_id: str | None
+    source_key: str
+    """The HR record that defines it: purging that record removes it."""
+    source_version: str
+    links: list[EntityLinkView]
+
+    @classmethod
+    def of(cls, entity: Entity, links: list[EntityLinkView]) -> EntityView:
+        return cls(
+            entity_id=entity.entity_id,
+            kind=entity.kind,
+            name=entity.name,
+            aliases=list(entity.aliases),
+            team_id=entity.team_id,
+            source_key=entity.source_key,
+            source_version=entity.source_version,
+            links=links,
+        )
+
+
+class EntityListView(_View):
+    """The entity store, with every link the live chunks carry."""
+
+    entities: list[EntityView]
+    people: int
+    teams: int
+    linked_chunks: int
+    """Chunks linked to at least one entity, of every live document."""
+    stale_links: list[EntityLinkView]
+    """Links to entities the store no longer holds (a leaver), kept by chunks processed
+    before the entity went: S9's stated limit, until the page changes or is rebuilt."""
+
+    @classmethod
+    def of(cls, entities: tuple[Entity, ...], chunks: list[ChunkEntry]) -> EntityListView:
+        links: dict[str, list[EntityLinkView]] = {}
+        linked = 0
+        for entry in chunks:
+            for chunk, mentions in zip(entry.chunks, entry.mentions, strict=False):
+                linked += 1 if mentions else 0
+                for m in mentions:
+                    links.setdefault(m.entity_id, []).append(
+                        EntityLinkView(
+                            entity_id=m.entity_id,
+                            document_key=entry.document_key,
+                            title=entry.title,
+                            chunk_id=chunk.chunk_id,
+                            text=m.text,
+                            rule=m.rule,
+                        )
+                    )
+        held = {entity.entity_id for entity in entities}
+        return cls(
+            entities=[EntityView.of(e, links.get(e.entity_id, [])) for e in entities],
+            people=sum(1 for e in entities if e.kind is EntityKind.PERSON),
+            teams=sum(1 for e in entities if e.kind is EntityKind.TEAM),
+            linked_chunks=linked,
+            stale_links=[
+                link
+                for entity_id, found in sorted(links.items())
+                if entity_id not in held
+                for link in found
             ],
         )
 
