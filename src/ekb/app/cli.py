@@ -6,6 +6,7 @@ import os
 
 import typer
 
+from ekb.app.api import api
 from ekb.app.bootstrap import load_options
 from ekb.app.demos import demo_app
 from ekb.app.gateway import max_spend, provider_status
@@ -16,6 +17,7 @@ from ekb.platform.config import load_settings
 app = typer.Typer(no_args_is_help=True, help="Enterprise knowledge base for AI agents.")
 app.add_typer(demo_app, name="demo")
 app.command()(inspector)
+app.command()(api)
 
 
 def _not_implemented(what: str, plan_task: str) -> None:
@@ -67,12 +69,6 @@ def worker() -> None:
         "`ekb demo ingest` and `ekb inspector` run it in one process)",
         "§4.2 S17",
     )
-
-
-@app.command()
-def api() -> None:
-    """6 · Serve the Knowledge API as MCP tools (Q1-Q4)."""
-    _not_implemented("The Knowledge API", "§4.2 S15")
 
 
 if __name__ == "__main__":

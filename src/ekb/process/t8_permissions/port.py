@@ -13,7 +13,7 @@ readers on the chunks, checks the publication gate and publishes.
 **Readers come from the source, never from the text.** T5 labels the
 sensitivity from the content (S8) and T8 does not change who may read because
 of it: rules such as "this agent never reads confidential HR data" are Cedar
-policies, applied when someone asks (Q2, S13 and S15). T8 only requires the
+policies, applied when someone asks (Q2, S13 and S15b). T8 only requires the
 label (the gate).
 """
 

@@ -185,6 +185,9 @@ class Answer(BaseModel):
     user_id: str
     reason: str
     """Who they read as, in plain words (Q2's scope)."""
+    agent_id: str = ""
+    """The agent that asked for the person (S15); empty when no agent did (the demos and
+    the inspector)."""
     searches: tuple[str, ...] = ()
     """What was searched (Q1's plan)."""
     passages: tuple[Passage, ...] = ()

@@ -26,3 +26,4 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S12 | [The worker pipeline: the full write path, T2 → T8 on the bus](S12-pipeline.md) |
 | S13 | [Q2 + Q3: how retrieval respects who is asking](S13-q2-q3-search.md) |
 | S14 | [Q4 + Q1: why a second permission check exists](S14-q4-q1-answer.md) |
+| S15 | [The Knowledge API over MCP: how an agent uses the knowledge base safely](S15-mcp-hr-assistant.md) |

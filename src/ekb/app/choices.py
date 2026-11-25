@@ -24,6 +24,10 @@ The query path (S13, S14) is chosen the same way, by :func:`choose_query`: Q1's
 planner, Q2's pre-filter, Q3's retriever and, read from Q3's ``rerank``
 setting, its reranker; Q4's post-check and, read from its ``redact`` setting
 (``rules`` when absent), its redactor.
+
+The Knowledge API's own steps (S15) by :func:`choose_assistant`: the token
+check, the HR assistant's answer writer (offline: ``extractive``) and the
+answer cache.
 """
 
 from __future__ import annotations
@@ -57,6 +61,9 @@ PIPELINE_STEPS = (
 
 QUERY_STEPS = ("q1_plan", "q2_prefilter", "q3_retrieve", "q3_rerank", "q4_postcheck", "q4_redact")
 """What the query path needs (S13, S14), in the order a question meets it."""
+ASSISTANT_STEPS = ("auth", "answer", "answer_cache")
+"""What the Knowledge API adds around the query path (S15): who is asking, the written
+answer, and the answers kept for reuse."""
 SETTING_STEPS: Mapping[str, tuple[str, str, str]] = MappingProxyType(
     {
         "q3_rerank": ("q3_retrieve", "rerank", "none"),
@@ -77,7 +84,7 @@ STAND_INS: Mapping[str, str] = MappingProxyType(
         "entities": "in_memory",  # dynamodb (S17)
         "permissions": "in_memory",  # dynamodb (S17)
         "q1_plan": "rules",  # rewrite_when_needed (card 4.8)
-        "q2_prefilter": "acl",  # acl_and_cedar (S15)
+        "q2_prefilter": "acl",  # acl_and_cedar (S15b)
         "q3_rerank": "none",  # bge_reranker, cohere_rerank_3_5 (card 4.6)
     }
 )
@@ -88,12 +95,13 @@ MODEL_OPTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         "t4_header": frozenset({"model"}),
         "t5_classify": frozenset({"model_plus_rules"}),
         "t7_embed": frozenset({"model"}),
+        "answer": frozenset({"model"}),
     }
 )
 """Options that call a model through the gateway (D15)."""
 
 OFFLINE: Mapping[str, str] = MappingProxyType(
-    {"t4_header": "none", "t5_classify": "rules", "t7_embed": "fake"}
+    {"t4_header": "none", "t5_classify": "rules", "t7_embed": "fake", "answer": "extractive"}
 )
 """What runs instead of a model option when no model is wanted."""
 
@@ -179,9 +187,19 @@ class Choices:
 def choose(settings: Settings, *, offline: bool = False) -> Choices:
     """The options the active profile names, each replaced by its stand-in while it is
     not built, and, ``offline``, every model option by its offline counterpart."""
+    return _choose(settings, PIPELINE_STEPS, offline=offline)
+
+
+def choose_assistant(settings: Settings, *, offline: bool = False) -> Choices:
+    """The Knowledge API's steps (S15): the token check, the answer writer (``offline``:
+    ``extractive``, which calls no model) and the answer cache."""
+    return _choose(settings, ASSISTANT_STEPS, offline=offline)
+
+
+def _choose(settings: Settings, names: tuple[str, ...], *, offline: bool) -> Choices:
     load_options()  # every option registers itself on import
     steps: list[Choice] = []
-    for step in PIPELINE_STEPS:
+    for step in names:
         configured = settings.steps.get(step)
         name = configured.option if configured is not None else ""
         params: Mapping[str, Any] = configured.params if configured is not None else {}

@@ -114,7 +114,8 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ✅ |
 | S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations · UI: citations and redactions in search results | 40 min | ✅ |
 | S14b | 5 · Metrics store + 6 · Q1 | *Optional.* Structured path: database change events → in-memory metrics store (DuckDB option later); Q1 sends counting questions ("how many people work in Madrid?") to SQL instead of search (D7) | Why structured data takes a different path from documents | `ekb demo answer "how many people work in Madrid?"` → answer from SQL, cited to the table | 45 min | ⬜ |
-| S15 | 6 · MCP + 7 · Agent | Knowledge API as MCP tools; static test users; small HR assistant | How an agent uses the knowledge base safely | Ask the HR assistant from Claude Code / MCP Inspector | 40 min | ⬜ |
+| S15 | 6 · MCP + 7 · Agent | Knowledge API as MCP tools; static test users; small HR assistant | How an agent uses the knowledge base safely | `ekb demo mcp`; ask the HR assistant from Claude Code / MCP Inspector (`ekb api`) | 40 min | ✅ |
+| S15b | 6 · Q2 + 5 · Policies | Cedar policies on the caller's agent and on sensitivity (`acl_and_cedar`, `cedar_local`); a second agent (the roadmap agent) to show default deny | Why an agent's rights are narrower than the person's | `ekb demo cedar`: the same person through two agents | 45 min | ⬜ |
 | S16 | Self-maintenance | Scripted scenario across the sources: add, edit, delete a page; delete an HR record (found by the full listing); revoke on the page **and** by removing a user from a group → answers change; re-link the pages an entity change affects (a hire, a leaver; left open in S9); gate tests | The "maintains itself" requirement, proven | `ekb demo lifecycle` · UI: **Lifecycle** screen (add, edit, delete, revoke → see the effect) | 70 min | ⬜ |
 | S17 | Real infrastructure | Kafka, OpenSearch and DynamoDB options; `docker compose --profile app up`. Optional: Postgres + Debezium and Keycloak as extra options behind the S1d and S1c connectors | That swapping infrastructure doesn't change the logic | Same demos against Docker | 45 min | ⬜ |
 | S18 | 8 · Evaluation | Golden question set, runner, P1 experiments 4.4, 4.5, 4.13, 4.14 | How each choice is measured | `uv run ekb-eval run …` | 60 min | ⬜ |
@@ -195,7 +196,18 @@ S14 (Q4 + Q1) is complete and reviewed (✅). The [S14 walkthrough](walkthrough/
 
 Q4 checks the first revision of the current page lifetime before releasing indexed text. Q3 ranks and scores stay in inspector diagnostics.
 
-Next is **S14b** (optional) or **S15** with `/plan-task`.
+S15 (the Knowledge API over MCP) is complete (✅). The [S15 walkthrough](walkthrough/S15-mcp-hr-assistant.md) covers the token check, the three tools, the HR assistant's writers and the answer cache's re-check. Settled in S15's plan on 25 November 2026:
+- Cedar (`acl_and_cedar`) moves to a new step, S15b. S15 puts the agent into every token and onto every answer (`Caller`, `Answer.agent_id`); Q2 stays `acl`.
+- The answer is written on the server, in the `ask` tool, through the gateway's `answer` task, because reusing a cached answer needs Q4. `search` stays for agents that write their own answer. The writer sees only released passages.
+- Tools now: `ask`, `search`, `whoami`. Later: `get_document`, `get_entity`, `changes_since` (S16), `query_metrics` (S14b).
+- The official `mcp` SDK (2.3) over Streamable HTTP at `127.0.0.1:8080/mcp`; no stdio. The SDK's bearer check calls our `TokenCheck`; no tool takes a user.
+- `auth: static_tokens`: random test tokens for alice, bob, carla, emma and olivia, all for `hr-assistant`, issued on first start into the git-ignored `.cache/ekb/test-tokens.json` and printed by `ekb api`.
+- The answer cache is keyed per agent, person, current groups, normalized question and options; a hit is reused only if the asker's readable index is unchanged and Q4 confirms every page now, at the same content hash. Only complete answers are kept. In memory (`answer_cache: in_memory`).
+- `answer: extractive` (no model) runs offline, in `ci`, and as `model`'s fallback; nothing released means a fixed sentence and no model call.
+- No new inspector panel; after writing, Q4 confirms all contributing passages again. If the evidence, permissions or readable index changed, the API withholds the draft and citations and asks the caller to retry; client setups are in `agents/mcp_clients/` (no `.mcp.json` at the root).
+- Settled while building: the model's answer replies stay in the gateway's cache untagged; a reply that quoted a deleted page cannot be served again (its prompt cannot be rebuilt), and forgetting it from the cache file is S16.
+
+Next: **S15b** (Cedar), **S14b** (optional) or **S16** with `/plan-task`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

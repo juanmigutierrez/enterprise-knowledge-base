@@ -10,7 +10,7 @@ their question, and returns Q2's scope and Q3's retrieval::
 Three choices are made here, in the composition root, and nowhere else:
 
 - **Which options.** :func:`ekb.app.choices.choose_query` reads them from the
-  profile: ``acl_and_cedar`` runs as its stand-in ``acl`` until S15, and the
+  profile: ``acl_and_cedar`` runs as its stand-in ``acl`` until S15b, and the
   configured reranker as ``none`` until card 4.6; both swaps are printed.
 - **What embeds the questions.** T7's own embedder, the one the worker uses
   (:func:`query_encoder`), so a question's vector is always comparable with the
@@ -25,7 +25,7 @@ Three choices are made here, in the composition root, and nowhere else:
   next search.
 
 Q1 (planning) and Q4 (re-check, redact, cite) wrap this in S14
-(:mod:`ekb.app.answer`); the MCP tools call that in S15.
+(:mod:`ekb.app.answer`); the MCP tools call that (S15).
 """
 
 from __future__ import annotations

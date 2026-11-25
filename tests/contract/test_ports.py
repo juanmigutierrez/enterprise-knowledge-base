@@ -12,6 +12,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from ekb.access.answer.port import AnswerCache, AnswerWriter
+from ekb.access.auth.port import TokenCheck
 from ekb.access.query.q1_plan.port import Planner
 from ekb.access.query.q2_prefilter.port import PreFilter
 from ekb.access.query.q3_retrieve.port import Reranker, Retriever
@@ -67,6 +69,9 @@ PORTS: dict[str, type] = {
     "q3_rerank": Reranker,
     "q4_postcheck": PostCheck,
     "q4_redact": Redactor,
+    "auth": TokenCheck,
+    "answer": AnswerWriter,
+    "answer_cache": AnswerCache,
     "model_client": ModelClient,
     "embedding_client": EmbeddingClient,
     "model_cache": ResponseCache,
@@ -106,6 +111,10 @@ TEST_PARAMS: dict[tuple[str, str], dict[str, object]] = {
         "access": SourceAccessChecker(DocsApi(_CLIENT), IdentityApi(_CLIENT)),
         "redactor": NoRedactor(),
     },
+    # The Knowledge API (S15): tokens given, so no file is written; the model writer
+    # takes the gateway, and building it calls nothing.
+    ("auth", "static_tokens"): {"issued": ()},
+    ("answer", "model"): {"gateway": Scripted()},
 }
 
 load_options()

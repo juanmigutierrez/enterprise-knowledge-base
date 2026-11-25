@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from starlette.applications import Starlette
 
 from ekb.app.demos._mocks import STARTUP_TIMEOUT_S, MockStartError, free_port
 
@@ -36,7 +36,7 @@ class ServedApp:
 
 
 @contextmanager
-def serving(app: FastAPI, *, timeout_s: float = STARTUP_TIMEOUT_S) -> Iterator[ServedApp]:
+def serving(app: Starlette, *, timeout_s: float = STARTUP_TIMEOUT_S) -> Iterator[ServedApp]:
     port = free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, name=f"serve-{port}", daemon=True)
@@ -46,7 +46,9 @@ def serving(app: FastAPI, *, timeout_s: float = STARTUP_TIMEOUT_S) -> Iterator[S
         deadline = time.monotonic() + timeout_s
         while not server.started:
             if not thread.is_alive() or time.monotonic() > deadline:
-                raise MockStartError(f"could not serve {app.title} on port {port}")
+                raise MockStartError(
+                    f"could not serve {getattr(app, 'title', 'the app')} on port {port}"
+                )
             time.sleep(0.05)
         yield served
     finally:
