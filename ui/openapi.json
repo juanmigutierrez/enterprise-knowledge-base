@@ -374,6 +374,13 @@
             "title": "Document Key",
             "type": "string"
           },
+          "entities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
           "header_note": {
             "title": "Header Note",
             "type": "string"
@@ -381,6 +388,10 @@
           "largest": {
             "title": "Largest",
             "type": "integer"
+          },
+          "linker_note": {
+            "title": "Linker Note",
+            "type": "string"
           },
           "max_tokens": {
             "title": "Max Tokens",
@@ -443,13 +454,15 @@
           "chunked_at",
           "header_note",
           "classifier_note",
-          "sensitivity"
+          "sensitivity",
+          "linker_note",
+          "entities"
         ],
         "title": "ChunkSummaryView",
         "type": "object"
       },
       "ChunkView": {
-        "description": "One chunk, as T4 and T5 left it: header and labels, no vector or ACL yet.",
+        "description": "One chunk, as T4, T5 and T6 left it: header, labels, links; no vector or ACL yet.",
         "properties": {
           "chunk_id": {
             "title": "Chunk Id",
@@ -474,9 +487,27 @@
             ],
             "title": "Department"
           },
+          "entity_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
           "header_id": {
             "title": "Header Id",
             "type": "string"
+          },
+          "linker_id": {
+            "title": "Linker Id",
+            "type": "string"
+          },
+          "mentions": {
+            "items": {
+              "$ref": "#/components/schemas/MentionView"
+            },
+            "title": "Mentions",
+            "type": "array"
           },
           "pii": {
             "items": {
@@ -536,6 +567,9 @@
           "pii",
           "classifier_id",
           "why",
+          "entity_ids",
+          "linker_id",
+          "mentions",
           "publishable"
         ],
         "title": "ChunkView",
@@ -750,6 +784,155 @@
           "events"
         ],
         "title": "DocumentView",
+        "type": "object"
+      },
+      "EntityKind": {
+        "description": "What an entity is. The kind is also the prefix of its ID.",
+        "enum": [
+          "person",
+          "team"
+        ],
+        "title": "EntityKind",
+        "type": "string"
+      },
+      "EntityLinkView": {
+        "description": "One chunk that names an entity, and how.",
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "document_key",
+          "title",
+          "chunk_id",
+          "text",
+          "rule"
+        ],
+        "title": "EntityLinkView",
+        "type": "object"
+      },
+      "EntityListView": {
+        "description": "The entity store, with every link the live chunks carry.",
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EntityView"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "linked_chunks": {
+            "title": "Linked Chunks",
+            "type": "integer"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "stale_links": {
+            "items": {
+              "$ref": "#/components/schemas/EntityLinkView"
+            },
+            "title": "Stale Links",
+            "type": "array"
+          },
+          "teams": {
+            "title": "Teams",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entities",
+          "people",
+          "teams",
+          "linked_chunks",
+          "stale_links"
+        ],
+        "title": "EntityListView",
+        "type": "object"
+      },
+      "EntityView": {
+        "description": "One person or team in the entity store, and the chunks linked to it.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/EntityLinkView"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_key": {
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_version": {
+            "title": "Source Version",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "entity_id",
+          "kind",
+          "name",
+          "aliases",
+          "team_id",
+          "source_key",
+          "source_version",
+          "links"
+        ],
+        "title": "EntityView",
         "type": "object"
       },
       "EventPage": {
@@ -1167,6 +1350,30 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MentionView": {
+        "description": "The words in a chunk that name one entity, and the rule that matched them (S9).",
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "text",
+          "rule"
+        ],
+        "title": "MentionView",
         "type": "object"
       },
       "OriginalView": {
@@ -2189,6 +2396,52 @@
           }
         },
         "summary": "T4 Chunks Document"
+      }
+    },
+    "/api/t6/entities": {
+      "get": {
+        "operationId": "t6_entities_api_t6_entities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EntityKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityListView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "T6 Entities"
       }
     }
   }

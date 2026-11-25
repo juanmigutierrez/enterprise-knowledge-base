@@ -70,8 +70,8 @@ class Chunk(BaseModel):
     T4 cuts it (S6): ``text``, ``section``, ``position``, ``tokens`` and
     ``chunker_id``, then writes its context header (S8): ``context_header`` and
     ``header_id``. T5 labels it (S8): ``department``, ``sensitivity``, ``pii``
-    and ``classifier_id``. The later steps fill in the rest: entities (T6),
-    the vector (T7) and the ACL (T8).
+    and ``classifier_id``. T6 links it (S9): ``entity_ids`` and ``linker_id``.
+    The later steps fill in the rest: the vector (T7) and the ACL (T8).
 
     A chunk is only published to the search index once ``acl``,
     ``sensitivity`` and ``vector`` are set; see the publication test in
@@ -119,6 +119,10 @@ class Chunk(BaseModel):
     classifier_id: str = ""
     """Which T5 option labelled it, e.g. ``rules@1``."""
     entity_ids: tuple[str, ...] = ()
+    """The people and teams the passage names (T6), as canonical entity IDs
+    (``person:bob``, ``team:T-PPL``), sorted, each once. See ``ekb.contracts.entities``."""
+    linker_id: str = ""
+    """Which T6 option linked it, e.g. ``exact_match@2``. Empty until T6 has run."""
     acl: Acl | None = None
     embedding_model: str | None = None
     vector: tuple[float, ...] | None = None

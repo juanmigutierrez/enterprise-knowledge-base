@@ -242,6 +242,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t6/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** T6 Entities */
+        get: operations["t6_entities_api_t6_entities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -392,10 +409,14 @@ export interface components {
             classifier_note: string;
             /** Document Key */
             document_key: string;
+            /** Entities */
+            entities: string[];
             /** Header Note */
             header_note: string;
             /** Largest */
             largest: number;
+            /** Linker Note */
+            linker_note: string;
             /** Max Tokens */
             max_tokens: number;
             /** Over Limit */
@@ -421,7 +442,7 @@ export interface components {
         };
         /**
          * ChunkView
-         * @description One chunk, as T4 and T5 left it: header and labels, no vector or ACL yet.
+         * @description One chunk, as T4, T5 and T6 left it: header, labels, links; no vector or ACL yet.
          */
         ChunkView: {
             /** Chunk Id */
@@ -432,8 +453,14 @@ export interface components {
             context_header: string;
             /** Department */
             department: string | null;
+            /** Entity Ids */
+            entity_ids: string[];
             /** Header Id */
             header_id: string;
+            /** Linker Id */
+            linker_id: string;
+            /** Mentions */
+            mentions: components["schemas"]["MentionView"][];
             /** Pii */
             pii: components["schemas"]["PiiKind"][];
             /** Position */
@@ -538,6 +565,67 @@ export interface components {
             source: string;
             /** Source Id */
             source_id: string;
+        };
+        /**
+         * EntityKind
+         * @description What an entity is. The kind is also the prefix of its ID.
+         * @enum {string}
+         */
+        EntityKind: "person" | "team";
+        /**
+         * EntityLinkView
+         * @description One chunk that names an entity, and how.
+         */
+        EntityLinkView: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Document Key */
+            document_key: string;
+            /** Entity Id */
+            entity_id: string;
+            /** Rule */
+            rule: string;
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * EntityListView
+         * @description The entity store, with every link the live chunks carry.
+         */
+        EntityListView: {
+            /** Entities */
+            entities: components["schemas"]["EntityView"][];
+            /** Linked Chunks */
+            linked_chunks: number;
+            /** People */
+            people: number;
+            /** Stale Links */
+            stale_links: components["schemas"]["EntityLinkView"][];
+            /** Teams */
+            teams: number;
+        };
+        /**
+         * EntityView
+         * @description One person or team in the entity store, and the chunks linked to it.
+         */
+        EntityView: {
+            /** Aliases */
+            aliases: string[];
+            /** Entity Id */
+            entity_id: string;
+            kind: components["schemas"]["EntityKind"];
+            /** Links */
+            links: components["schemas"]["EntityLinkView"][];
+            /** Name */
+            name: string;
+            /** Source Key */
+            source_key: string;
+            /** Source Version */
+            source_version: string;
+            /** Team Id */
+            team_id: string | null;
         };
         /**
          * EventPage
@@ -693,6 +781,18 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MentionView
+         * @description The words in a chunk that name one entity, and the rule that matched them (S9).
+         */
+        MentionView: {
+            /** Entity Id */
+            entity_id: string;
+            /** Rule */
+            rule: string;
+            /** Text */
+            text: string;
         };
         /**
          * OriginalView
@@ -1267,6 +1367,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    t6_entities_api_t6_entities_get: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["EntityKind"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityListView"];
+                };
             };
             /** @description Validation Error */
             422: {

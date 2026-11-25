@@ -25,6 +25,7 @@ from ekb.app.demos.t2 import run_t2_demo
 from ekb.app.demos.t3 import run_t3_demo
 from ekb.app.demos.t4 import run_t4_demo
 from ekb.app.demos.t5 import close_cache, demo_gateway, run_t5_demo
+from ekb.app.demos.t6 import run_t6_demo
 from tests.conftest import REPO_ROOT
 from tests.http import as_httpx
 
@@ -508,3 +509,59 @@ def test_cli_t5_rejects_unknown_options() -> None:
     bad_classifier = CliRunner().invoke(app, ["demo", "t5", "--classifier", "presidio"])
     assert bad_classifier.exit_code == 2
     assert "rules, model_plus_rules" in bad_classifier.output
+
+
+def _t6() -> str:
+    lines: list[str] = []
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        story = run_t6_demo(as_httpx(docs), as_httpx(hr), as_httpx(idp), lines.append)
+        assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    assert "hr_docs:HR-PL-12" not in story.processed
+    assert story.store.get("person:lucia") is None
+    assert not any(chunk.publishable for chunk in story.kept())
+    return "\n".join(lines)
+
+
+def test_t6_fills_the_store_from_hr_records_and_links_pages_with_the_words_behind_them() -> None:
+    output = _t6()
+    assert "Linker: exact_match@2. Store: in memory." in output
+    # The entities, under their identity user IDs.
+    assert "HR delta sync() -> 17 events (the first poll: every record)" in output
+    assert "17 entities added:" in output
+    assert "person:bob     Bruno Moretti   bruno.moretti@example.com   team:T-PPL" in output
+    assert "The HR system calls Bruno E-1002; his entity ID is person:bob" in output
+    # The seed pages: teams only, each with its words.
+    assert "HR-PL-04   2 of 4 chunks linked: team:T-PPL x2" in output
+    assert "6 of 48 chunks are linked; 0 of them to a person." in output
+    assert "hr_docs:HR-CMP-01#3  team:T-PPL    team  'Head of People'" in output
+    assert "hr_docs:HR-PL-07#2   team:T-PPL    team  'equipo de People'" in output
+    # Near misses.
+    assert "'compensation team': a team word, but no team of that name" in output
+    assert "'Engineering': a team's name with no team word" in output
+    # The contacts page: names, accents, an email; not a first name.
+    assert "hr_docs:HR-PL-12#1   person:lucia  name  'Lucia Navarro'" in output
+    assert "person:dana   email 'daniela.ferri@example.com'" in output
+    assert "person:marco" not in output.split("5. dana creates")[1].split("6.")[0]
+
+
+def test_t6_a_leaver_found_by_the_full_listing_leaves_the_store_and_the_next_version() -> None:
+    output = _t6()
+    assert "HR delta sync()        -> 0 events (a delta never reports one)" in output
+    assert "employees/E-1009: T2 purge -> entity removed" in output
+    assert "person:lucia in the entity store: no" in output
+    assert "HR-PL-12 still links her on: hr_docs:HR-PL-12#1" in output  # the stated limit
+    assert "hr_docs:HR-PL-12#1   no links" in output  # after the edit
+    assert "HR-PL-12 v2.1: T2 purge" in output
+    assert "its chunks, and the links on them, kept: no" in output
+    assert "Entity store: 11 people, 5 teams." in output
+    assert "Publishable chunks: 0 of 48" in output
+
+
+def test_cli_t6_is_registered() -> None:
+    result = CliRunner().invoke(app, ["demo", "t6", "--help"])
+    assert result.exit_code == 0
+    assert "T6 Entities" in result.output

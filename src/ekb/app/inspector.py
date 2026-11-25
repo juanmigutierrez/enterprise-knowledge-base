@@ -10,9 +10,11 @@ It builds a small live system in one process:
    group of connectors T2 (S4) decides every new event, purges deleted items'
    originals and records the registry, keeping its decisions for the UI. T3
    (S5) parses what T2 sends on, T4 (S6) chunks it and writes the context
-   headers through the model gateway (S8), and T5 (S8) labels the chunks; all
-   of them forget what T2 purges, the gateway's cached replies included. The
-   inspector's own consumer group copies the events into its log;
+   headers through the model gateway (S8), T5 (S8) labels the chunks and T6
+   (S9) links them to the people and teams of the entity store, which the HR
+   records keep current; all of them forget what T2 purges, the gateway's
+   cached replies and a deleted record's entity included. The inspector's own
+   consumer group copies the events into its log;
 4. serves the read-only inspector API on 127.0.0.1 for the UI (``ui/``), with the
    model gateway's panel (S7): its routes, free quotas and the cost log that
    ``ekb demo gateway`` and the headers write to.
@@ -45,6 +47,7 @@ from ekb.app.classify import CLASSIFIER_OPTIONS, classify_step, forgetter
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
 from ekb.app.diff import T2_GROUP, diff_step, run_t2
+from ekb.app.entities import entity_store, entity_sync, link_step
 from ekb.app.gateway import build_gateway, max_spend, provider_status
 from ekb.app.parse import parse_after_t2, parse_step
 from ekb.changelog.bus.consume import drain
@@ -69,6 +72,7 @@ from ekb.operate.inspector.app import (
     create_inspector_app,
     openapi_json,
 )
+from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.platform.config import Settings, load_settings
@@ -77,6 +81,7 @@ from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.step import ParseStep
 from ekb.process.t4_chunk.step import ChunkStep
 from ekb.process.t5_classify.step import ClassifyStep
+from ekb.process.t6_entities.step import LinkStep
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +149,8 @@ class SyncLoop:
     """T4's header option: ``none`` (no model, the default for tests) or ``model``."""
     classifier: str = field(default="rules", kw_only=True)
     """T5's option: ``rules`` or ``model_plus_rules``."""
+    entities: EntityPanel = field(default_factory=lambda: EntityPanel(entity_store()), kw_only=True)
+    """The entity store T6 reads and the HR records fill (S9), as the inspector shows it."""
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
@@ -151,13 +158,17 @@ class SyncLoop:
     t3: ParseStep = field(init=False)
     t4: ChunkStep = field(init=False)
     t5: ClassifyStep = field(init=False)
+    t6: LinkStep = field(init=False)
 
     def __post_init__(self) -> None:
         def processed(result: Processed) -> None:
             event, parsed = result.parse.event, result.parse.parsed
             self.parsed.record(event, parsed)
+            if result.record is not None and result.record.entity is not None:
+                source_key = result.record.entity.source_key
+                self.entities.lifetimes.record(source_key, event.original_lifetime)
             if parsed is not None and result.chunks is not None:
-                headers, labels = result.chunks.headers, result.labels
+                headers, labels, links = result.chunks.headers, result.labels, result.links
                 self.chunks.record(
                     event,
                     parsed.title,
@@ -167,13 +178,18 @@ class SyncLoop:
                     header_note=headers.note if headers is not None else "",
                     classifier_note=labels.note if labels is not None else "",
                     why=labels.why if labels is not None else (),
+                    linker_note=links.note if links is not None else "",
+                    mentions=links.mentions if links is not None else (),
                 )
 
-        forget = forgetter(self.gateway, self.parsed.drop, self.chunks.drop)
+        records = entity_sync(self.changelog, self.entities.store)
+        forget = forgetter(self.gateway, self.parsed.drop, self.chunks.drop, records.forget)
         self.t3 = parse_step(self.changelog)
         self.t4 = chunk_step(header=header_writer(self.header, self.gateway))
         self.t5 = classify_step(self.classifier, self.gateway)
-        then_parse = parse_after_t2(self.t3, chunk_after_t3(self.t4, processed, self.t5), forget)
+        self.t6 = link_step(self.entities.store)
+        then = chunk_after_t3(self.t4, processed, self.t5, self.t6, records)
+        then_parse = parse_after_t2(self.t3, then, forget)
 
         def keep(result: DiffResult) -> None:
             then_parse(result)  # first: if T3 or T4 fails, T2 records nothing; the event comes back
@@ -275,6 +291,7 @@ def inspector(
                 ChangeLog.in_memory(),
                 LOCAL_PROFILE,
                 chunks=ChunkStore(),
+                entities=EntityPanel(entity_store()),
             )
         )
         export_openapi.write_text(schema, encoding="utf-8", newline="\n")
@@ -283,6 +300,7 @@ def inspector(
     settings = load_settings()
     profile = settings.profile
     log, decisions, parsed, chunks = EventLog(), DecisionLog(), ParsedStore(), ChunkStore()
+    entities = EntityPanel(entity_store())
     changelog = ChangeLog.in_memory()
     try:
         gateway = build_gateway(settings.gateway)
@@ -294,6 +312,7 @@ def inspector(
             profile,
             chunks=chunks,
             gateway=gateway_panel(settings, gateway),
+            entities=entities,
         )
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
@@ -321,6 +340,7 @@ def inspector(
             gateway=gateway,
             header=header,
             classifier=classifier,
+            entities=entities,
             listing_every=listing_every,
         )
         loaded = loop.run_round()
@@ -343,6 +363,12 @@ def inspector(
                 "`uv run --env-file .env ekb inspector` (S7 walkthrough), or use --header none."
             )
         typer.echo(f"T5 labelled them with {loop.t5.classifier_id}.")
+        known = entities.store.entities()
+        linked = sum(1 for e in chunks.entries() for c in e.chunks if c.entity_ids)
+        typer.echo(
+            f"T6 linked {linked} of {cut} chunks to {len(known)} people and teams "
+            f"({loop.t6.linker_id})."
+        )
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -374,6 +400,7 @@ def _create_app(
     *,
     chunks: ChunkStore,
     gateway: GatewayPanel | None = None,
+    entities: EntityPanel | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -386,4 +413,5 @@ def _create_app(
         chunks=chunks,
         current_lifetime=changelog.current_lifetime,
         gateway=gateway,
+        entities=entities,
     )

@@ -29,7 +29,9 @@ from ekb.process.t3_parse.port import Parser
 from ekb.process.t4_chunk.header import HeaderWriter
 from ekb.process.t4_chunk.port import Chunker
 from ekb.process.t5_classify.port import Classifier
+from ekb.process.t6_entities.port import EntityLinker
 from ekb.process.t7_embed.port import Embedder
+from ekb.stores.entities.port import EntityStore
 from tests.unit.platform.gateway.helpers import Scripted
 
 PORTS: dict[str, type] = {
@@ -42,7 +44,9 @@ PORTS: dict[str, type] = {
     "t4_chunk": Chunker,
     "t4_header": HeaderWriter,
     "t5_classify": Classifier,
+    "t6_entities": EntityLinker,
     "t7_embed": Embedder,
+    "entities": EntityStore,
     "model_client": ModelClient,
     "model_cache": ResponseCache,
     "cost_log": CostLog,

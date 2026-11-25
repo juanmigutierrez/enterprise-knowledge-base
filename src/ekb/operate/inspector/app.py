@@ -13,7 +13,9 @@ GET /api/t2/decisions[?since=&source=&action=   T2's decisions and totals (S4)
 GET /api/t3/parsed[?source=]                    parsed documents, and records not parsed (S5)
 GET /api/t3/parsed/document?document_key=       one parsed document's blocks and text (S5)
 GET /api/t4/chunks[?source=]                    chunked documents, sizes and labels (S6, S8)
-GET /api/t4/chunks/document?document_key=       one document's chunks, headers, labels (S6, S8)
+GET /api/t4/chunks/document?document_key=       one document's chunks, headers, labels, links
+                                                (S6, S8, S9)
+GET /api/t6/entities[?kind=]                    the entity store and the chunks linked to each (S9)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================
@@ -22,7 +24,8 @@ Every route is a GET: a test fails if a write route appears. The factory
 refuses any profile but ``local``.
 
 Deleted content is never returned: T3's and T4's output of an item whose
-lifetime a delete closed is hidden at once, even before T2's purge drops it.
+lifetime a delete closed is hidden at once, even before T2's purge drops it,
+and so is an entity whose HR record was deleted (S9).
 The gateway's cost log holds no prompt or reply at all, only hashes and numbers.
 """
 
@@ -37,7 +40,8 @@ from fastapi import FastAPI, HTTPException, Query
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
-from ekb.contracts import ChangeOp, DiffAction
+from ekb.contracts import ChangeOp, DiffAction, EntityKind
+from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.models import (
@@ -52,6 +56,7 @@ from ekb.operate.inspector.models import (
     DecisionView,
     DiffCounts,
     DocumentView,
+    EntityListView,
     EventPage,
     EventView,
     GatewayView,
@@ -86,6 +91,7 @@ def create_inspector_app(
     chunks: ChunkStore,
     current_lifetime: Callable[[str], int],
     gateway: GatewayPanel | None = None,
+    entities: EntityPanel | None = None,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -226,6 +232,17 @@ def create_inspector_app(
                 "or deleted",
             )
         return ChunkedDocumentView.of(entry)
+
+    @app.get("/api/t6/entities")
+    def t6_entities(kind: EntityKind | None = None) -> EntityListView:
+        live = [e for e in chunks.entries() if e.lifetime == current_lifetime(e.document_key)]
+        known = entities.visible(current_lifetime, kind) if entities is not None else ()
+        view = EntityListView.of(known, live)
+        if kind is None:
+            return view
+        prefix = f"{kind.value}:"
+        stale = [link for link in view.stale_links if link.entity_id.startswith(prefix)]
+        return view.model_copy(update={"stale_links": stale})
 
     panel = gateway or GatewayPanel()
 
