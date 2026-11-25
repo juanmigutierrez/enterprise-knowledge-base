@@ -28,6 +28,7 @@ from ekb.app.demos.t5 import close_cache, demo_gateway, run_t5_demo
 from ekb.app.demos.t6 import run_t6_demo
 from ekb.app.demos.t7 import demo_gateway as t7_gateway
 from ekb.app.demos.t7 import run_t7_demo
+from ekb.app.demos.t8 import run_t8_demo
 from tests.conftest import REPO_ROOT
 from tests.http import as_httpx
 
@@ -623,3 +624,56 @@ def test_cli_t7_is_registered() -> None:
     result = CliRunner().invoke(app, ["demo", "t7", "--help"])
     assert result.exit_code == 0
     assert "T7 Embed" in result.output
+
+
+def _t8() -> str:
+    lines: list[str] = []
+    with TestClient(docs_app()) as docs, TestClient(idp_app()) as idp:
+        story = run_t8_demo(as_httpx(docs), as_httpx(idp), lines.append)
+        assert docs.get("/subscriptions").json() == []  # no subscription left behind
+    chunks = story.index.chunks()
+    assert chunks
+    assert all(chunk.publishable for chunk in chunks)
+    assert "hr_docs:HR-PL-99" not in story.index.documents()
+    assert story.held == []
+    return "\n".join(lines)
+
+
+def test_t8_publishes_every_page_with_its_readers_and_nothing_before_t8_has_run() -> None:
+    output = _t8()
+    assert "identity sync() -> 12 user records -> 12 active memberships" in output
+    assert "HR-CMP-01  4 chunks  readers hr-compensation             1 person" in output
+    assert "48 chunks published from 12 pages; 48 of 48 have readers" in output
+    assert "In the search store: 0 chunks of HR-PL-11." in output
+    assert "bob is in hr-team, and finds nothing of it." in output
+    assert "refused: hr_docs:HR-PL-11#0 is not publishable: missing" in output
+    assert "Who finds it now: bob, dana, lucia. alice, not in hr-team, finds nothing." in output
+
+
+def test_t8_a_group_change_a_leaver_a_revocation_and_a_delete() -> None:
+    output = _t8()
+    assert "users/alice: T2 process -> alice: -it-employees" in output
+    assert "lost HR-PL-02, HR-PL-03, HR-PL-08." in output
+    assert "Chunks rewritten: 0. Texts embedded: 0." in output
+    assert "olivia left: reads nothing now (keeps 2 groups)" in output
+    assert "and finds 0 chunks (was 25)" in output
+    assert "HR-PL-05 v1.2: T2 acl_only -> T8 fast lane" in output
+    assert "readers -hr-team on 4 published chunks." in output
+    assert "After:  carla, javier, lucia." in output
+    assert "Texts embedded: 0; texts unchanged: True. bob, dana lost it" in output
+    assert "HR-PL-99: T2 purge -> 4 chunks out of the search store" in output
+    assert "Who finds it now: no one. Readers record: gone." in output
+    assert "T2 decided 29 events: process 27, acl_only 1, skip 0, purge 1." in output
+    assert "Search store: 46 chunks from 12 pages, 46 of them publishable" in output
+
+
+def test_cli_t8_runs_offline_and_reports_an_unreachable_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    result = CliRunner().invoke(app, ["demo", "t8"])
+    assert result.exit_code == 0, result.output
+    assert "nothing without readers, a sensitivity and a vector is in it." in result.output
+    result = CliRunner().invoke(app, ["demo", "t8", "--url", "http://127.0.0.1:9"])
+    assert result.exit_code == 1
+    assert "Demo failed" in result.output

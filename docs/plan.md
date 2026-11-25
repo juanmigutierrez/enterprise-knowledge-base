@@ -109,7 +109,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S8 | 4 · **T4** header + **T5** Classify | Context header via the gateway; classification by rules (+ model option) | What metadata each chunk carries and why | `ekb demo t5` · UI: labels on chunks | 40 min | ✅ |
 | S9 | 4 · **T6** Entities | Exact match against the people and teams from the HR record API (S1b) (model cascade later) | How documents get linked to people and teams | `ekb demo t6` · UI: entities panel | 30 min | ✅ |
 | S10 | 4 · **T7** Embed | bge-m3 on Ollama through the gateway's new `embed` task (`model` option) next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ✅ |
-| S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ⬜ |
+| S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ✅ |
 | S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks · UI: full pipeline trace per document | 40 min | ⬜ |
 | S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ⬜ |
 | S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations · UI: citations and redactions in search results | 40 min | ⬜ |
@@ -157,7 +157,16 @@ S10 (T7 embed) is complete (✅). The [S10 walkthrough](walkthrough/S10-t7-embed
 - What is embedded: context header + section trail + text (`input@1`). The stored ID names option, recipe, model and size: `model@1(input@1, ollama:bge-m3, 1024)`. Ollama vectors are normalized. Bedrock preserves Cohere’s signed int8 components and includes int8 in the model ID. T4 keeps its approximate token counter.
 - The T7 option is `model`; the model is the gateway's configuration (`bge_m3_ollama` and `cohere_embed_v4` are gone from the config and experiment 4.04).
 
-Next is **S11** (T8 + search store) with `/plan-task S11`.
+S11 (T8 + search store) is complete (✅). The [S11 walkthrough](walkthrough/S11-t8-permissions.md) covers the readers on every chunk, the publication gate, the fast lane and the memberships. Settled in S11's plan on 25 November 2026:
+- Groups stay on the chunks; a person is expanded to their groups when they ask (D8: "user and group IDs"), so a group change rewrites no chunk. `admits(acl, principals)` in `ekb.contracts` is the one rule for T8, the search store and Q2.
+- The permission store's memberships come from the identity provider's per-user events through the change log, like the entity store in S9. An inactive or unknown user reads nothing, whatever their groups (a gate test).
+- Unknown groups are kept and reported (they admit nobody); an empty ACL is published and reported as readable by no one.
+- T8 requires the sensitivity but does not narrow readers by it: sensitivity rules are Cedar policies in Q2 (S13/S15).
+- Revocation-only edits narrow access before T3–T7 run. An edit adding any user or group withdraws the old text until T8 publishes the replacement. Search and membership reads exclude a closed change-log lifetime as soon as a delete is accepted.
+- The search port: `publish` (the gate, all or nothing, one version replaces the last), `set_readers` (the fast lane), `remove`, `chunks`, `documents`, `readable_by(principals)`; S13 adds ranking. `Chunk` gains `acl_version` and `resolver_id`.
+- `ekb demo t8` runs offline with fake vectors; the inspector gains a **T8 Permissions** tab.
+
+Next is **S12** (the worker pipeline) with `/plan-task S12`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

@@ -8,9 +8,10 @@ import { EventsPanel } from "./components/EventsPanel";
 import { ChunkScreen } from "./components/ChunkScreen";
 import { GatewayScreen } from "./components/GatewayScreen";
 import { ParseScreen } from "./components/ParseScreen";
+import { PermissionsScreen } from "./components/PermissionsScreen";
 import { usePolling } from "./usePolling";
 
-type Tab = "documents" | "events" | "changelog" | "t2" | "t3" | "t4" | "t6" | "gateway";
+type Tab = "documents" | "events" | "changelog" | "t2" | "t3" | "t4" | "t6" | "t8" | "gateway";
 
 const TABS: Record<Tab, string> = {
     documents: "Documents",
@@ -20,6 +21,7 @@ const TABS: Record<Tab, string> = {
     t3: "T3 Parse",
     t4: "T4 Chunk",
     t6: "T6 Entities",
+    t8: "T8 Permissions",
     gateway: "Model gateway",
 };
 
@@ -68,6 +70,7 @@ export function App() {
                 {tab === "t3" && <ParseScreen sources={names} />}
                 {tab === "t4" && <ChunkScreen sources={names} />}
                 {tab === "t6" && <EntitiesScreen />}
+                {tab === "t8" && <PermissionsScreen />}
                 {tab === "gateway" && <GatewayScreen />}
             </main>
         </div>

@@ -533,3 +533,40 @@ ul.links {
 ul.links li {
     margin: 2px 0;
 }
+
+/* T8 permissions (S11): the whole screen scrolls, the documents and their readers keep
+   a fixed height above the who-can-read grid and the users. */
+.stack.flow {
+    overflow: auto;
+}
+.stack.flow > .split {
+    flex: none;
+    height: 420px;
+}
+/* One badge per publication status, and the grid's cells. */
+.pub {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    border: 1px solid transparent;
+}
+.pub-published {
+    background: var(--upsert);
+    color: #fff;
+}
+.pub-readers_only {
+    border-color: var(--acl);
+    color: var(--acl);
+}
+.pub-waiting {
+    border-color: var(--line);
+    color: var(--muted);
+}
+.access td.cell {
+    text-align: center;
+    color: var(--muted);
+}
+.access td.cell.yes {
+    color: var(--upsert);
+    font-weight: 600;
+}

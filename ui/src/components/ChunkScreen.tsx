@@ -29,8 +29,8 @@ import { usePolling } from "../usePolling";
  * chunks per sensitivity and how many times T4 chunked it. Right: one
  * document's chunks in order, each with its size against the chunker's limit,
  * the section it belongs to, its context header (T4), its labels and why (T5),
- * the people and teams it names (T6), its vector (T7) and its text. None is
- * publishable yet: that is T8's gate.
+ * the people and teams it names (T6), its vector (T7) and its text. T8 then
+ * publishes it with its page's readers (the T8 tab).
  */
 export function ChunkScreen({ sources }: { sources: string[] }) {
     const [source, setSource] = useState("");
@@ -70,8 +70,9 @@ export function ChunkScreen({ sources }: { sources: string[] }) {
                     holds. T6 links each chunk to the people and teams it names.
                     T7 turns each chunk into a vector: a list of numbers that sits
                     close to the vectors of texts with a similar meaning, stored
-                    with the ID of the model that made it. T8 secures them later;
-                    until then no chunk is publishable.
+                    with the ID of the model that made it. T8 then gives every chunk
+                    its page's readers and publishes it: the T8 tab shows who can
+                    read what.
                 </p>
                 {list.error && <p className="error">{list.error}</p>}
                 <div className="counts">
@@ -262,7 +263,7 @@ function ChunkCard({ chunk, maxTokens }: { chunk: ChunkView; maxTokens: number }
                 {chunk.pii.length > 0 && <span className="gate pii">{piiLabel(chunk.pii)}</span>}
                 <span
                     className="gate"
-                    title="Published only once T5, T7 and T8 have set sensitivity, vector and ACL"
+                    title="Published only once T5, T7 and T8 have set sensitivity, vector and readers"
                 >
                     {chunk.publishable ? "publishable" : "not publishable yet"}
                 </span>

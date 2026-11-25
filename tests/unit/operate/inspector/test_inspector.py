@@ -23,6 +23,7 @@ from ekb.operate.inspector.app import (
 )
 from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
+from ekb.operate.inspector.permissions import PermissionPanel
 from ekb.process.t2_diff.options.content_hash import ContentHashDiffer
 from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.options.markdown import MarkdownParser
@@ -32,9 +33,14 @@ from ekb.process.t5_classify.options.rules import RulesClassifier
 from ekb.process.t5_classify.step import ClassifyStep
 from ekb.process.t6_entities.options.exact_match import ExactMatchLinker
 from ekb.process.t6_entities.step import LinkStep
+from ekb.process.t8_permissions.options.source_acl import SourceAclResolver
+from ekb.process.t8_permissions.step import PermissionStep
 from ekb.stores.entities.options.in_memory import InMemoryEntityStore
+from ekb.stores.permissions.options.in_memory import InMemoryPermissionStore
+from ekb.stores.search.options.in_memory import InMemorySearchStore
 from tests.conftest import REPO_ROOT
 from tests.unit.process.t6_entities.conftest import ENTITIES
+from tests.unit.process.t8_permissions.conftest import acl_change, membership, ready, upsert
 
 AT = datetime(2026, 11, 24, 9, 0, tzinfo=UTC)
 
@@ -700,4 +706,108 @@ def test_without_an_entity_store_the_list_is_empty() -> None:
         "teams": 0,
         "linked_chunks": 0,
         "stale_links": [],
+    }
+
+
+# ------------------------------------------------------------------ T8 permissions (S11)
+
+
+def _permission_world(
+    deleted: str | None = None,
+) -> tuple[TestClient, PermissionPanel]:
+    """The inspector over T8's stores: two published pages, one readers-only page, and
+    three users, one of whom has left. ``deleted`` names a page whose delete is published
+    but not yet purged."""
+    panel = PermissionPanel(InMemorySearchStore(), InMemoryPermissionStore(), "source_acl@1")
+    for m in (
+        membership("alice", "all-staff", "it-employees"),
+        membership("bob", "all-staff", "hr-compensation"),
+        membership("olivia", "all-staff", active=False),
+    ):
+        panel.permissions.put_membership(m)
+    step = PermissionStep(SourceAclResolver(), panel.permissions, panel.index)
+    for page, acl in (
+        ("HR-PL-01", Acl(groups=frozenset({"all-staff"}))),
+        ("HR-CMP-01", Acl(groups=frozenset({"hr-compensation", "hr-teem"}))),
+    ):
+        document, cut = ready(page)
+        step.publish(upsert(f"hr_docs:{page}", acl), document, cut)
+        panel.lifetimes.record(f"hr_docs:{page}", 0)
+    step.apply_readers(acl_change("hr_docs:HR-NEW", Acl(groups=frozenset({"it-employees"}))))
+    panel.lifetimes.record("hr_docs:HR-NEW", 0)
+    chunks = ChunkStore()
+    app = create_inspector_app(
+        EventLog(),
+        profile="local",
+        bus=InMemoryEventBus(),
+        registry=InMemoryRegistry(),
+        rawstore=InMemoryRawStore(),
+        decisions=DecisionLog(),
+        parsed=ParsedStore(),
+        chunks=chunks,
+        current_lifetime=lambda key: 1 if key == deleted else 0,
+        permissions=panel,
+    )
+    return TestClient(app), panel
+
+
+def test_t8_shows_each_documents_readers_status_and_who_can_read_it_now() -> None:
+    client, panel = _permission_world()
+    view = client.get("/api/t8/permissions").json()
+
+    assert view["resolver_id"] == "source_acl@1"
+    assert view["published_documents"] == 2
+    assert view["published_chunks"] == len(panel.index.chunks())
+    assert view["active_users"] == 2
+    docs = {d["document_key"]: d for d in view["documents"]}
+    assert docs["hr_docs:HR-PL-01"]["status"] == "published"
+    assert docs["hr_docs:HR-PL-01"]["readers"] == ["alice", "bob"]  # olivia has left
+    assert docs["hr_docs:HR-PL-01"]["acl"] == {"users": [], "groups": ["all-staff"]}
+    assert (docs["hr_docs:HR-PL-01"]["text_version"], docs["hr_docs:HR-PL-01"]["acl_version"]) == (
+        "1.1",
+        "1.1",
+    )
+    assert docs["hr_docs:HR-CMP-01"]["readers"] == ["bob"]
+    assert docs["hr_docs:HR-CMP-01"]["unknown_groups"] == ["hr-teem"]
+    assert docs["hr_docs:HR-NEW"]["status"] == "readers_only"
+    assert docs["hr_docs:HR-NEW"]["chunks"] == 0
+    assert docs["hr_docs:HR-NEW"]["acl_version"] == "1.2"
+    users = {u["user_id"]: u for u in view["users"]}
+    assert users["alice"]["documents"] == 1
+    assert users["bob"]["documents"] == 2
+    assert users["olivia"] == {
+        "user_id": "olivia",
+        "active": False,
+        "groups": ["all-staff"],
+        "source_version": "0",
+        "documents": 0,
+    }
+
+
+def test_t8_hides_a_deleted_documents_chunks_and_readers_before_the_purge() -> None:
+    """The deletion gate in the inspector: the delete is published, T2 has not purged yet."""
+    client, panel = _permission_world(deleted="hr_docs:HR-PL-01")
+    assert panel.index.chunks("hr_docs:HR-PL-01")  # still in the store
+    view = client.get("/api/t8/permissions").json()
+    assert "hr_docs:HR-PL-01" not in {d["document_key"] for d in view["documents"]}
+    users = {u["user_id"]: u for u in view["users"]}
+    assert users["alice"]["documents"] == 0
+
+
+def test_t8_hides_deleted_membership_from_users_and_document_readers_before_purge() -> None:
+    client, _ = _permission_world(deleted="identity:users/bob")
+    view = client.get("/api/t8/permissions").json()
+    assert view["active_users"] == 1
+    assert "bob" not in {u["user_id"] for u in view["users"]}
+    assert all("bob" not in d["readers"] for d in view["documents"])
+
+
+def test_without_t8_s_stores_the_permissions_view_is_empty(client: TestClient) -> None:
+    assert client.get("/api/t8/permissions").json() == {
+        "resolver_id": "",
+        "documents": [],
+        "users": [],
+        "published_chunks": 0,
+        "published_documents": 0,
+        "active_users": 0,
     }

@@ -28,17 +28,21 @@ export type GatewayQuotaView = Schemas["GatewayQuotaView"];
 export type GatewayRouteView = Schemas["GatewayRouteView"];
 export type GatewayView = Schemas["GatewayView"];
 export type GroupView = Schemas["GroupView"];
+export type MembershipView = Schemas["MembershipView"];
 export type MentionView = Schemas["MentionView"];
 export type OriginalView = Schemas["OriginalView"];
 export type ParsedDocumentView = Schemas["ParsedDocumentView"];
 export type ParsedListView = Schemas["ParsedListView"];
 export type ParsedSummaryView = Schemas["ParsedSummaryView"];
+export type PermissionsView = Schemas["PermissionsView"];
+export type PublicationView = Schemas["PublicationView"];
 export type RecordView = Schemas["RecordView"];
 export type SourceView = Schemas["SourceView"];
 export type ChangeOp = EventView["op"];
 export type DiffAction = DecisionView["action"];
 export type BlockKind = BlockView["kind"];
 export type EntityKind = EntityView["kind"];
+export type PublicationStatus = PublicationView["status"];
 
 export type EventsQuery = NonNullable<
     operations["events_api_events_get"]["parameters"]["query"]
@@ -122,6 +126,7 @@ export const api = {
         getOrNull<ChunkedDocumentView>("/api/t4/chunks/document", query),
     t6Entities: (query: EntitiesQuery = {}) =>
         get<EntityListView>("/api/t6/entities", query),
+    t8Permissions: () => get<PermissionsView>("/api/t8/permissions"),
     gateway: () => get<GatewayView>("/api/gateway"),
     gatewayCalls: (query: GatewayCallsQuery = {}) =>
         get<CallPage>("/api/gateway/calls", query),

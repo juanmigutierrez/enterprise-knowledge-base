@@ -273,6 +273,51 @@ def test_t6_links_in_the_live_loop_and_a_leaver_leaves_the_store(
     assert len(store.entities()) == 16
 
 
+def test_t8_publishes_in_the_live_loop_and_follows_groups_readers_and_deletes(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    """S11: every chunk the loop cuts is published with its page's readers; a group change,
+    a readers change (the fast lane) and a delete reach the search store."""
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
+    loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
+    loop.run_round()
+    index, stores = loop.permissions.index, loop.permissions.permissions
+    cut = sum(len(e.chunks) for e in loop.chunks.entries())
+    assert len(index.chunks()) == cut > 0
+    assert all(c.publishable for c in index.chunks())
+    assert all(c.publishable for e in loop.chunks.entries() for c in e.chunks)
+    assert len(stores.memberships()) == 12
+    assert loop.permissions.resolver_id == loop.t8.resolver_id == "source_acl@1"
+    lifetime = loop.permissions.lifetimes.snapshot()["hr_docs:HR-PL-02"]
+    assert lifetime == changelog.current_lifetime("hr_docs:HR-PL-02")
+
+    def pages(user: str) -> set[str]:
+        return {c.document_key for c in index.readable_by(stores.principals(user))}
+
+    assert "hr_docs:HR-PL-02" in pages("alice")
+    idp.delete("/scim/v2/Groups/it-employees/members/alice")
+    loop.run_round()
+    assert "hr_docs:HR-PL-02" not in pages("alice")
+
+    assert "hr_docs:HR-PL-05" in pages("dana")
+    docs.put("/pages/HR-PL-05/acl", json={"groups": ["es-employees"]})
+    loop.run_round()
+    assert "hr_docs:HR-PL-05" not in pages("dana")
+    record = stores.readers("hr_docs:HR-PL-05")
+    assert record is not None
+    assert record.acl == Acl(groups=frozenset({"es-employees"}))
+
+    docs.delete("/pages/HR-PL-99")
+    loop.run_round()
+    assert index.chunks("hr_docs:HR-PL-99") == ()
+    assert stores.readers("hr_docs:HR-PL-99") is None
+
+
 def test_the_loop_needs_no_gateway_without_a_model_option(
     clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
 ) -> None:

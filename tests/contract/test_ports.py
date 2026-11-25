@@ -31,7 +31,10 @@ from ekb.process.t4_chunk.port import Chunker
 from ekb.process.t5_classify.port import Classifier
 from ekb.process.t6_entities.port import EntityLinker
 from ekb.process.t7_embed.port import Embedder
+from ekb.process.t8_permissions.port import PermissionResolver
 from ekb.stores.entities.port import EntityStore
+from ekb.stores.permissions.port import PermissionStore
+from ekb.stores.search.port import SearchStore
 from tests.unit.platform.gateway.helpers import Scripted, make_world
 
 PORTS: dict[str, type] = {
@@ -46,7 +49,10 @@ PORTS: dict[str, type] = {
     "t5_classify": Classifier,
     "t6_entities": EntityLinker,
     "t7_embed": Embedder,
+    "t8_permissions": PermissionResolver,
     "entities": EntityStore,
+    "search": SearchStore,
+    "permissions": PermissionStore,
     "model_client": ModelClient,
     "embedding_client": EmbeddingClient,
     "model_cache": ResponseCache,
