@@ -18,6 +18,9 @@ GET /api/t4/chunks/document?document_key=       one document's chunks, headers, 
 GET /api/t6/entities[?kind=]                    the entity store and the chunks linked to each (S9)
 GET /api/t8/permissions                         readers and publication status per document, and
                                                 who is in which group (S11)
+GET /api/pipeline/traces[?source=&status=]      the worker: each item's latest attempt, totals per
+                                                status and per step (S12)
+GET /api/pipeline/trace?document_key=           every attempt at one item, step by step (S12)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
 ==============================================  =====================================
@@ -28,7 +31,8 @@ refuses any profile but ``local``.
 Deleted content is never returned: T3's and T4's output of an item whose
 lifetime a delete closed is hidden at once, even before T2's purge drops it,
 and so is an entity whose HR record was deleted (S9) and a deleted document's
-published chunks and readers (S11).
+published chunks and readers (S11). The worker's traces (S12) hold no content
+at all, so a deleted item's traces stay, as its history.
 The gateway's cost log holds no prompt or reply at all, only hashes and numbers.
 """
 
@@ -43,7 +47,7 @@ from fastapi import FastAPI, HTTPException, Query
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
-from ekb.contracts import ChangeOp, DiffAction, EntityKind
+from ekb.contracts import ChangeOp, DiffAction, EntityKind, TraceStatus
 from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
@@ -58,6 +62,7 @@ from ekb.operate.inspector.models import (
     DecisionPage,
     DecisionView,
     DiffCounts,
+    DocumentTraceView,
     DocumentView,
     EntityListView,
     EventPage,
@@ -68,11 +73,14 @@ from ekb.operate.inspector.models import (
     ParsedListView,
     ParsedSummaryView,
     PermissionsView,
+    PipelineView,
     RecordCountView,
     RecordView,
     SourceView,
+    TraceView,
 )
 from ekb.operate.inspector.permissions import PermissionPanel
+from ekb.operate.inspector.trace import TraceLog
 from ekb.platform.gateway.usage import totals
 
 LOCAL_PROFILE = "local"
@@ -98,6 +106,7 @@ def create_inspector_app(
     gateway: GatewayPanel | None = None,
     entities: EntityPanel | None = None,
     permissions: PermissionPanel | None = None,
+    traces: TraceLog | None = None,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -264,6 +273,28 @@ def create_inspector_app(
             )
         snapshot = permissions.snapshot(current_lifetime)
         return PermissionsView.of(snapshot, live, permissions.resolver_id)
+
+    pipeline = traces or TraceLog()
+
+    @app.get("/api/pipeline/traces")
+    def pipeline_traces(
+        source: str | None = None, status: TraceStatus | None = None
+    ) -> PipelineView:
+        every = pipeline.entries()
+        return PipelineView.of(pipeline.latest(source=source, status=status), every)
+
+    @app.get("/api/pipeline/trace", responses={404: {"description": "Never traced"}})
+    def pipeline_trace(document_key: str) -> DocumentTraceView:
+        entries = pipeline.entries(document_key=document_key)
+        if not entries:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{document_key} has no trace: the worker has not seen it",
+            )
+        return DocumentTraceView(
+            document_key=document_key,
+            traces=[TraceView.of(e) for e in reversed(entries)],
+        )
 
     panel = gateway or GatewayPanel()
 

@@ -33,12 +33,16 @@ from ekb.contracts import (
     Membership,
     PiiKind,
     Sensitivity,
+    StepOutcome,
+    TraceStatus,
     admits,
     readers_now,
+    step_rank,
 )
 from ekb.operate.inspector.gateway import GatewayPanel
 from ekb.operate.inspector.log import ChunkEntry, LoggedDecision, LoggedEvent, ParsedEntry
 from ekb.operate.inspector.permissions import PermissionSnapshot
+from ekb.operate.inspector.trace import LoggedTrace
 from ekb.platform.gateway.config import split_ref
 from ekb.platform.gateway.models import CallRecord, Outcome
 from ekb.platform.gateway.status import ProviderStatus
@@ -759,6 +763,132 @@ class EntityListView(_View):
 
 
 # ----------------------------------------------------------- model gateway (S7)
+
+
+class TraceStepView(_View):
+    """One step of one attempt (S12): ``T3 parse``, ``T8 publish``, ``purge search`` …"""
+
+    step: str
+    outcome: StepOutcome
+    detail: str
+    ms: float
+
+
+class TraceView(_View):
+    """One attempt at one event, step by step (S12). No content: keys, versions,
+    decisions, counts, IDs and readers only."""
+
+    seq: int
+    document_key: str
+    source: str
+    source_id: str
+    op: ChangeOp
+    version: str
+    partition: int | None
+    offset: int | None
+    """Where the event sits in the bus; ``None`` for a rebuild from the stored original."""
+    attempt: int
+    action: DiffAction | None
+    """T2's decision; ``None`` when T2 did not decide (a failure, a parked event, a rebuild)."""
+    status: TraceStatus
+    steps: list[TraceStepView]
+    error: str
+    started_at: datetime
+    ms: float
+
+    @classmethod
+    def of(cls, entry: LoggedTrace) -> TraceView:
+        trace = entry.trace
+        return cls(
+            seq=entry.seq,
+            document_key=trace.document_key,
+            source=trace.source,
+            source_id=trace.document_key.partition(":")[2],
+            op=trace.op,
+            version=trace.version,
+            partition=trace.partition,
+            offset=trace.offset,
+            attempt=trace.attempt,
+            action=trace.action,
+            status=trace.status,
+            steps=[
+                TraceStepView(step=s.step, outcome=s.outcome, detail=s.detail, ms=s.ms)
+                for s in trace.steps
+            ],
+            error=trace.error,
+            started_at=trace.started_at,
+            ms=trace.ms,
+        )
+
+
+class TracedDocumentView(_View):
+    """One item in the Pipeline tab's list: its latest attempt and how many it has had."""
+
+    document_key: str
+    source: str
+    traces: int
+    last: TraceView
+
+
+class StepTotalsView(_View):
+    """One step over every attempt so far: how often it ran, failed, and its time."""
+
+    step: str
+    runs: int
+    failed: int
+    total_ms: float
+
+
+class PipelineView(_View):
+    """The worker as the inspector saw it (S12): every item's latest attempt, the totals
+    per status (of the latest attempts) and per step (of every attempt)."""
+
+    documents: list[TracedDocumentView]
+    statuses: dict[TraceStatus, int]
+    steps: list[StepTotalsView]
+    attempts: int
+    """Every attempt traced so far, failed ones included."""
+
+    @classmethod
+    def of(
+        cls, latest: dict[str, tuple[LoggedTrace, int]], every: list[LoggedTrace]
+    ) -> PipelineView:
+        statuses = dict.fromkeys(TraceStatus, 0)
+        for entry, _ in latest.values():
+            statuses[entry.trace.status] += 1
+        totals: dict[str, StepTotalsView] = {}
+        for entry in every:
+            for step in entry.trace.steps:
+                before = totals.get(step.step) or StepTotalsView(
+                    step=step.step, runs=0, failed=0, total_ms=0.0
+                )
+                totals[step.step] = StepTotalsView(
+                    step=step.step,
+                    runs=before.runs + 1,
+                    failed=before.failed + (step.outcome is StepOutcome.FAILED),
+                    total_ms=round(before.total_ms + step.ms, 3),
+                )
+        return cls(
+            documents=[
+                TracedDocumentView(
+                    document_key=key,
+                    source=entry.trace.source,
+                    traces=count,
+                    last=TraceView.of(entry),
+                )
+                for key, (entry, count) in sorted(latest.items())
+            ],
+            statuses=statuses,
+            steps=sorted(totals.values(), key=lambda t: step_rank(t.step)),
+            attempts=len(every),
+        )
+
+
+class DocumentTraceView(_View):
+    """Every attempt at one item, newest first (S12)."""
+
+    document_key: str
+    traces: list[TraceView]
 
 
 class GatewayProviderView(_View):

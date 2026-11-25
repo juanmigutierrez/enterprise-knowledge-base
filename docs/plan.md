@@ -110,7 +110,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S9 | 4 · **T6** Entities | Exact match against the people and teams from the HR record API (S1b) (model cascade later) | How documents get linked to people and teams | `ekb demo t6` · UI: entities panel | 30 min | ✅ |
 | S10 | 4 · **T7** Embed | bge-m3 on Ollama through the gateway's new `embed` task (`model` option) next to the fake one | What a vector is and why the model ID is stored | `ekb demo t7`: similar vs different sentences · UI: vector info on chunks | 30 min | ✅ |
 | S11 | 4 · **T8** + 5 · Search store | Permission resolution (page ACLs + group membership from the identity source, S1c), publication gate, **in-memory** search store | Why nothing is searchable before permissions are set | `ekb demo t8`: chunk invisible until T8 runs · UI: permissions and publication status | 40 min | ✅ |
-| S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks · UI: full pipeline trace per document | 40 min | ⬜ |
+| S12 | 4 · Worker pipeline | Wire T2 → T8 on the bus, end to end | The full write path | `ekb demo ingest`: source → searchable chunks · UI: full pipeline trace per document | 40 min | ✅ |
 | S13 | 6 · **Q2 + Q3** | Permission pre-filter + hybrid search (BM25 + vectors, RRF) | How retrieval respects who is asking | `ekb demo search --user alice` vs `--user bob` · UI: **Search as user** screen, two users side by side | 70 min | ⬜ |
 | S14 | 6 · **Q4 + Q1** | Re-check against the source, redaction, citations; simple query planning | Why a second permission check exists | `ekb demo answer` with citations · UI: citations and redactions in search results | 40 min | ⬜ |
 | S14b | 5 · Metrics store + 6 · Q1 | *Optional.* Structured path: database change events → in-memory metrics store (DuckDB option later); Q1 sends counting questions ("how many people work in Madrid?") to SQL instead of search (D7) | Why structured data takes a different path from documents | `ekb demo answer "how many people work in Madrid?"` → answer from SQL, cited to the table | 45 min | ⬜ |
@@ -166,7 +166,15 @@ S11 (T8 + search store) is complete (✅). The [S11 walkthrough](walkthrough/S11
 - The search port: `publish` (the gate, all or nothing, one version replaces the last), `set_readers` (the fast lane), `remove`, `chunks`, `documents`, `readable_by(principals)`; S13 adds ranking. `Chunk` gains `acl_version` and `resolver_id`.
 - `ekb demo t8` runs offline with fake vectors; the inspector gains a **T8 Permissions** tab.
 
-Next is **S12** (the worker pipeline) with `/plan-task S12`.
+S12 (the worker pipeline) is complete and reviewed (✅). The [S12 walkthrough](walkthrough/S12-pipeline.md) covers the one-handler worker, the routes, options from config, traces and the dead letters. Settled in S12's plan on 25 November 2026:
+- One consumer group, `worker`, runs T2 → T8 in one process for each event; nothing is stored between steps, and a retry starts again from T3. The inspector's `t2_diff` group became `worker`; the step demos t2–t8 keep `t2_diff` and their own wiring.
+- Options come from the active profile (`ekb.app.choices`). An option not built yet runs as its stand-in (kafka, dynamodb, s3, opensearch → in_memory; docling → markdown; cascade → exact_match), and the swap is printed. `config/default.yaml` is unchanged.
+- `ekb demo ingest` reads the active profile and runs offline unless `--models` is given. The inspector reads the profile too, and its `--header`, `--classifier` and `--embed` flags override it, so its default classifier is now the profile's `model_plus_rules`.
+- Dead letters: an event is parked after 3 failed attempts, and its item is withdrawn from search (fail closed). Later events of that item wait behind it. A delete is never parked and discards what was parked. A retry replays in order and rebuilds from the stored original when needed. The dead letters are in memory, in `ekb.app`.
+- The trace model lives in `ekb.contracts`, holds no content, keeps a deleted item's history, times each step, and has its own **Pipeline** tab.
+- The connectors stay wired by hand (`ekb.app.connectors`); `ekb connect` and `ekb worker` as services need a durable bus and move to S17.
+
+Next is **S13** (Q2 + Q3) with `/plan-task S13`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

@@ -2,20 +2,20 @@
 
 Four choices are made here, in the composition root, and nowhere else:
 
-- **Which stores and which resolver.** ``in_memory`` search and permission
-  stores and ``source_acl``, by hand, as the earlier steps chose theirs;
-  choosing from config comes with the pipeline (S12). ``config/default.yaml``
-  names ``opensearch`` and ``dynamodb`` (S17) and ``source_acl``.
+- **Which stores and which resolver.** By name: the worker pipeline (S12)
+  passes what the profile names (``source_acl``; ``opensearch`` and
+  ``dynamodb`` run as their ``in_memory`` stand-ins until S17).
 - **Which sources say who is in which group**, and how to read their records:
   ``MEMBERSHIP_SOURCES``. Only the identity provider: its user records.
-- **When T8 runs.** After T7, on the same document, inside
-  :func:`ekb.app.chunk.chunk_after_t3` (``t8=``), until S12 puts the steps on
-  the bus. Before T3, :func:`readers_after_t2` sends T2's ``acl_only`` straight
-  to T8 (the fast lane) and, for an edit, withholds old chunks on a grant.
-  Revocations take effect before the models run.
+- **When T8 runs.** After T7, on the same document; before T3, T2's
+  ``acl_only`` goes straight to T8 (the fast lane) and, for an edit, readers
+  first withholds old chunks on a grant. Revocations take effect before the
+  models run. The worker pipeline (S12) does this itself; the step demos use
+  :func:`ekb.app.chunk.chunk_after_t3` (``t8=``) and :func:`readers_after_t2`.
 - **What a purge removes.** :func:`unpublisher` takes a deleted document out
   of the search store and drops its readers record; a purged identity record
-  takes its membership with it. Add it to :func:`ekb.app.classify.forgetter`.
+  takes its membership with it. The worker pipeline also uses it to withdraw
+  an item it parks in the dead letters (S12).
 """
 
 from __future__ import annotations

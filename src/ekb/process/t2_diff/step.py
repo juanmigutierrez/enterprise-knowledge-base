@@ -5,7 +5,7 @@ For each event, in the bus's order for its document::
     previous = registry.get(key)                    # what was last processed
     decision = differ.decide(previous, event)       # the option; pure
     purge the item's originals                      # deletes only
-    downstream(result)                              # the next steps (S12)
+    downstream(result)                              # the next steps (the worker, S12)
     registry.put(record_after(previous, event))     # only now is it "processed"
 
 **Why the registry is written last.** The bus delivers at least once, and T2
@@ -44,7 +44,7 @@ Downstream = Callable[[DiffResult], object]
 
 
 def _nowhere(result: DiffResult) -> None:
-    """No next step yet: T3 (S5) and T8 (S11) are wired to T2 in S12."""
+    """No next step: T2 alone (S4's demo). The worker pipeline wires T3 … T8 (S12)."""
 
 
 class DiffStep:

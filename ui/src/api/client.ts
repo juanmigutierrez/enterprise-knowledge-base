@@ -17,6 +17,7 @@ export type ChunkView = Schemas["ChunkView"];
 export type DecisionPage = Schemas["DecisionPage"];
 export type DecisionView = Schemas["DecisionView"];
 export type DiffCounts = Schemas["DiffCounts"];
+export type DocumentTraceView = Schemas["DocumentTraceView"];
 export type DocumentView = Schemas["DocumentView"];
 export type EntityLinkView = Schemas["EntityLinkView"];
 export type EntityListView = Schemas["EntityListView"];
@@ -35,14 +36,20 @@ export type ParsedDocumentView = Schemas["ParsedDocumentView"];
 export type ParsedListView = Schemas["ParsedListView"];
 export type ParsedSummaryView = Schemas["ParsedSummaryView"];
 export type PermissionsView = Schemas["PermissionsView"];
+export type PipelineView = Schemas["PipelineView"];
 export type PublicationView = Schemas["PublicationView"];
 export type RecordView = Schemas["RecordView"];
 export type SourceView = Schemas["SourceView"];
+export type StepTotalsView = Schemas["StepTotalsView"];
+export type TracedDocumentView = Schemas["TracedDocumentView"];
+export type TraceStepView = Schemas["TraceStepView"];
+export type TraceView = Schemas["TraceView"];
 export type ChangeOp = EventView["op"];
 export type DiffAction = DecisionView["action"];
 export type BlockKind = BlockView["kind"];
 export type EntityKind = EntityView["kind"];
 export type PublicationStatus = PublicationView["status"];
+export type TraceStatus = TraceView["status"];
 
 export type EventsQuery = NonNullable<
     operations["events_api_events_get"]["parameters"]["query"]
@@ -71,6 +78,11 @@ type ChunkedDocumentQuery =
 type EntitiesQuery = NonNullable<
     operations["t6_entities_api_t6_entities_get"]["parameters"]["query"]
 >;
+type PipelineQuery = NonNullable<
+    operations["pipeline_traces_api_pipeline_traces_get"]["parameters"]["query"]
+>;
+type PipelineTraceQuery =
+    operations["pipeline_trace_api_pipeline_trace_get"]["parameters"]["query"];
 type GatewayCallsQuery = NonNullable<
     operations["gateway_calls_api_gateway_calls_get"]["parameters"]["query"]
 >;
@@ -127,6 +139,10 @@ export const api = {
     t6Entities: (query: EntitiesQuery = {}) =>
         get<EntityListView>("/api/t6/entities", query),
     t8Permissions: () => get<PermissionsView>("/api/t8/permissions"),
+    pipeline: (query: PipelineQuery = {}) =>
+        get<PipelineView>("/api/pipeline/traces", query),
+    pipelineTrace: (query: PipelineTraceQuery) =>
+        getOrNull<DocumentTraceView>("/api/pipeline/trace", query),
     gateway: () => get<GatewayView>("/api/gateway"),
     gatewayCalls: (query: GatewayCallsQuery = {}) =>
         get<CallPage>("/api/gateway/calls", query),

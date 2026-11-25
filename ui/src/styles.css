@@ -570,3 +570,102 @@ ul.links li {
     color: var(--upsert);
     font-weight: 600;
 }
+
+/* Pipeline (S12): one badge colour per status, one row per step. */
+.trace {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    border: 1px solid transparent;
+}
+.trace-published,
+.trace-rebuilt {
+    background: var(--upsert);
+    color: #fff;
+}
+.trace-readers {
+    border-color: var(--acl);
+    color: var(--acl);
+}
+.trace-record {
+    border-color: var(--person);
+    color: var(--person);
+}
+.trace-skipped {
+    border-color: var(--line);
+    color: var(--muted);
+}
+.trace-purged {
+    background: var(--delete);
+    color: #fff;
+}
+.trace-failed {
+    border-color: var(--delete);
+    color: var(--delete);
+}
+.trace-parked {
+    background: var(--acl);
+    color: #fff;
+}
+.grid.totals {
+    margin-top: 10px;
+    font-size: 12px;
+}
+.grid.totals td.failed {
+    color: var(--delete);
+    font-weight: 600;
+}
+.attempt {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    background: var(--panel);
+}
+.attempt-head {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+.attempt-route {
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+ol.steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+ol.steps li.step {
+    display: grid;
+    grid-template-columns: 130px 70px 1fr;
+    gap: 8px;
+    padding: 3px 6px;
+    border-left: 3px solid var(--line);
+    font-size: 12px;
+}
+ol.steps li.step-failed {
+    border-left-color: var(--delete);
+    background: #fbeeec;
+}
+ol.steps li.step-t8 {
+    border-left-color: var(--accent);
+}
+ol.steps li.step-purge {
+    border-left-color: var(--delete);
+}
+ol.steps li.step-dead {
+    border-left-color: var(--acl);
+}
+ol.steps li.step-store {
+    border-left-color: var(--person);
+}
+.step-name {
+    font-weight: 600;
+}
+.step-ms {
+    color: var(--muted);
+    text-align: right;
+}

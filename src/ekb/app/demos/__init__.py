@@ -8,6 +8,7 @@ walkthrough in docs/walkthrough/.
 
 from ekb.app.demos import (  # noqa: F401  (importing registers the commands)
     gateway,
+    ingest,
     s1,
     s1b,
     s1c,

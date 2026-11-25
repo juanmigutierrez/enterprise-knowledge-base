@@ -53,6 +53,10 @@ class Published:
 class SearchStore(Protocol):
     """The published chunks, by document, each with its readers."""
 
+    def set_visible(self, document_key: str, *, visible: bool) -> None:
+        """Hide an item during recovery, or release its completed state to readers."""
+        ...
+
     def publish(self, document_key: str, chunks: Sequence[Chunk]) -> Published:
         """Replace the document's chunks with ``chunks``, all or nothing.
 
@@ -76,6 +80,10 @@ class SearchStore(Protocol):
 
     def chunks(self, document_key: str | None = None) -> tuple[Chunk, ...]:
         """The published chunks (of one document, or all), by document then position."""
+        ...
+
+    def chunks_for_update(self, document_key: str) -> tuple[Chunk, ...]:
+        """Current-lifetime chunks, including a batch hidden during worker recovery."""
         ...
 
     def documents(self) -> tuple[str, ...]:

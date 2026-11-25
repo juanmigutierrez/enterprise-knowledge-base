@@ -4,8 +4,8 @@
 catching a lost delete. ``ekb demo t1 --all`` (S2a) makes one change in each
 of the four sources and shows the four events side by side.
 
-Connectors are wired by hand here; choosing them in config, and running them
-as a service, comes with the pipeline wiring (S12).
+Connectors are wired by hand here and in ``ekb.app.connectors``; choosing them
+per source in config, and running them as a service, needs a durable bus (S17).
 """
 
 from __future__ import annotations

@@ -55,20 +55,24 @@ def options() -> None:
 
 @app.command()
 def connect() -> None:
-    """2 Â· Run the connectors and publish normalized change events (T1)."""
-    _not_implemented("The connector service", "Â§4.2 task 5")
+    """2 · Run the connectors and publish normalized change events (T1)."""
+    _not_implemented("The connector service (it needs a durable bus between processes)", "§4.2 S17")
 
 
 @app.command()
 def worker() -> None:
-    """4 Â· Consume change events and run T2-T8."""
-    _not_implemented("The processing worker", "Â§4.2 task 6")
+    """4 · Consume change events and run T2-T8 (the worker pipeline, S12)."""
+    _not_implemented(
+        "The worker as its own service (it needs a durable bus between processes; "
+        "`ekb demo ingest` and `ekb inspector` run it in one process)",
+        "§4.2 S17",
+    )
 
 
 @app.command()
 def api() -> None:
-    """6 Â· Serve the Knowledge API as MCP tools (Q1-Q4)."""
-    _not_implemented("The Knowledge API", "Â§4.2 task 8")
+    """6 · Serve the Knowledge API as MCP tools (Q1-Q4)."""
+    _not_implemented("The Knowledge API", "§4.2 S15")
 
 
 if __name__ == "__main__":

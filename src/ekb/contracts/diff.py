@@ -1,6 +1,6 @@
 """T2 contract: what the diff decided for one change event, and why.
 
-T2 produces it; the pipeline (S12) routes it to the next step, and the
+T2 produces it; the worker pipeline (S12) routes it to the next step, and the
 inspector shows it. It lives here, with the other shared models, because
 those readers sit in layers that may not import ``ekb.process``.
 

@@ -123,6 +123,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pipeline/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pipeline Trace */
+        get: operations["pipeline_trace_api_pipeline_trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/traces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pipeline Traces */
+        get: operations["pipeline_traces_api_pipeline_traces_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/registry": {
         parameters: {
             query?: never;
@@ -586,6 +620,16 @@ export interface components {
             skip: number;
         };
         /**
+         * DocumentTraceView
+         * @description Every attempt at one item, newest first (S12).
+         */
+        DocumentTraceView: {
+            /** Document Key */
+            document_key: string;
+            /** Traces */
+            traces: components["schemas"]["TraceView"][];
+        };
+        /**
          * DocumentView
          * @description An item's current state: its latest event, and how many it has had.
          */
@@ -949,6 +993,23 @@ export interface components {
          */
         PiiKind: "iban" | "payment_card" | "it_fiscal_code" | "es_national_id" | "email" | "phone" | "person_name";
         /**
+         * PipelineView
+         * @description The worker as the inspector saw it (S12): every item's latest attempt, the totals
+         *     per status (of the latest attempts) and per step (of every attempt).
+         */
+        PipelineView: {
+            /** Attempts */
+            attempts: number;
+            /** Documents */
+            documents: components["schemas"]["TracedDocumentView"][];
+            /** Statuses */
+            statuses: {
+                [key: string]: number;
+            };
+            /** Steps */
+            steps: components["schemas"]["StepTotalsView"][];
+        };
+        /**
          * PublicationView
          * @description One document's readers and what of it is searchable.
          */
@@ -1045,6 +1106,95 @@ export interface components {
             last_event_at: string | null;
             /** Source */
             source: string;
+        };
+        /**
+         * StepOutcome
+         * @description How one step ended.
+         * @enum {string}
+         */
+        StepOutcome: "done" | "failed";
+        /**
+         * StepTotalsView
+         * @description One step over every attempt so far: how often it ran, failed, and its time.
+         */
+        StepTotalsView: {
+            /** Failed */
+            failed: number;
+            /** Runs */
+            runs: number;
+            /** Step */
+            step: string;
+            /** Total Ms */
+            total_ms: number;
+        };
+        /**
+         * TraceStatus
+         * @description Where one attempt left the event's item.
+         * @enum {string}
+         */
+        TraceStatus: "published" | "readers" | "record" | "skipped" | "purged" | "failed" | "parked" | "rebuilt";
+        /**
+         * TraceStepView
+         * @description One step of one attempt (S12): ``T3 parse``, ``T8 publish``, ``purge search`` …
+         */
+        TraceStepView: {
+            /** Detail */
+            detail: string;
+            /** Ms */
+            ms: number;
+            outcome: components["schemas"]["StepOutcome"];
+            /** Step */
+            step: string;
+        };
+        /**
+         * TraceView
+         * @description One attempt at one event, step by step (S12). No content: keys, versions,
+         *     decisions, counts, IDs and readers only.
+         */
+        TraceView: {
+            action: components["schemas"]["DiffAction"] | null;
+            /** Attempt */
+            attempt: number;
+            /** Document Key */
+            document_key: string;
+            /** Error */
+            error: string;
+            /** Ms */
+            ms: number;
+            /** Offset */
+            offset: number | null;
+            op: components["schemas"]["ChangeOp"];
+            /** Partition */
+            partition: number | null;
+            /** Seq */
+            seq: number;
+            /** Source */
+            source: string;
+            /** Source Id */
+            source_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["TraceStatus"];
+            /** Steps */
+            steps: components["schemas"]["TraceStepView"][];
+            /** Version */
+            version: string;
+        };
+        /**
+         * TracedDocumentView
+         * @description One item in the Pipeline tab's list: its latest attempt and how many it has had.
+         */
+        TracedDocumentView: {
+            /** Document Key */
+            document_key: string;
+            last: components["schemas"]["TraceView"];
+            /** Source */
+            source: string;
+            /** Traces */
+            traces: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -1244,6 +1394,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OriginalView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pipeline_trace_api_pipeline_trace_get: {
+        parameters: {
+            query: {
+                document_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTraceView"];
+                };
+            };
+            /** @description Never traced */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pipeline_traces_api_pipeline_traces_get: {
+        parameters: {
+            query?: {
+                source?: string | null;
+                status?: components["schemas"]["TraceStatus"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineView"];
                 };
             };
             /** @description Validation Error */

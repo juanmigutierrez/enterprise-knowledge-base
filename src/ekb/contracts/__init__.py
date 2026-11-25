@@ -16,8 +16,17 @@ from ekb.contracts.permissions import (
     admits,
     readers_now,
 )
+from ekb.contracts.trace import (
+    STEP_ORDER,
+    StepOutcome,
+    StepTrace,
+    Trace,
+    TraceStatus,
+    step_rank,
+)
 
 __all__ = [
+    "STEP_ORDER",
     "Acl",
     "Block",
     "BlockKind",
@@ -35,8 +44,13 @@ __all__ = [
     "PiiKind",
     "Principals",
     "Sensitivity",
+    "StepOutcome",
+    "StepTrace",
+    "Trace",
+    "TraceStatus",
     "admits",
     "entity_id",
     "readers_now",
     "render_blocks",
+    "step_rank",
 ]

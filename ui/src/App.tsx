@@ -9,14 +9,26 @@ import { ChunkScreen } from "./components/ChunkScreen";
 import { GatewayScreen } from "./components/GatewayScreen";
 import { ParseScreen } from "./components/ParseScreen";
 import { PermissionsScreen } from "./components/PermissionsScreen";
+import { PipelineScreen } from "./components/PipelineScreen";
 import { usePolling } from "./usePolling";
 
-type Tab = "documents" | "events" | "changelog" | "t2" | "t3" | "t4" | "t6" | "t8" | "gateway";
+type Tab =
+    | "documents"
+    | "events"
+    | "changelog"
+    | "pipeline"
+    | "t2"
+    | "t3"
+    | "t4"
+    | "t6"
+    | "t8"
+    | "gateway";
 
 const TABS: Record<Tab, string> = {
     documents: "Documents",
     events: "Events",
     changelog: "Change log",
+    pipeline: "Pipeline",
     t2: "T2 Diff",
     t3: "T3 Parse",
     t4: "T4 Chunk",
@@ -66,6 +78,7 @@ export function App() {
                 {tab === "documents" && <DocumentsScreen sources={names} />}
                 {tab === "events" && <EventsPanel sources={names} />}
                 {tab === "changelog" && <ChangeLogScreen sources={names} />}
+                {tab === "pipeline" && <PipelineScreen sources={names} />}
                 {tab === "t2" && <DiffScreen sources={names} />}
                 {tab === "t3" && <ParseScreen sources={names} />}
                 {tab === "t4" && <ChunkScreen sources={names} />}

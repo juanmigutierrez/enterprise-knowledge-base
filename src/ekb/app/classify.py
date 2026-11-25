@@ -2,10 +2,9 @@
 
 Two choices are made here, in the composition root, and nowhere else:
 
-- **Which classifier.** ``rules`` or ``model_plus_rules``, by hand, as the
-  earlier steps chose theirs; choosing from config comes with the pipeline
-  (S12). ``config/default.yaml`` names ``model_plus_rules`` (card 4.9's
-  starting choice) and the ``ci`` profile names ``rules``.
+- **Which classifier.** By name: the worker pipeline (S12) passes the one the
+  profile names (``model_plus_rules``, card 4.9's starting choice; ``rules`` in
+  the ``ci`` profile, or offline).
 - **What a purge forgets.** A deleted document's parsed text and chunks, as in
   S5 and S6, and now its **cached model replies** too: a context header or a
   model's labels are derived from the document's text, so they must not outlive

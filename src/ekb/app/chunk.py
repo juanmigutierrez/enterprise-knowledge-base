@@ -3,15 +3,15 @@ T8 (S11) behind it.
 
 Three choices are made here, in the composition root, and nowhere else:
 
-- **Which chunker.** ``structure_aware`` by hand, as S4 and S5 chose their
-  options by hand. ``config/default.yaml`` already names it (card 4.2's
-  starting choice) and the ``ci`` profile names ``fixed``; choosing from
-  config comes with the pipeline (S12).
+- **Which chunker.** By name: the worker pipeline (S12, ``ekb.app.pipeline``)
+  passes the one the profile names (``structure_aware``, card 4.2's starting
+  choice; ``fixed`` in the ``ci`` profile); the step demos pick theirs by hand.
 - **Which header writer** (S8): ``none`` or ``model``, its own port next to the
   chunker (``t4_header`` in the config, card 4.3). ``model`` needs the model
   gateway. Without one (the S6 wiring), chunks keep an empty header.
 - **When T4 runs, and T5 to T8 after it.** Right after T3, on the same
-  document, inside T2's ``downstream`` until S12 puts the steps on the bus. A
+  document. The worker pipeline (S12) runs them itself and traces each one;
+  :func:`chunk_after_t3` is the step demos' hand wiring of the same order. A
   record (T3's "not a document") is never chunked, labelled, linked, embedded
   or published; a record that defines an entity (an HR employee or team)
   updates the entity store instead (S9, ``ekb.app.entities``), and an identity
@@ -127,7 +127,7 @@ def chunk_after_t3(
     t8: PermissionStep | None = None,
     memberships: MembershipSync | None = None,
 ) -> Callable[[ParseResult], None]:
-    """T3's ``keep`` until S12: chunk what T3 parsed, label it (with ``t5``), link
+    """T3's ``keep`` in the step demos: chunk what T3 parsed, label it (with ``t5``), link
     it (with ``t6``), embed it (with ``t7``), publish it with its readers (with
     ``t8``), then hand every result on. A record that defines an entity goes to
     ``records`` instead, and an identity user record to ``memberships``.

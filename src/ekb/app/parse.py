@@ -6,13 +6,14 @@ Two choices are made here, in the composition root, and nowhere else:
   ``DOCUMENT_SOURCES``. Only the docs tool today. HR records, database rows and
   identity users are structured records: T3 reports them as "not a document"
   and they never become chunks (D7).
-- **Which parser.** ``markdown`` by hand, as S4 chose T2's option by hand.
-  ``config/default.yaml`` still names ``docling``, the starting choice of card
-  4.1; it changes only with an experiment result. Choosing from config comes
-  with the pipeline (S12).
+- **Which parser.** By name. ``config/default.yaml`` still names ``docling``,
+  the starting choice of card 4.1 (it changes only with an experiment result);
+  until it is built the worker pipeline (S12) runs its stand-in, ``markdown``
+  (``ekb.app.choices``).
 
-T3 runs only where T2 decided ``process``. S12 puts it on the bus behind T2;
-until then the demo and the inspector call it from T2's ``downstream``.
+T3 runs only where T2 decided ``process``. The worker pipeline (S12) runs it
+behind T2 for every event; :func:`parse_after_t2` is the step demos' hand
+wiring of the same rule.
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ def parse_after_t2(
     keep: Callable[[ParseResult], object],
     forget: Callable[[str], object],
 ) -> Downstream:
-    """T2's ``downstream`` until S12: parse what T2 sends on, forget what it purges.
+    """T2's ``downstream`` in the step demos: parse what T2 sends on, forget what it purges.
 
     ``process`` → T3 parses the event's original and ``keep`` gets the result.
     ``purge`` → ``forget`` gets the document key: a deleted item's parsed text

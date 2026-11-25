@@ -14,8 +14,9 @@ connector needs      given                            S2 had
 ``registry`` records every event as processed. Since S4, T2 does that job
 (``ekb.app.diff``, group ``t2_diff``), deciding first whether to skip,
 fast-track or purge; only ``ekb demo s3`` still uses the stand-in, so its replay
-can read every original (T2 purges a deleted page's). The in-memory options are
-chosen here by hand; choosing them in config comes with the pipeline wiring (S12).
+can read every original (T2 purges a deleted page's). :meth:`ChangeLog.in_memory`
+is the step demos' hand-picked change log; the worker pipeline builds the one the
+profile names (``ekb.app.pipeline.build_changelog``, S12).
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ class ChangeLog:
     registry: DocumentRegistry
     rawstore: RawStore
 
+    accepted: DocumentRegistry = field(default_factory=InMemoryRegistry, init=False, repr=False)
+    _latest: dict[str, tuple[int, int]] = field(default_factory=dict, init=False, repr=False)
     _lifetimes: dict[str, int] = field(default_factory=dict, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
@@ -51,6 +54,13 @@ class ChangeLog:
         """The lifetime open for this key, even while consumers are catching up."""
         with self._lock:
             return self._lifetimes.get(document_key, 0)
+
+    def latest_delivery(self, delivery: Delivery) -> bool:
+        with self._lock:
+            return self._latest.get(delivery.event.document_key) == (
+                delivery.partition,
+                delivery.offset,
+            )
 
     def store_original(self, document_key: str, version: str, original: bytes) -> str:
         with self._lock:
@@ -67,6 +77,8 @@ class ChangeLog:
             ):
                 raise ValueError(f"{key} original belongs to a closed lifetime")
             delivery = self.bus.publish(event.model_copy(update={"original_lifetime": lifetime}))
+            record_event(self.accepted, delivery.event)
+            self._latest[key] = (delivery.partition, delivery.offset)
             if event.op is ChangeOp.DELETE:
                 self._lifetimes[key] = lifetime + 1
             return delivery

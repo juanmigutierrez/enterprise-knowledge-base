@@ -16,12 +16,14 @@ from typer.testing import CliRunner
 from ekb.app import inspector as inspector_module
 from ekb.app.changelog import ChangeLog
 from ekb.app.cli import app
+from ekb.app.connectors import build_connectors
 from ekb.app.gateway import build_gateway
-from ekb.app.inspector import SyncLoop, build_connectors
-from ekb.contracts import Acl, ChangeOp, DiffAction, Sensitivity
+from ekb.app.inspector import SyncLoop
+from ekb.contracts import Acl, ChangeOp, DiffAction, Sensitivity, TraceStatus
 from ekb.contracts.listing import NeedsOriginal
 from ekb.operate.inspector.log import EventLog
 from ekb.platform.config import load_settings
+from ekb.platform.gateway.errors import GatewayError
 from tests.http import as_httpx
 from tests.unit.changelog.factories import acl_change
 from tests.unit.platform.gateway.helpers import make_world
@@ -60,7 +62,7 @@ def test_round_zero_loads_every_source_once(
     assert log.cursor == 57  # the inspector's group has read every event
     assert {g.group: g.lag for g in changelog.bus.stats().groups} == {
         "inspector": 0,
-        "t2_diff": 0,
+        "worker": 0,  # S12: the worker pipeline's group, T2 to T8
     }
     assert loop.decisions.counts() == {
         DiffAction.PROCESS: 57,  # everything is new
@@ -441,15 +443,14 @@ def test_a_failing_t2_round_records_nothing_and_is_retried_in_full(
 
     monkeypatch.setattr(loop.decisions, "append", broken)
     loop.run_round()
-    assert any("consumer group t2_diff" in error for error in loop.errors)
+    assert any("consumer group worker" in error for error in loop.errors)
     assert changelog.registry.records() == []
     monkeypatch.undo()
     loop.run_round()
     counts = loop.decisions.counts()
     assert counts[DiffAction.PROCESS] == 57  # every item processed, none lost
-    # With nothing recorded, the HR listing reported the 17 records the delta had
-    # already sent; T2 skipped those copies as repeats.
-    assert counts[DiffAction.SKIP] == 17
+    # The listing already saw the 17 accepted delta events while T2 was pending.
+    assert counts[DiffAction.SKIP] == 0
 
 
 @pytest.mark.parametrize(
@@ -477,7 +478,7 @@ def test_listing_repairs_missing_original_and_tombstones_absent_items(
     assert before is not None
     assert before.raw_pointer is not None
     for source_id in (item, "vanished"):
-        changelog.bus.publish(
+        changelog.publish(
             acl_change(source_id, before.version, Acl(), source, content_hash="mismatch")
         )
     changelog.record_processed()
@@ -497,3 +498,37 @@ def test_listing_repairs_missing_original_and_tombstones_absent_items(
     assert gone.deleted
     assert gone.version == before.version
     assert listing.sync() == 0
+
+
+def test_the_loop_traces_every_attempt_and_survives_a_model_outage(
+    clients: tuple[TestClient, TestClient, TestClient],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S12: the worker traces each attempt for the Pipeline tab. A failed attempt is
+    logged and retried next round (a model error used to stop the loop's thread)."""
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
+    loop = SyncLoop(connectors, changelog, EventLog(), listing_every=1)
+    loop.run_round()
+    assert loop.traces.cursor == 57
+    assert loop.choices is not None
+    assert loop.choices.option("t3_parse") == "markdown"  # docling's stand-in
+
+    def down(*args: object) -> None:
+        raise GatewayError("ollama:bge-m3: connection refused")
+
+    monkeypatch.setattr(loop.t7, "handle", down)
+    docs.put("/pages/HR-PL-04", json={"body": "# Remote work\n\n## Rule\nFriday too.\n"})
+    loop.run_round()
+    assert any("attempt 1 of 3 failed at T7 embed" in error for error in loop.errors)
+    monkeypatch.undo()
+    loop.run_round()
+
+    (last, count) = loop.traces.latest()["hr_docs:HR-PL-04"]
+    assert (count, last.trace.status, last.trace.attempt) == (3, TraceStatus.PUBLISHED, 2)
+    assert len(loop.pipeline.dead_letters) == 0

@@ -23,6 +23,14 @@ class InMemoryPermissionStore:
         self._by_source: dict[str, str] = {}  # record key -> user ID
         self._readers: dict[str, DocumentAcl] = {}
         self._lock = threading.Lock()
+        self._hidden: set[str] = set()
+
+    def set_visible(self, document_key: str, *, visible: bool) -> None:
+        with self._lock:
+            if visible:
+                self._hidden.discard(document_key)
+            else:
+                self._hidden.add(document_key)
 
     def put_membership(self, membership: Membership) -> Membership | None:
         with self._lock:
@@ -50,7 +58,7 @@ class InMemoryPermissionStore:
             return tuple(m for _, m in sorted(self._users.items()) if self._live(m))
 
     def _live(self, member: Membership) -> bool:
-        return (
+        return member.source_key not in self._hidden and (
             self._current_lifetime is None
             or self._current_lifetime(member.source_key) == member.original_lifetime
         )

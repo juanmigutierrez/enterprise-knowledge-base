@@ -6,7 +6,7 @@
     file     = reader(key, version, original)        # the source's envelope -> the file
     parsed   = parser.parse(file)                    # the option: Markdown, plain text ...
 
-T3 runs only where T2 decided ``process`` (S12 wires it): an upsert whose
+T3 runs only where T2 decided ``process`` (the worker, S12): an upsert whose
 content is new or changed. Skips and permission-only changes never get here,
 which is where T2's savings come from.
 
@@ -20,9 +20,8 @@ no document; those items go to the entity store (S9) and the metrics store
 (S14b), never to chunks and vectors (D7).
 
 **Errors are not skipped.** A missing original or one that cannot be parsed
-raises: the event is not committed and comes back (the rule of S4). Sending
-such events aside after a few tries (a dead-letter queue) is the pipeline's
-job (S12).
+raises: the event is not committed and comes back (the rule of S4). After a
+few tries the worker sets it aside in its dead letters (S12).
 """
 
 from __future__ import annotations
