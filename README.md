@@ -4,6 +4,8 @@
 
 This proof of concept lets an HR assistant answer questions with citations from sources the caller can read. Connectors watch synthetic HR documents, records and identity changes. A worker indexes passages with their access rules. When the assistant asks over MCP (Model Context Protocol), the knowledge API filters candidates by the caller's groups and rechecks access at the source before returning evidence.
 
+Explore the architecture diagrams for the [local Docker Compose stack](#install-docker-and-run-the-service-stack) and the [proposed AWS production deployment](#proposed-aws-production-architecture).
+
 ## Install the project
 
 Start here for every setup. The lifecycle demo needs Git, uv and Python 3.13. Add Ollama for real embeddings, Node.js for the inspector, and Docker for the infrastructure or the full service stack. You can run each of those independently after the base install.
@@ -146,6 +148,8 @@ Use Ctrl+C in both terminals to stop. To inspect real embeddings on a later run,
 
 ## Install Docker and run the service stack
 
+[![Local Docker Compose architecture showing the four synthetic HR sources, connectors, Kafka change log, processing worker, knowledge stores and permission checks before an answer reaches the HR assistant](docs/architecture/local-compose.png)](docs/architecture/local-compose.png)
+
 1. Install Docker Desktop for Windows or macOS and start it. On Windows, follow the installer's WSL 2 setup and select Linux containers. On Linux, install Docker Engine and the Compose plugin for your distribution, then start the daemon. Verify that `docker info` shows a **Server** section and `docker compose version` prints a version. [Docker Desktop installation](https://docs.docker.com/get-started/get-docker/) · [Compose installation on Linux](https://docs.docker.com/compose/install/linux/)
 2. For the infrastructure demo, start Kafka, DynamoDB Local, SeaweedFS and OpenSearch. Wait for the health checks, then run the comparison against the in-memory path.
 
@@ -208,6 +212,12 @@ docker compose --profile models --profile app down
 ## Assumptions and limits
 
 The sources, people, access groups and policies are synthetic. In the quick start the worker uses offline model substitutes and the assistant quotes evidence. This makes access and deletion checks repeatable. The multilingual retrieval measurements use a separate embedding experiment. The local setup uses demo identities and loopback services. The production design covers AWS infrastructure and authentication separately. [Design decisions](docs/decisions.md)
+
+### Proposed AWS production architecture
+
+Department-owned sources feed a regional pipeline through Amazon MSK. Agents query passages in OpenSearch, relationships in Neptune and metrics through Athena or Redshift. The Knowledge API checks the employee’s access before it returns evidence.
+
+[![Proposed AWS architecture showing enterprise sources, Amazon MSK, processing workers, search, graph and SQL stores, and the agent access path through AgentCore Gateway and the Knowledge API](docs/architecture/scale-up.png)](docs/architecture/scale-up.png)
 
 ## Development checks
 
