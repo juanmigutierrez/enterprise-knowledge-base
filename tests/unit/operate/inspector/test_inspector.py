@@ -257,10 +257,13 @@ def test_it_refuses_every_profile_but_local(profile: str) -> None:
         _app(EventLog(), profile=profile)
 
 
-def test_it_is_read_only(client: TestClient) -> None:
+def test_it_is_read_only_but_for_the_scripted_source_changes(client: TestClient) -> None:
+    """D19 as amended in S16: every route is a GET, except the one that applies a scripted
+    change to a mock source (never to a store)."""
     routes = [r for r in client.app.routes if isinstance(r, APIRoute)]  # type: ignore[attr-defined]
     assert routes
-    assert {m for r in routes for m in (r.methods or set())} == {"GET"}
+    writes = {(r.path, m) for r in routes for m in (r.methods or set()) if m != "GET"}
+    assert writes == {("/api/lifecycle/actions/{action_id}", "POST")}
 
 
 def test_it_binds_to_the_loopback_interface_only() -> None:

@@ -579,7 +579,8 @@ ul.links li {
     border: 1px solid transparent;
 }
 .trace-published,
-.trace-rebuilt {
+.trace-rebuilt,
+.trace-relinked {
     background: var(--upsert);
     color: #fff;
 }
@@ -796,4 +797,54 @@ ol.hits {
     padding: 1px 6px;
     border: 1px solid var(--acl);
     color: var(--acl);
+}
+
+/* Lifecycle (S16): the story's buttons, and each answer at three moments. */
+ol.actions {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 0;
+}
+.action {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.action-applied button {
+    text-decoration: line-through;
+}
+.life {
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+}
+.life-cited {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+.life-held {
+    background: #fbeaea;
+    color: #9b1c1c;
+    border-color: #e3a6a6;
+}
+.moved {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.moved-lost {
+    color: var(--delete);
+}
+.moved-gained {
+    color: var(--upsert);
+}
+ul.work {
+    margin: 0;
+    padding-left: 16px;
 }

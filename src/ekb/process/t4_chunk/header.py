@@ -70,6 +70,19 @@ class HeaderWriter(Protocol):
     def write(self, document: ParsedDocument, chunks: tuple[Chunk, ...]) -> Headers: ...
 
 
+NO_HEADER = "no header"
+"""What a ``header_id`` ends with when the writer failed (``model@1(header@1, no header)``)."""
+
+
+def header_failed(header_id: str) -> bool:
+    """Whether chunks with this ``header_id`` were meant to get a header and did not.
+
+    ``none`` writes no header on purpose; only a failed writer marks its ID. A
+    reconciliation run (S16) re-processes such documents when a model may answer.
+    """
+    return header_id.endswith(f", {NO_HEADER})")
+
+
 def clean(text: str, max_words: int | None = None) -> str:
     """One line: whitespace collapsed, and at most ``max_words`` words."""
     words = text.split()

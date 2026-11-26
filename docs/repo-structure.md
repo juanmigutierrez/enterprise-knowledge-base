@@ -41,6 +41,7 @@ enterprise-knowledge-base/
 ├── tests/
 │   ├── unit/                     Mirrors src/ekb
 │   ├── contract/                 Every option satisfies its step's port
+│   ├── gates/                    Deletion, revocation, publication and leakage gates (S16)
 │   └── (integration/, e2e/)      Added with the first infrastructure code
 ├── docs/                     Design document sources, plan, this file
 ├── compose.yaml              Local infrastructure (profiles: models, app, …)

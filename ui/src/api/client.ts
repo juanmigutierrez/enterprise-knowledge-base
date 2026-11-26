@@ -29,6 +29,12 @@ export type GatewayQuotaView = Schemas["GatewayQuotaView"];
 export type GatewayRouteView = Schemas["GatewayRouteView"];
 export type GatewayView = Schemas["GatewayView"];
 export type GroupView = Schemas["GroupView"];
+export type LifecycleActionView = Schemas["LifecycleActionView"];
+export type LifecycleHeldView = Schemas["LifecycleHeldView"];
+export type LifecycleProbeView = Schemas["LifecycleProbeView"];
+export type LifecycleStepView = Schemas["LifecycleStepView"];
+export type LifecycleTraceView = Schemas["LifecycleTraceView"];
+export type LifecycleView = Schemas["LifecycleView"];
 export type MembershipView = Schemas["MembershipView"];
 export type MentionView = Schemas["MentionView"];
 export type OriginalView = Schemas["OriginalView"];
@@ -112,6 +118,25 @@ async function get<T>(path: string, query: Query = {}) {
     return (await response.json()) as T;
 }
 
+/**
+ * The one write the inspector makes (S16): a scripted change to a mock source. A refusal
+ * (409: out of order, 502: the source refused) comes back as the API's own reason.
+ */
+async function post<T>(path: string) {
+    const response = await fetch(path, { method: "POST" });
+    if (!response.ok) {
+        let detail = response.statusText;
+        try {
+            const body = (await response.json()) as { detail?: unknown };
+            if (body.detail) detail = String(body.detail);
+        } catch {
+            // not JSON: keep the status text
+        }
+        throw new Error(`${response.status} ${detail}`);
+    }
+    return (await response.json()) as T;
+}
+
 /** Like `get`, but a 404 is an answer (`null`), not an error: the item isn't there. */
 async function getOrNull<T>(path: string, query: Query = {}) {
     const address = url(path, query);
@@ -153,4 +178,7 @@ export const api = {
     gateway: () => get<GatewayView>("/api/gateway"),
     gatewayCalls: (query: GatewayCallsQuery = {}) =>
         get<CallPage>("/api/gateway/calls", query),
+    lifecycle: () => get<LifecycleView>("/api/lifecycle"),
+    applyLifecycle: (actionId: string) =>
+        post<LifecycleStepView>(`/api/lifecycle/actions/${encodeURIComponent(actionId)}`),
 };

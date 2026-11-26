@@ -6,7 +6,7 @@ import pytest
 
 from ekb.access.answer.options.cache_memory import InMemoryAnswerCache
 from ekb.access.answer.port import CachedAnswer, Draft
-from ekb.contracts import Scope
+from ekb.contracts import AccessVerdict, Scope, SourceAccess
 
 SCOPE = Scope(user_id="alice", principals=None, reason="", prefilter_id="acl@1")
 
@@ -46,3 +46,28 @@ def test_an_entry_says_it_is_stale_unless_told_otherwise() -> None:
     assert entry("q").still_current() is False
     with pytest.raises(ValueError, match="at least 1"):
         InMemoryAnswerCache(max_entries=0)
+
+
+def test_forgetting_a_deleted_page_drops_every_answer_that_touched_it() -> None:
+    """S16: the purge of a page empties the answers that searched, checked or quoted it."""
+    cache = InMemoryAnswerCache()
+    cited = entry("leave")
+    cited = CachedAnswer(
+        question="leave",
+        scope=SCOPE,
+        hits=(),
+        passages=(),
+        checked=(
+            SourceAccess(
+                document_key="hr_docs:HR-PL-99", verdict=AccessVerdict.ALLOWED, reason="ok"
+            ),
+        ),
+        draft=cited.draft,
+    )
+    cache.put("cited", cited)
+    cache.put("other", entry("other"))
+
+    assert cache.forget("hr_docs:HR-PL-99") == 1
+    assert cache.get("cited") is None
+    assert cache.get("other") is not None
+    assert cache.forget("hr_docs:HR-PL-99") == 0

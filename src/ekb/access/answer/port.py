@@ -10,7 +10,9 @@ passages' own numbers, nothing else (:func:`cited_numbers`).
 **The cache** (:class:`AnswerCache`) keeps an answer with everything needed to
 check it again: the hits Q4 checked, what it released, the source's answers,
 and whether the asker's readable index is still the one it was written from.
-It does not decide reuse: ``ekb.app.assistant`` asks Q4 again first.
+It does not decide reuse: ``ekb.app.assistant`` asks Q4 again first. It does
+forget (S16): when a page is deleted, every answer that searched, checked or
+quoted it goes at once, rather than waiting to fail its next re-check.
 """
 
 from __future__ import annotations
@@ -88,6 +90,14 @@ class CachedAnswer:
     still_current: Callable[[], bool] = field(default=lambda: False, compare=False)
     """Whether the asker's readable index is still the one the answer was written from."""
 
+    def documents(self) -> frozenset[str]:
+        """Every page the answer touched: its hits, the source's answers and its passages."""
+        return frozenset(
+            {hit.chunk.document_key for hit in self.hits}
+            | {access.document_key for access in self.checked}
+            | {p.citation.document_key for p in self.passages}
+        )
+
 
 @runtime_checkable
 class AnswerCache(Protocol):
@@ -101,5 +111,9 @@ class AnswerCache(Protocol):
     def put(self, key: str, entry: CachedAnswer) -> None: ...
 
     def drop(self, key: str) -> None: ...
+
+    def forget(self, document_key: str) -> int:
+        """A page was deleted: drop every answer that touched it; return how many."""
+        ...
 
     def size(self) -> int: ...

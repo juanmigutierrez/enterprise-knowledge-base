@@ -194,6 +194,22 @@ class Index:
         return Found(tuple(mentions.values()), tuple(ambiguous))
 
 
+def find_all(index: Index, passages: Iterable[str]) -> Found:
+    """What a chunk's passages name together: each entity once, in first-named order.
+
+    The one way a chunk is read, shared by ``exact_match`` and the re-link check
+    (S16, :mod:`ekb.process.t6_entities.relink`), so both always agree.
+    """
+    mentions: dict[str, EntityMention] = {}
+    ambiguous: dict[str, None] = {}
+    for passage in passages:
+        found = index.find(passage)
+        for mention in found.mentions:
+            mentions.setdefault(mention.entity_id, mention)
+        ambiguous.update(dict.fromkeys(found.ambiguous))
+    return Found(tuple(mentions.values()), tuple(ambiguous))
+
+
 def _rule(rule: str, alias: str, owners: tuple[str, ...], key: str) -> _Rule:
     if rule == TEAM:
         name = _spaced(key)

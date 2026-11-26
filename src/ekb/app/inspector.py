@@ -24,7 +24,10 @@ It builds a small live system in one process:
    ``ekb.app.search``) over the same stores, for the **Search as user** tab: Q2
    and Q3 as the profile names them, questions embedded by T7's model; with Q1's
    plan and Q4's check against the running mocks (S14, ``ekb.app.answer``),
-   wired once the mocks have started.
+   wired once the mocks have started; and the **Lifecycle** tab (S16): the
+   scripted changes of ``ekb.app.lifecycle``, applied to the mocks one at a
+   time, with the story's questions answered before, right after (the loop is
+   held, so the worker has not run) and now.
 
 Change something in a mock's ``/docs`` page and watch the event appear.
 """
@@ -38,7 +41,7 @@ import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import Annotated
@@ -59,6 +62,7 @@ from ekb.app.demos._serve import serving
 from ekb.app.embed import EMBEDDER_OPTIONS, MODEL_EMBEDDERS, embed_help, probe
 from ekb.app.entities import entity_store
 from ekb.app.gateway import build_gateway, max_spend, provider_status
+from ekb.app.lifecycle import ACTIONS, MENTORING_KEY, PROBES, ActionRefusedError, Sources, check
 from ekb.app.permissions import permission_store, resolver, search_store
 from ekb.app.pipeline import (
     WORKER_GROUP,
@@ -85,6 +89,13 @@ from ekb.operate.inspector.app import (
 )
 from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
+from ekb.operate.inspector.lifecycle import (
+    ActionInfo,
+    LifecyclePanel,
+    LifecycleRefusedError,
+    LifecycleSourceError,
+    ProbeInfo,
+)
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.permissions import PermissionPanel
 from ekb.operate.inspector.search import SearchPanel
@@ -98,6 +109,7 @@ from ekb.process.t5_classify.step import ClassifyStep
 from ekb.process.t6_entities.step import LinkStep
 from ekb.process.t7_embed.step import EmbedStep
 from ekb.process.t8_permissions.step import PermissionStep
+from ekb.stores.search.port import SearchStore
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +155,8 @@ class SyncLoop:
     listing_every: int = 10
     rounds: int = 0
     errors: list[str] = field(default_factory=list)
+    _round_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _listing_soon: bool = field(default=False, init=False, repr=False)
     pipeline: Pipeline = field(init=False)
     t2: DiffStep = field(init=False)
     t3: ParseStep = field(init=False)
@@ -222,16 +236,37 @@ class SyncLoop:
         # Frequent ones first: on round 0 the HR delta loads every record, so the HR
         # listing that follows finds nothing to add, and the docs listing loads the pages.
         # Listings compare with versions already accepted from the frequent connectors.
-        emitted = self._sync(self.connectors.frequent)
-        self._consume(WORKER_GROUP, self.pipeline.run)
-        if self.rounds % self.listing_every == 0:
-            emitted += self._sync(self.connectors.listings)
-            self._consume(WORKER_GROUP, self.pipeline.run)
-        self._consume(
-            INSPECTOR_GROUP, lambda: drain(self.changelog.bus, INSPECTOR_GROUP, self.log.append)
-        )
-        self.rounds += 1
-        return emitted
+        with self._round_lock:
+            emitted = self._sync(self.connectors.frequent)
+            self._consume(WORKER_GROUP, self._work)
+            if self.rounds % self.listing_every == 0 or self._listing_soon:
+                self._listing_soon = False
+                emitted += self._sync(self.connectors.listings)
+                self._consume(WORKER_GROUP, lambda: self._work(listing=True))
+            self._consume(
+                INSPECTOR_GROUP,
+                lambda: drain(self.changelog.bus, INSPECTOR_GROUP, self.log.append),
+            )
+            self.rounds += 1
+            return emitted
+
+    @contextmanager
+    def paused(self) -> Iterator[None]:
+        """No round runs while this is open (the Lifecycle screen's "right after", S16)."""
+        with self._round_lock:
+            yield
+
+    def listing_next_round(self) -> None:
+        """Run the full listings in the next round, not only every ``listing_every``: a
+        change only a listing can see (an HR delete) should not wait half a minute."""
+        self._listing_soon = True
+
+    def _work(self, *, listing: bool = False) -> int:
+        """The worker's drain, then its re-links (S16): pages whose people or teams
+        changed, and on listing rounds pages whose context headers failed."""
+        handled = self.pipeline.run()
+        self.pipeline.relink(retry_headers=listing)
+        return handled
 
     def _sync(self, connectors: list[Connector]) -> int:
         emitted = 0
@@ -351,6 +386,7 @@ def inspector(
         search = SearchPanel(
             ask=late.ask, index=stores.search, encoder=encoder_note(choices, encoder)
         )
+        actions = LateActions()
         app = _create_app(
             log,
             decisions,
@@ -363,6 +399,7 @@ def inspector(
             permissions=permissions,
             traces=traces,
             search=search,
+            lifecycle=lifecycle_panel(actions, late.ask, traces, stores.search),
         )
     except InspectorNotAllowedError as exc:
         typer.secho(str(exc), fg="red", err=True)
@@ -405,6 +442,7 @@ def inspector(
         typer.echo(f"Options (profile {profile}; config/ names them):")
         for choice in choices.steps:
             typer.echo(f"  {choice.describe()}")
+        actions.sources, actions.loop = Sources(docs, hr, idp), loop
         loaded = loop.run_round()
         stack.enter_context(loop.running(interval))
 
@@ -448,6 +486,7 @@ def inspector(
         typer.echo(
             f"Dead letters: {parked} parked events. Follow any document in the Pipeline tab."
         )
+        typer.echo("  Play the self-maintenance story, one change at a time, in the Lifecycle tab.")
         typer.echo("Make changes in the mocks (add an X-Actor header to say who):")
         for name, client in (("docs", docs), ("HR API", hr), ("identity", idp)):
             typer.echo(f"  {name:<9} {str(client.base_url).rstrip('/')}/docs")
@@ -455,6 +494,70 @@ def inspector(
         typer.echo(f"Inspector API: http://{HOST}:{port}/docs")
         typer.echo("UI: in ui/, run `npm install` once, then `npm run dev`. Ctrl+C stops.")
         uvicorn.run(app, host=HOST, port=port, log_level="warning")
+
+
+@dataclass
+class LateActions:
+    """The Lifecycle screen's scripted changes (S16), wired once the mocks are running.
+
+    An action changes a mock source through its own API, as its owner would
+    (``ekb.app.lifecycle``); a change only a full listing can see asks the loop
+    to run the listings in its next round.
+    """
+
+    sources: Sources | None = None
+    loop: SyncLoop | None = None
+    _applied: list[str] = field(default_factory=list, init=False)
+
+    def wired(self) -> bool:
+        return self.sources is not None and self.loop is not None
+
+    def paused(self) -> AbstractContextManager[object]:
+        return self.loop.paused() if self.loop is not None else nullcontext()
+
+    def apply(self, action_id: str) -> None:
+        if self.sources is None or self.loop is None:
+            raise LifecycleSourceError("the mocks have not started")
+        try:
+            action = check(action_id, self._applied)
+            action.apply(self.sources)
+        except ActionRefusedError as exc:
+            raise LifecycleRefusedError(str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise LifecycleSourceError(f"{action_id}: the source refused it: {exc}") from exc
+        self._applied.append(action_id)
+        if action.listing:
+            self.loop.listing_next_round()
+
+
+def lifecycle_panel(
+    late: LateActions, ask: Callable[[str, str], AnswerResult], traces: TraceLog, index: SearchStore
+) -> LifecyclePanel:
+    """The story of ``ekb.app.lifecycle`` as the Lifecycle screen shows it."""
+    return LifecyclePanel(
+        actions=[
+            ActionInfo(
+                id=a.id,
+                title=a.title,
+                actor=a.actor,
+                source=a.source,
+                change=a.change,
+                caught_by=a.caught_by,
+                listing=a.listing,
+                expect=a.expect,
+                after=a.after,
+            )
+            for a in ACTIONS
+        ],
+        probes=[ProbeInfo(p.user, p.question, p.page) for p in PROBES],
+        apply=late.apply,
+        ask=ask,
+        paused=late.paused,
+        traces=traces,
+        linked=index.chunks,
+        watched=MENTORING_KEY,
+        wired=late.wired,
+    )
 
 
 @dataclass
@@ -509,6 +612,7 @@ def _create_app(
     permissions: PermissionPanel | None = None,
     traces: TraceLog | None = None,
     search: SearchPanel | None = None,
+    lifecycle: LifecyclePanel | None = None,
 ) -> FastAPI:
     return create_inspector_app(
         log,
@@ -525,4 +629,5 @@ def _create_app(
         permissions=permissions,
         traces=traces,
         search=search,
+        lifecycle=lifecycle,
     )

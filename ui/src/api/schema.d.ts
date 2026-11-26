@@ -106,6 +106,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lifecycle View */
+        get: operations["lifecycle_view_api_lifecycle_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lifecycle/actions/{action_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lifecycle Apply */
+        post: operations["lifecycle_apply_api_lifecycle_actions__action_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/originals": {
         parameters: {
             query?: never;
@@ -890,6 +924,127 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * LifecycleActionView
+         * @description One scripted change in a source, and whether it can be applied now.
+         */
+        LifecycleActionView: {
+            /** Actor */
+            actor: string;
+            /** After */
+            after: string[];
+            /** Applied */
+            applied: boolean;
+            /** Blocked */
+            blocked: string;
+            /** Caught By */
+            caught_by: string;
+            /** Change */
+            change: string;
+            /** Expect */
+            expect: string;
+            /** Id */
+            id: string;
+            /** Listing */
+            listing: boolean;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * LifecycleHeldView
+         * @description A page Q4 held back for this person, and the source's reason.
+         */
+        LifecycleHeldView: {
+            /** Document Key */
+            document_key: string;
+            /** Reason */
+            reason: string;
+            verdict: components["schemas"]["AccessVerdict"];
+        };
+        /**
+         * LifecycleProbeView
+         * @description One question asked as one person at one moment: is the page it depends on cited?
+         */
+        LifecycleProbeView: {
+            /** Cited */
+            cited: boolean;
+            /** Held Back */
+            held_back: components["schemas"]["LifecycleHeldView"][];
+            /** Page */
+            page: string;
+            /** Pages */
+            pages: string[];
+            /** Question */
+            question: string;
+            /** Reads Nothing */
+            reads_nothing: boolean;
+            /** Reason */
+            reason: string;
+            /** User Id */
+            user_id: string;
+        };
+        /**
+         * LifecycleStepView
+         * @description One change applied from the screen: the questions before it, right after it (the
+         *     worker had not run), and what the worker did since.
+         */
+        LifecycleStepView: {
+            /** Action Id */
+            action_id: string;
+            /**
+             * Applied At
+             * Format: date-time
+             */
+            applied_at: string;
+            /** Before */
+            before: components["schemas"]["LifecycleProbeView"][];
+            /** Number */
+            number: number;
+            /** Right After */
+            right_after: components["schemas"]["LifecycleProbeView"][];
+            /** Title */
+            title: string;
+            /** Traces */
+            traces: components["schemas"]["LifecycleTraceView"][];
+        };
+        /**
+         * LifecycleTraceView
+         * @description What the worker did with one event after a change: no content (S12).
+         */
+        LifecycleTraceView: {
+            action: components["schemas"]["DiffAction"] | null;
+            /** Document Key */
+            document_key: string;
+            /** Failed Step */
+            failed_step: string | null;
+            /** Seq */
+            seq: number;
+            status: components["schemas"]["TraceStatus"];
+            /** Steps */
+            steps: string[];
+            /** Version */
+            version: string;
+        };
+        /**
+         * LifecycleView
+         * @description The story so far: the changes, what each did, and the questions answered now.
+         */
+        LifecycleView: {
+            /** Actions */
+            actions: components["schemas"]["LifecycleActionView"][];
+            /** Links */
+            links: string[];
+            /** Now */
+            now: components["schemas"]["LifecycleProbeView"][];
+            /** Steps */
+            steps: components["schemas"]["LifecycleStepView"][];
+            /** Watched */
+            watched: string;
+            /** Wired */
+            wired: boolean;
+        };
+        /**
          * MembershipView
          * @description One identity user as the permission store holds them.
          */
@@ -1255,7 +1410,7 @@ export interface components {
          * @description Where one attempt left the event's item.
          * @enum {string}
          */
-        TraceStatus: "published" | "readers" | "record" | "skipped" | "purged" | "failed" | "parked" | "rebuilt";
+        TraceStatus: "published" | "readers" | "record" | "skipped" | "purged" | "failed" | "parked" | "rebuilt" | "relinked";
         /**
          * TraceStepView
          * @description One step of one attempt (S12): ``T3 parse``, ``T8 publish``, ``purge search`` …
@@ -1510,6 +1665,85 @@ export interface operations {
                         [key: string]: string;
                     };
                 };
+            };
+        };
+    };
+    lifecycle_view_api_lifecycle_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleView"];
+                };
+            };
+        };
+    };
+    lifecycle_apply_api_lifecycle_actions__action_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleStepView"];
+                };
+            };
+            /** @description No such scripted change */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Already applied, or out of the story's order */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The mock source refused the change or did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The sources are not running yet */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

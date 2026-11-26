@@ -14,9 +14,11 @@ link to.
 
 **Links already written are not redone here.** A document processed before a
 hire keeps no link to them, and one processed before a leaver keeps theirs,
-until the document changes or is rebuilt (the S9 plan; re-linking joins the
-self-maintenance scenario, S16). The store never returns a removed entity, so
-nothing about the leaver can be looked up from that ID.
+until it is processed again. Since S16 the worker does that itself: it notes
+every change this sync makes to the store, and after its drain re-processes the
+published pages whose links are now stale (:mod:`ekb.process.t6_entities.relink`,
+``ekb.app.relinks``). The store never returns a removed entity, so nothing
+about the leaver can be looked up from that ID in between.
 """
 
 from __future__ import annotations

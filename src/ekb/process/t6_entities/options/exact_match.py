@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ekb.contracts import Chunk, Entity, EntityMention, ParsedDocument
+from ekb.contracts import Chunk, Entity, ParsedDocument
 from ekb.platform.registry import register
 from ekb.process.t6_entities import match
 from ekb.process.t6_entities.port import Linking, words
@@ -33,23 +33,12 @@ class ExactMatchLinker:
         self, document: ParsedDocument, chunks: tuple[Chunk, ...], entities: Sequence[Entity]
     ) -> Linking:
         index = match.Index(entities)
-        found = [_find_chunk(index, chunk) for chunk in chunks]
+        found = [match.find_all(index, words(chunk)) for chunk in chunks]
         return Linking(
             mentions=tuple(f.mentions for f in found),
             linker_id=self.linker_id,
             note=_note(index, found),
         )
-
-
-def _find_chunk(index: match.Index, chunk: Chunk) -> match.Found:
-    mentions: dict[str, EntityMention] = {}
-    ambiguous: dict[str, None] = {}
-    for passage in words(chunk):
-        found = index.find(passage)
-        for mention in found.mentions:
-            mentions.setdefault(mention.entity_id, mention)
-        ambiguous.update(dict.fromkeys(found.ambiguous))
-    return match.Found(tuple(mentions.values()), tuple(ambiguous))
 
 
 def _note(index: match.Index, found: Sequence[match.Found]) -> str:

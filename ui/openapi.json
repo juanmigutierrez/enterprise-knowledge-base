@@ -1464,6 +1464,315 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "LifecycleActionView": {
+        "description": "One scripted change in a source, and whether it can be applied now.",
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "after": {
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "blocked": {
+            "title": "Blocked",
+            "type": "string"
+          },
+          "caught_by": {
+            "title": "Caught By",
+            "type": "string"
+          },
+          "change": {
+            "title": "Change",
+            "type": "string"
+          },
+          "expect": {
+            "title": "Expect",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "listing": {
+            "title": "Listing",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "actor",
+          "source",
+          "change",
+          "caught_by",
+          "listing",
+          "expect",
+          "after",
+          "applied",
+          "blocked"
+        ],
+        "title": "LifecycleActionView",
+        "type": "object"
+      },
+      "LifecycleHeldView": {
+        "description": "A page Q4 held back for this person, and the source's reason.",
+        "properties": {
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/AccessVerdict"
+          }
+        },
+        "required": [
+          "document_key",
+          "verdict",
+          "reason"
+        ],
+        "title": "LifecycleHeldView",
+        "type": "object"
+      },
+      "LifecycleProbeView": {
+        "description": "One question asked as one person at one moment: is the page it depends on cited?",
+        "properties": {
+          "cited": {
+            "title": "Cited",
+            "type": "boolean"
+          },
+          "held_back": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleHeldView"
+            },
+            "title": "Held Back",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "string"
+          },
+          "pages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pages",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "reads_nothing": {
+            "title": "Reads Nothing",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "question",
+          "page",
+          "cited",
+          "pages",
+          "held_back",
+          "reads_nothing",
+          "reason"
+        ],
+        "title": "LifecycleProbeView",
+        "type": "object"
+      },
+      "LifecycleStepView": {
+        "description": "One change applied from the screen: the questions before it, right after it (the\nworker had not run), and what the worker did since.",
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "applied_at": {
+            "format": "date-time",
+            "title": "Applied At",
+            "type": "string"
+          },
+          "before": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleProbeView"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "right_after": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleProbeView"
+            },
+            "title": "Right After",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleTraceView"
+            },
+            "title": "Traces",
+            "type": "array"
+          }
+        },
+        "required": [
+          "number",
+          "action_id",
+          "title",
+          "applied_at",
+          "before",
+          "right_after",
+          "traces"
+        ],
+        "title": "LifecycleStepView",
+        "type": "object"
+      },
+      "LifecycleTraceView": {
+        "description": "What the worker did with one event after a change: no content (S12).",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiffAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_key": {
+            "title": "Document Key",
+            "type": "string"
+          },
+          "failed_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Step"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TraceStatus"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "document_key",
+          "version",
+          "action",
+          "status",
+          "steps",
+          "failed_step"
+        ],
+        "title": "LifecycleTraceView",
+        "type": "object"
+      },
+      "LifecycleView": {
+        "description": "The story so far: the changes, what each did, and the questions answered now.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleActionView"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "now": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleProbeView"
+            },
+            "title": "Now",
+            "type": "array"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleStepView"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "watched": {
+            "title": "Watched",
+            "type": "string"
+          },
+          "wired": {
+            "title": "Wired",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "wired",
+          "actions",
+          "steps",
+          "now",
+          "watched",
+          "links"
+        ],
+        "title": "LifecycleView",
+        "type": "object"
+      },
       "MembershipView": {
         "description": "One identity user as the permission store holds them.",
         "properties": {
@@ -2431,7 +2740,8 @@
           "purged",
           "failed",
           "parked",
-          "rebuilt"
+          "rebuilt",
+          "relinked"
         ],
         "title": "TraceStatus",
         "type": "string"
@@ -2918,6 +3228,75 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/api/lifecycle": {
+      "get": {
+        "operationId": "lifecycle_view_api_lifecycle_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Lifecycle View"
+      }
+    },
+    "/api/lifecycle/actions/{action_id}": {
+      "post": {
+        "operationId": "lifecycle_apply_api_lifecycle_actions__action_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "title": "Action Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleStepView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such scripted change"
+          },
+          "409": {
+            "description": "Already applied, or out of the story's order"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The mock source refused the change or did not answer"
+          },
+          "503": {
+            "description": "The sources are not running yet"
+          }
+        },
+        "summary": "Lifecycle Apply"
       }
     },
     "/api/originals": {

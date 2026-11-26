@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -97,8 +98,47 @@ def test_replacing_a_reply_preserves_previous_document_tags(cache: ResponseCache
 
 def test_tagging_a_missing_entry_does_nothing(cache: ResponseCache) -> None:
     cache.tag("ghost", "hr_docs:A")
+    cache.quote("ghost", ["hr_docs:A"])
 
     assert cache.forget("hr_docs:A") == 0
+    assert cache.size() == 0
+
+
+def test_a_reply_that_quotes_a_deleted_document_goes_even_while_others_live(
+    cache: ResponseCache,
+) -> None:
+    """S16: an answer written from pages A and B repeats both, so deleting either drops it;
+    a reply only *used by* a document is kept while any other document uses it."""
+    cache.put(
+        "answer", entry("You get 25 days [1]; book early [2]."), quotes=["hr_docs:A", "hr_docs:B"]
+    )
+    cache.put("other_answer", entry("Only B [1]."), quotes=["hr_docs:B"])
+    cache.put("header", entry("shared header"), "hr_docs:A")
+    cache.tag("header", "hr_docs:C")
+
+    assert cache.forget("hr_docs:A") == 1  # the answer; the header still serves C
+    assert cache.get("answer") is None
+    assert cache.get("other_answer") is not None
+    assert cache.get("header") is not None
+    assert cache.forget("hr_docs:B") == 1
+    assert cache.get("other_answer") is None
+    assert cache.size() == 1
+
+
+def test_quotes_can_be_recorded_on_a_reply_cached_before_them(cache: ResponseCache) -> None:
+    """A reply cached untagged (by S15) learns what it quotes when it is next reused."""
+    cache.put("answer", entry("old answer"))
+    cache.quote("answer", ["hr_docs:A", "hr_docs:A"])
+
+    assert cache.forget("hr_docs:B") == 0
+    assert cache.forget("hr_docs:A") == 1
+    assert cache.size() == 0
+
+
+def test_a_reply_quoting_its_own_tagged_document_is_counted_once(cache: ResponseCache) -> None:
+    cache.put("both", entry("both"), "hr_docs:A", quotes=["hr_docs:A"])
+
+    assert cache.forget("hr_docs:A") == 1
     assert cache.size() == 0
 
 
@@ -112,6 +152,55 @@ def test_the_sqlite_cache_survives_a_restart(tmp_path: Path) -> None:
 
     assert reopened.get("k1") == entry()
     assert reopened.forget("hr_docs:A") == 1  # the tags came back too
+    reopened.put("answer", entry("answer"), quotes=["hr_docs:B"])
+    reopened.close()
+
+    again = SqliteCache(path)
+    assert again.forget("hr_docs:B") == 1  # and so do the quotes
+    again.close()
+
+
+@pytest.mark.parametrize("partly_upgraded", [False, True])
+def test_a_cache_file_from_before_quotes_gains_the_table(
+    tmp_path: Path, partly_upgraded: bool
+) -> None:
+    """An S15 cache loses untraceable replies once and preserves tagged shared work."""
+    path = tmp_path / "old.sqlite"
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE replies "
+        "(key TEXT PRIMARY KEY, entry TEXT NOT NULL, created_at TEXT NOT NULL);"
+        "CREATE TABLE tags (key TEXT NOT NULL REFERENCES replies(key) ON DELETE CASCADE, "
+        "document_key TEXT NOT NULL, PRIMARY KEY (key, document_key));"
+    )
+    db.execute(
+        "INSERT INTO replies VALUES (?, ?, ?)",
+        ("answer", entry("old").model_dump_json(), AT.isoformat()),
+    )
+    db.execute("INSERT INTO replies SELECT 'header', entry, created_at FROM replies")
+    db.execute("INSERT INTO tags VALUES ('header', 'hr_docs:B')")
+    if partly_upgraded:
+        db.execute(
+            "CREATE TABLE quotes (key TEXT NOT NULL REFERENCES replies(key) ON DELETE CASCADE, "
+            "document_key TEXT NOT NULL, PRIMARY KEY (key, document_key))"
+        )
+        db.execute(
+            "INSERT INTO replies SELECT 'quoted', entry, created_at FROM replies WHERE key='answer'"
+        )
+        db.execute("INSERT INTO quotes VALUES ('quoted', 'hr_docs:C')")
+    db.commit()
+    db.close()
+
+    cache = SqliteCache(str(path))
+    assert cache.get("answer") is None
+    assert cache.get("header") == entry("old")
+    if partly_upgraded:
+        assert cache.get("quoted") == entry("old")
+    cache.put("independent", entry("no document"))
+    cache.close()
+    reopened = SqliteCache(str(path))
+    assert reopened.get("independent") == entry("no document")
+    assert reopened.forget("hr_docs:B") == 1
     reopened.close()
 
 

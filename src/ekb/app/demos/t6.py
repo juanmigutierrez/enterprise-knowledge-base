@@ -301,8 +301,9 @@ def _leaver(story: Story) -> None:
     _say(
         echo,
         "Links are written when a page is processed. The page has not changed since, so its "
-        "chunk keeps the ID, but the store no longer answers for it. Re-linking pages when "
-        "an entity goes is part of self-maintenance (S16).",
+        "chunk keeps the ID, but the store no longer answers for it. This demo wires T6 by "
+        "hand; the worker re-links such pages itself after its next drain (S16, ekb demo "
+        "lifecycle).",
     )
     page = call(story.docs, "GET", f"/pages/{CONTACTS}")
     body = page["body"] + "\n## Toronto\nAsk the People team.\n"

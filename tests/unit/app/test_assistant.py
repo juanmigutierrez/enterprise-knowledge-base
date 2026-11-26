@@ -317,8 +317,10 @@ def test_an_answer_written_by_the_fallback_is_not_kept(world: World) -> None:
 
 
 def test_a_deleted_page_never_comes_back_through_the_model_s_cache(world: World) -> None:
-    """The gateway's cache keeps a reply that quoted the page (S16 forgets it), but its prompt
-    cannot be rebuilt once the page is purged, so it is never served."""
+    """Here the writer's gateway is not the worker's, so no purge tells its cache the page
+    went, and it keeps the reply (when they are the same, the purge forgets it: S16, see
+    tests/gates/test_deletion.py). Its prompt cannot be rebuilt once the page is purged, so
+    it is never served either way."""
     gateway = build_gateway(load_settings(profile="ci").gateway)
     prompts: list[str] = []
 

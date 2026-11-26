@@ -135,7 +135,8 @@ class ModelGateway:
         return spent_usd(self.log.records())
 
     def forget(self, document_key: str) -> int:
-        """A document was deleted: drop the cached replies only it was using."""
+        """A document was deleted: drop the cached replies only it was using, and every
+        reply whose prompt quoted it (an answer written from its passages, S16)."""
         with self.cache.guard:
             return self.cache.forget(document_key)
 
@@ -152,11 +153,14 @@ class ModelGateway:
         temperature: float = 0.0,
         json_schema: dict[str, Any] | None = None,
         document_key: str | None = None,
+        quotes: Sequence[str] = (),
     ) -> GatewayReply:
         """Answer ``prompt`` for ``task``, from the cache or from the first usable model.
 
         ``document_key`` tags the cached reply with the document it was about, so
-        :meth:`forget` can drop it when that document is deleted.
+        :meth:`forget` can drop it when that document is deleted. ``quotes`` names
+        the documents whose text is in the prompt (an answer's passages): the reply
+        is dropped as soon as any one of them is deleted.
         """
         if not prompt_version:
             raise ValueError("prompt_version is required: it is part of the cache key")
@@ -176,10 +180,10 @@ class ModelGateway:
                 c: cache_key(c, self.config.models[c].params, prompt_version, request)
                 for c in chain
             }
-            hit = self._from_cache(task, chain, keys, prompt_version, document_key)
+            hit = self._from_cache(task, chain, keys, prompt_version, document_key, quotes)
             if hit is not None:
                 return hit
-            return self._call(task, chain, keys, prompt_version, request, document_key)
+            return self._call(task, chain, keys, prompt_version, request, document_key, quotes)
 
     def _from_cache(
         self,
@@ -188,6 +192,7 @@ class ModelGateway:
         keys: Mapping[str, str],
         prompt_version: str,
         document_key: str | None,
+        quotes: Sequence[str] = (),
     ) -> GatewayReply | None:
         for candidate in chain:
             entry = self.cache.get(keys[candidate])
@@ -195,6 +200,8 @@ class ModelGateway:
                 continue
             if document_key is not None:
                 self.cache.tag(keys[candidate], document_key)
+            if quotes:  # a reply cached before its quotes were recorded gets them now
+                self.cache.quote(keys[candidate], quotes)
             reply = entry.reply
             self.log.append(
                 self._record(
@@ -229,6 +236,7 @@ class ModelGateway:
         prompt_version: str,
         request: ChatRequest,
         document_key: str | None,
+        quotes: Sequence[str] = (),
     ) -> GatewayReply:
         steps: list[Step] = []
         records = self.log.records()
@@ -264,7 +272,7 @@ class ModelGateway:
                     raise InvalidModelRequestError(task, candidate, exc.detail) from exc
                 continue
             return self._answered(
-                task, candidate, prompt_version, key, reply, document_key, started, steps
+                task, candidate, prompt_version, key, reply, document_key, started, steps, quotes
             )
         raise NoModelAvailableError(task, steps, self._first_reset(chain))
 
@@ -278,6 +286,7 @@ class ModelGateway:
         document_key: str | None,
         started: float,
         steps: list[Step],
+        quotes: Sequence[str] = (),
     ) -> GatewayReply:
         latency = _ms_since(started)
         price = self.config.models[candidate].price
@@ -300,6 +309,7 @@ class ModelGateway:
             key,
             CachedReply(candidate=candidate, reply=reply, created_at=self._clock()),
             document_key,
+            quotes,
         )
         steps.append(Step(candidate=candidate, result="ok"))
         return GatewayReply(

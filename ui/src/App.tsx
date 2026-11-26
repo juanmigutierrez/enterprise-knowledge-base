@@ -7,6 +7,7 @@ import { EntitiesScreen } from "./components/EntitiesScreen";
 import { EventsPanel } from "./components/EventsPanel";
 import { ChunkScreen } from "./components/ChunkScreen";
 import { GatewayScreen } from "./components/GatewayScreen";
+import { LifecycleScreen } from "./components/LifecycleScreen";
 import { ParseScreen } from "./components/ParseScreen";
 import { PermissionsScreen } from "./components/PermissionsScreen";
 import { PipelineScreen } from "./components/PipelineScreen";
@@ -24,6 +25,7 @@ type Tab =
     | "t6"
     | "t8"
     | "search"
+    | "lifecycle"
     | "gateway";
 
 const TABS: Record<Tab, string> = {
@@ -37,6 +39,7 @@ const TABS: Record<Tab, string> = {
     t6: "T6 Entities",
     t8: "T8 Permissions",
     search: "Search as user",
+    lifecycle: "Lifecycle",
     gateway: "Model gateway",
 };
 
@@ -88,6 +91,7 @@ export function App() {
                 {tab === "t6" && <EntitiesScreen />}
                 {tab === "t8" && <PermissionsScreen />}
                 {tab === "search" && <SearchScreen />}
+                {tab === "lifecycle" && <LifecycleScreen />}
                 {tab === "gateway" && <GatewayScreen />}
             </main>
         </div>

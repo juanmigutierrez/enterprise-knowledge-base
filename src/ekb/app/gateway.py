@@ -21,6 +21,7 @@ import math
 import os
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, ConfigDict
@@ -114,6 +115,21 @@ def build_cache(choice: OptionChoice) -> ResponseCache:
     if not isinstance(built, ResponseCache):
         raise TypeError(f"model_cache option {choice.option!r} does not implement ResponseCache")
     return built
+
+
+def forget_offline_replies(choice: OptionChoice, document_key: str) -> None:
+    """An offline worker may inherit a SQLite cache from an earlier model-enabled run."""
+    if choice.option != "sqlite":
+        return
+    path = str(choice.params.get("path", ":memory:"))
+    if not Path(path).is_file():
+        return
+    cache = SqliteCache(path)
+    try:
+        with cache.guard:
+            cache.forget(document_key)
+    finally:
+        cache.close()
 
 
 def build_cost_log(choice: OptionChoice) -> CostLog:

@@ -20,6 +20,13 @@ full name** (the rule decided in S1b and kept unique by both mocks).
 :meth:`PersonMap.gaps` is the double check across whole sources: every HR
 employee must have an identity user. The demo prints it, and a test fails if
 the synthetic data has any gap.
+
+**A gap that closes later is repaired (S16).** HR usually hires before the
+identity provider has an account, so a new employee's first event carries no
+person, and their record defines no entity. The HR full listing asks
+:meth:`PersonMap.maps_now` about every employee it reported, and sends the
+record again once they map; :meth:`PersonMap.settle` then takes them off the
+report.
 """
 
 from __future__ import annotations
@@ -102,6 +109,19 @@ class PersonMap:
             return self._by_employee.get(employee_id)
 
         return self._resolve(f"employee:{employee_id}", lookup, refresh_on_miss=refresh_on_miss)
+
+    def maps_now(self, employee_id: str, name: str) -> str | None:
+        """The identity user for this employee as of the last load, without reloading or
+        reporting a miss: for the listing's check on employees it reported before."""
+        with self._lock:
+            if self._employees.get(employee_id) != name:
+                return None
+            return self._by_employee.get(employee_id)
+
+    def settle(self, label: str) -> None:
+        """``label`` (``employee:E-1013``) was sent again with its person: no longer a gap."""
+        with self._lock:
+            self._unmapped.discard(label)
 
     def users_in(self, user_ids: Iterable[str]) -> frozenset[str]:
         """The known users among ``user_ids``; unknown ones are reported and left out."""

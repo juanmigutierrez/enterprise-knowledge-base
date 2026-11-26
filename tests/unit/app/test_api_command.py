@@ -30,7 +30,9 @@ from ekb.app.choices import choose, choose_assistant, choose_query
 from ekb.app.cli import app
 from ekb.app.system import KnowledgeSystem, syncing
 from ekb.platform.config import load_settings
+from ekb.platform.gateway.options.cache_sqlite import SqliteCache
 from tests.http import as_httpx
+from tests.unit.platform.gateway.test_stores import entry
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:You should not use the 'timeout' argument with the TestClient"
@@ -102,6 +104,15 @@ def test_the_command_refuses_a_bad_interval_and_reports_a_failed_start(
 def test_the_sync_loop_picks_up_a_change_and_survives_a_failed_round(tmp_path: Path) -> None:
     create_database(tmp_path / "hr.sqlite")
     settings = load_settings(profile="local")
+    cache_path = str(tmp_path / "model-cache.sqlite")
+    cache_choice = settings.gateway.cache.model_copy(update={"params": {"path": cache_path}})
+    settings = settings.model_copy(
+        update={"gateway": settings.gateway.model_copy(update={"cache": cache_choice})}
+    )
+    prior = SqliteCache(cache_path)
+    prior.put("old", entry("deleted text"), quotes=["hr_docs:HR-PL-99"])
+    prior.put("other", entry("live text"), quotes=["hr_docs:HR-PL-06"])
+    prior.close()
     with (
         TestClient(docs_app(post=lambda url, payload: None)) as docs,
         TestClient(hr_api_app()) as hr,
@@ -136,3 +147,7 @@ def test_the_sync_loop_picks_up_a_change_and_survives_a_failed_round(tmp_path: P
                 assert time.monotonic() < deadline, "the loop never purged the deleted page"
                 time.sleep(0.05)
         assert failures["left"] == 0
+    reopened = SqliteCache(cache_path)
+    assert reopened.get("old") is None
+    assert reopened.get("other") is not None
+    reopened.close()

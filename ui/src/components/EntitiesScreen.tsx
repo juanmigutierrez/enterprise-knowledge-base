@@ -88,9 +88,10 @@ export function EntitiesScreen() {
                 <div className="pane compact">
                     <h3>Links to entities the store no longer holds</h3>
                     <p className="muted">
-                        Links are written when a page is processed. These pages have not
-                        changed since the entity went, so they keep its ID until they
-                        change or are rebuilt; the store no longer answers for it.
+                        Links are written when a page is processed. Since S16 the worker
+                        re-links a page after the entity it names goes, right after its
+                        next drain; until then (or while the re-link keeps failing) the
+                        page keeps the ID, and the store no longer answers for it.
                     </p>
                     <LinkList links={stale} showEntity />
                 </div>
