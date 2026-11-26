@@ -532,3 +532,121 @@ def test_the_loop_traces_every_attempt_and_survives_a_model_outage(
     (last, count) = loop.traces.latest()["hr_docs:HR-PL-04"]
     assert (count, last.trace.status, last.trace.attempt) == (3, TraceStatus.PUBLISHED, 2)
     assert len(loop.pipeline.dead_letters) == 0
+
+
+# ------------------------------------------------------------- Lifecycle (S16)
+
+
+def _lifecycle_world(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path, *, listing_every: int
+) -> tuple[SyncLoop, TestClient]:
+    """The live loop and the inspector API with the Lifecycle screen wired to the mocks."""
+    from ekb.app.answer import access_check, build_query
+    from ekb.app.choices import choose_query
+    from ekb.app.inspector import LateActions, _create_app, lifecycle_panel
+    from ekb.app.lifecycle import Sources
+    from ekb.app.pipeline import Stores
+    from ekb.app.search import query_encoder
+    from ekb.operate.inspector.log import ChunkStore, DecisionLog, ParsedStore
+    from ekb.operate.inspector.trace import TraceLog
+
+    docs, hr, idp = clients
+    create_database(tmp_path / "hr.sqlite")
+    changelog = ChangeLog.in_memory()
+    connectors = build_connectors(
+        as_httpx(docs), as_httpx(hr), as_httpx(idp), tmp_path / "hr.sqlite", changelog
+    )
+    traces = TraceLog()
+    loop = SyncLoop(connectors, changelog, EventLog(), traces=traces, listing_every=listing_every)
+    loop.run_round()
+    stores = Stores(
+        search=loop.permissions.index,
+        permissions=loop.permissions.permissions,
+        entities=loop.entities.store,
+    )
+    settings = load_settings(profile="local")
+    choices = loop.choices
+    assert choices is not None
+    knowledge = build_query(
+        choose_query(settings),
+        stores,
+        access_check(as_httpx(docs), as_httpx(idp)),
+        query_encoder(choices, None),
+    )
+    late = LateActions(Sources(as_httpx(docs), as_httpx(hr), as_httpx(idp)), loop)
+    panel = lifecycle_panel(late, knowledge.ask, traces, stores.search)
+    app = _create_app(
+        EventLog(),
+        DecisionLog(),
+        ParsedStore(),
+        changelog,
+        "local",
+        chunks=ChunkStore(),
+        traces=traces,
+        lifecycle=panel,
+    )
+    return loop, TestClient(app)
+
+
+def _cited(api: TestClient, user: str) -> bool:
+    """Whether ``user``'s mentoring question cites the mentoring page now."""
+    now = api.get("/api/lifecycle").json()["now"]
+    return any(p["cited"] for p in now if p["user_id"] == user and p["page"] == "hr_docs:HR-PL-11")
+
+
+@pytest.mark.filterwarnings("ignore:You should not use the 'timeout' argument with the TestClient")
+def test_the_lifecycle_screen_plays_the_story_against_the_mocks(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    """The screen's buttons change the mocks; the loop catches up; a revocation already
+    holds "right after", while the index is stale."""
+    loop, api = _lifecycle_world(clients, tmp_path, listing_every=1000)
+
+    added = api.post("/api/lifecycle/actions/add_page").json()
+    mentoring = [p for p in added["before"] if p["page"] == "hr_docs:HR-PL-11"]
+    assert mentoring
+    assert not any(p["cited"] for p in mentoring)
+    loop.run_round()  # no webhook in this test, and the listing is not due: not seen yet
+    assert not _cited(api, "alice")
+
+    loop.listing_next_round()
+    loop.run_round()  # the docs listing finds the new page
+    assert _cited(api, "alice")
+
+    revoked = api.post("/api/lifecycle/actions/revoke_page").json()
+    right_after = {(p["user_id"], p["question"][:6]): p for p in revoked["right_after"]}
+    alice = right_after[("alice", "How of")]
+    assert alice["cited"] is False  # before any round: Q4 asked the docs tool now
+    assert [h["verdict"] for h in alice["held_back"]] == ["denied"]
+    assert right_after[("lucia", "How of")]["cited"] is True
+
+    api.post("/api/lifecycle/actions/hire_record")
+    hire = api.post("/api/lifecycle/actions/hire_account")
+    assert hire.status_code == 200
+    assert loop._listing_soon  # a change only a listing sees: the listings run next round
+    loop.run_round()
+    view = api.get("/api/lifecycle").json()
+    assert "person:sara" in view["links"]
+    steps = {s["action_id"]: s for s in view["steps"]}
+    assert "relinked" in {t["status"] for t in steps["hire_account"]["traces"]}
+    assert api.post("/api/lifecycle/actions/hire_account").status_code == 409
+
+
+def test_the_loop_waits_while_a_change_is_applied(
+    clients: tuple[TestClient, TestClient, TestClient], tmp_path: Path
+) -> None:
+    import threading
+
+    loop, _ = _lifecycle_world(clients, tmp_path, listing_every=1000)
+    ran = threading.Event()
+
+    def one_round() -> None:
+        loop.run_round()
+        ran.set()
+
+    with loop.paused():
+        worker = threading.Thread(target=one_round)
+        worker.start()
+        assert not ran.wait(0.2)  # held
+    assert ran.wait(5)
+    worker.join()

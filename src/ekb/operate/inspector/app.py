@@ -1,5 +1,8 @@
 """The inspector API (FastAPI): read-only views over the event log and the change log.
 
+Read-only for the knowledge base: one route (S16) changes a **mock source**, never a
+store, by applying one of the scripted lifecycle changes.
+
 ==============================================  =====================================
 GET /api/health                                 liveness
 GET /api/sources                                items and events per source
@@ -26,10 +29,17 @@ GET /api/search?user=&q=                        one question asked as one person
                                                 out (S13), Q4's decision on each hit (S14)
 GET /api/gateway                                the model gateway: routes, quotas, spend (S7)
 GET /api/gateway/calls[?since=&task=]           the cost log's records and totals (S7)
+GET /api/lifecycle                              the scripted changes, what each did, and the
+                                                story's questions answered now (S16)
+POST /api/lifecycle/actions/{action_id}         apply one scripted change to a mock source:
+                                                the only route that is not a GET (S16)
 ==============================================  =====================================
 
-Every route is a GET: a test fails if a write route appears. The factory
-refuses any profile but ``local``.
+Every route is a GET but one: ``POST /api/lifecycle/actions/{action_id}``, which
+changes a mock source the way its owner would (one of the eight scripted changes,
+in the story's order) and writes nothing to the knowledge base; the connectors and
+the worker do that, as for any change (D19, amended in S16). A test fails if any
+other write route appears. The factory refuses any profile but ``local``.
 
 Deleted content is never returned: T3's and T4's output of an item whose
 lifetime a delete closed is hidden at once, even before T2's purge drops it,
@@ -47,7 +57,7 @@ import json
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, status
 
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
@@ -55,6 +65,11 @@ from ekb.changelog.registry.port import DocumentRegistry
 from ekb.contracts import ChangeOp, DiffAction, EntityKind, TraceStatus
 from ekb.operate.inspector.entities import EntityPanel
 from ekb.operate.inspector.gateway import GatewayPanel
+from ekb.operate.inspector.lifecycle import (
+    LifecyclePanel,
+    LifecycleRefusedError,
+    LifecycleSourceError,
+)
 from ekb.operate.inspector.log import ChunkStore, DecisionLog, EventLog, ParsedStore
 from ekb.operate.inspector.models import (
     CallPage,
@@ -73,6 +88,10 @@ from ekb.operate.inspector.models import (
     EventPage,
     EventView,
     GatewayView,
+    LifecycleActionView,
+    LifecycleProbeView,
+    LifecycleStepView,
+    LifecycleView,
     OriginalView,
     ParsedDocumentView,
     ParsedListView,
@@ -115,6 +134,7 @@ def create_inspector_app(
     permissions: PermissionPanel | None = None,
     traces: TraceLog | None = None,
     search: SearchPanel | None = None,
+    lifecycle: LifecyclePanel | None = None,
 ) -> FastAPI:
     if profile != LOCAL_PROFILE:
         raise InspectorNotAllowedError(
@@ -359,6 +379,44 @@ def create_inspector_app(
             cursor=len(records),
             totals=[CallTotalsView.of(row) for row in totals(records)],
         )
+
+    @app.get("/api/lifecycle")
+    def lifecycle_view() -> LifecycleView:
+        if lifecycle is None:
+            return LifecycleView(wired=False, actions=[], steps=[], now=[], watched="", links=[])
+        wired = lifecycle.wired()
+        return LifecycleView(
+            wired=wired,
+            actions=[LifecycleActionView.of(a, lifecycle) for a in lifecycle.actions],
+            steps=[LifecycleStepView.of(s, lifecycle) for s in reversed(lifecycle.applied())],
+            now=[LifecycleProbeView.of(p) for p in lifecycle.probe()] if wired else [],
+            watched=lifecycle.watched,
+            links=lifecycle.links(),
+        )
+
+    @app.post(
+        "/api/lifecycle/actions/{action_id}",
+        responses={
+            404: {"description": "No such scripted change"},
+            409: {"description": "Already applied, or out of the story's order"},
+            502: {"description": "The mock source refused the change or did not answer"},
+            503: {"description": "The sources are not running yet"},
+        },
+    )
+    def lifecycle_apply(action_id: str) -> LifecycleStepView:
+        if lifecycle is None or not lifecycle.wired():
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "the sources are not running")
+        try:
+            step = lifecycle.run(action_id)
+        except LookupError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"no scripted change {action_id!r}"
+            ) from exc
+        except LifecycleRefusedError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except LifecycleSourceError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        return LifecycleStepView.of(step, lifecycle)
 
     return app
 

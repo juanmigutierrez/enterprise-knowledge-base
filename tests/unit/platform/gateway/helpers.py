@@ -7,6 +7,7 @@ Used by the gateway tests and the app tests:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -148,6 +149,7 @@ class Scripted:
         temperature: float = 0.0,
         json_schema: dict[str, Any] | None = None,
         document_key: str | None = None,
+        quotes: Sequence[str] = (),
     ) -> GatewayReply:
         self.asked.append(
             {
@@ -158,6 +160,7 @@ class Scripted:
                 "system": system,
                 "json_schema": json_schema,
                 "document_key": document_key,
+                "quotes": tuple(quotes),
             }
         )
         if self.error is not None:

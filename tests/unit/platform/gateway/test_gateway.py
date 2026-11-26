@@ -338,3 +338,21 @@ def test_a_deleted_documents_replies_are_forgotten_unless_another_document_uses_
     assert world.gateway.forget("hr_docs:B") == 1
 
     assert not ask(world.gateway, "the same passage").cached
+
+
+def test_a_reply_that_quoted_a_deleted_document_is_forgotten(world: World) -> None:
+    """S16: an answer's prompt quotes several pages; deleting any one drops the reply."""
+    ask(world.gateway, "passages from A and B", quotes=("hr_docs:A", "hr_docs:B"))
+    assert ask(world.gateway, "passages from A and B", quotes=("hr_docs:A", "hr_docs:B")).cached
+
+    assert world.gateway.forget("hr_docs:B") == 1
+
+    assert not ask(world.gateway, "passages from A and B").cached
+
+
+def test_a_hit_records_quotes_a_reply_was_cached_without(world: World) -> None:
+    """A reply cached before S16 (no quotes) learns them on its next reuse."""
+    ask(world.gateway, "an old answer")
+    assert ask(world.gateway, "an old answer", quotes=("hr_docs:A",)).cached
+
+    assert world.gateway.forget("hr_docs:A") == 1

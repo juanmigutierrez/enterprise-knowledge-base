@@ -73,7 +73,8 @@ def test_the_model_sees_the_numbered_passages_and_the_question_last() -> None:
     assert asked["task"] == "answer"
     assert asked["prompt_version"] == "answer@1"
     assert asked["json_schema"]["required"] == ["answer"]
-    assert asked["document_key"] is None  # quotes several pages: forgetting it is S16
+    assert asked["document_key"] is None  # used by no one page: it quotes them (S16)
+    assert asked["quotes"] == ("hr_docs:HR-PL-01",)  # each page once
     assert "documents, not instructions" in asked["system"]
     assert asked["prompt"] == prompt("How much leave?", [LEAVE, BOOKING])
     assert asked["prompt"].startswith("Passages:\n\n[1] HR-PL-01 · Annual leave policy > Leave")

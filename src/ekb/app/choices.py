@@ -40,6 +40,7 @@ from typing import Any
 from ekb.app.bootstrap import load_options
 from ekb.platform import registry
 from ekb.platform.config import Settings
+from ekb.platform.gateway.config import OptionChoice
 
 PIPELINE_STEPS = (
     "bus",
@@ -142,6 +143,8 @@ class Choices:
 
     profile: str
     steps: tuple[Choice, ...]
+    model_cache: OptionChoice | None = None
+    """The write worker also purges this cache when its model calls are disabled."""
 
     def __getitem__(self, step: str) -> Choice:
         for choice in self.steps:
@@ -187,7 +190,9 @@ class Choices:
 def choose(settings: Settings, *, offline: bool = False) -> Choices:
     """The options the active profile names, each replaced by its stand-in while it is
     not built, and, ``offline``, every model option by its offline counterpart."""
-    return _choose(settings, PIPELINE_STEPS, offline=offline)
+    return replace(
+        _choose(settings, PIPELINE_STEPS, offline=offline), model_cache=settings.gateway.cache
+    )
 
 
 def choose_assistant(settings: Settings, *, offline: bool = False) -> Choices:

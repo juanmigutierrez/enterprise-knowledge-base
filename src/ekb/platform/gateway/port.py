@@ -73,7 +73,17 @@ class EmbeddingClient(Protocol):
 
 @runtime_checkable
 class ResponseCache(Protocol):
-    """Replies by cache key, each tagged with the documents that asked for it."""
+    """Replies by cache key, each tagged with the documents that asked for it.
+
+    Two relations tie a reply to documents, and a delete treats them differently:
+
+    - **used by** (``document_key``, :meth:`tag`): the documents that asked for
+      the reply. Identical text in two documents gives one reply, kept while
+      either is alive.
+    - **quotes** (``quotes``, :meth:`quote`, S16): the documents whose text is
+      *in the prompt*, such as the passages an answer was written from. The
+      reply repeats them, so it goes as soon as **any** of them is deleted.
+    """
 
     @property
     def guard(self) -> AbstractContextManager[object]:
@@ -82,19 +92,33 @@ class ResponseCache(Protocol):
 
     def get(self, key: str) -> CachedReply | None: ...
 
-    def put(self, key: str, entry: CachedReply, document_key: str | None = None) -> None:
-        """Keep ``entry``; tag it with ``document_key`` when the call was about one."""
+    def put(
+        self,
+        key: str,
+        entry: CachedReply,
+        document_key: str | None = None,
+        quotes: Sequence[str] = (),
+    ) -> None:
+        """Keep ``entry``; tag it with ``document_key`` when the call was about one, and
+        record the documents its prompt ``quotes``."""
         ...
 
     def tag(self, key: str, document_key: str) -> None:
         """Another document reused this entry (a hit): it now depends on it too."""
         ...
 
-    def forget(self, document_key: str) -> int:
-        """A document was deleted: drop its tag, and every entry left with no tag.
+    def quote(self, key: str, document_keys: Sequence[str]) -> None:
+        """This entry's prompt quotes these documents too (a hit on a reply cached before
+        its quotes were recorded). Nothing happens if the entry is not cached."""
+        ...
 
-        An entry another live document still uses is kept; an entry never tied to
-        a document (no tag at all) is not touched. Returns how many were dropped.
+    def forget(self, document_key: str) -> int:
+        """A document was deleted: drop every entry that quotes it, then its tag, and
+        every entry left with no tag.
+
+        An entry another live document still uses is kept, unless it quotes the
+        deleted one; an entry tied to no document at all is not touched. Returns
+        how many entries were dropped.
         """
         ...
 
@@ -134,6 +158,7 @@ class Completer(Protocol):
         temperature: float = 0.0,
         json_schema: dict[str, Any] | None = None,
         document_key: str | None = None,
+        quotes: Sequence[str] = (),
     ) -> GatewayReply: ...
 
 

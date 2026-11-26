@@ -49,6 +49,13 @@ class InMemoryAnswerCache:
         with self._lock:
             self._entries.pop(key, None)
 
+    def forget(self, document_key: str) -> int:
+        with self._lock:
+            gone = [k for k, e in self._entries.items() if document_key in e.documents()]
+            for key in gone:
+                del self._entries[key]
+            return len(gone)
+
     def size(self) -> int:
         with self._lock:
             return len(self._entries)

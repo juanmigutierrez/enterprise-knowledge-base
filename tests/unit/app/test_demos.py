@@ -18,6 +18,8 @@ from ekb.app.choices import choose, choose_assistant, choose_query
 from ekb.app.cli import app
 from ekb.app.demos.answer import run_answer_demo
 from ekb.app.demos.ingest import demo_choices, run_ingest_demo
+from ekb.app.demos.lifecycle import Lifecycle as LifecycleStory
+from ekb.app.demos.lifecycle import run_lifecycle_demo
 from ekb.app.demos.mcp import run_mcp_demo
 from ekb.app.demos.s1 import run_s1
 from ekb.app.demos.s1b import run_s1b
@@ -1040,3 +1042,147 @@ def test_cli_mcp_reports_an_unreachable_mock(monkeypatch: pytest.MonkeyPatch) ->
     result = CliRunner().invoke(app, ["demo", "mcp", "--url", "http://127.0.0.1:9"])
     assert result.exit_code == 1
     assert "Demo failed" in result.output
+
+
+# ----------------------------------------------------------------------- S16
+
+
+def _lifecycle(tmp_path: Path) -> tuple[str, LifecycleStory]:
+    """``ekb demo lifecycle`` in-process and offline; the agent asks over real MCP."""
+    lines: list[str] = []
+    create_database(tmp_path / "hr.sqlite")
+    settings = load_settings(profile="local")
+    with (
+        TestClient(docs_app()) as docs,
+        TestClient(hr_api_app()) as hr,
+        TestClient(idp_app()) as idp,
+    ):
+        story = run_lifecycle_demo(
+            as_httpx(docs),
+            as_httpx(hr),
+            as_httpx(idp),
+            tmp_path / "hr.sqlite",
+            lines.append,
+            write=choose(settings, offline=True),
+            query=choose_query(settings),
+            assistant=choose_assistant(settings, offline=True),
+        )
+        assert docs.get("/subscriptions").json() == []  # the demo unsubscribed
+    return "\n".join(lines), story
+
+
+def _scene(output: str, number: int) -> str:
+    """One numbered scene, its wrapped lines joined back into one line of words."""
+    scene = output.split(f"\n{number}. ")[1].split(f"\n{number + 1}. ")[0]
+    return " ".join(line.strip().removeprefix("| ") for line in scene.splitlines())
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_lifecycle_tells_the_whole_story_and_every_promise_holds(tmp_path: Path) -> None:
+    output, story = _lifecycle(tmp_path)
+
+    assert story.checks
+    assert all(c.held for c in story.checks), [c for c in story.checks if not c.held]
+    assert story.applied == [
+        "add_page",
+        "edit_page",
+        "revoke_page",
+        "remove_from_group",
+        "hire_record",
+        "hire_account",
+        "leaver",
+        "delete_page",
+    ]
+    assert all(token.token not in output for token in story.system.issued)  # masked only
+    assert "the docs webhook is subscribed" in output
+    edit = _scene(output, 2)
+    assert "(source changed since indexing)" in edit  # before the worker: the old text, marked
+    assert "3 times a month" in edit
+    revoke = _scene(output, 3)
+    assert "T2 acl_only -> T8 fast lane = readers" in revoke
+    assert "vectors unchanged: True" in revoke
+    group = _scene(output, 4)
+    assert "chunks rewritten: 0" in group
+    assert "permission store: lucia: -hr-team" in group
+    hire = _scene(output, 6)
+    assert "same content, now about sara (was no one)" in hire
+    assert "re-link: person:sara added" in hire
+    leaver = _scene(output, 7)
+    assert "person:lucia still in the entity store: True" in leaver
+    assert "re-link: person:lucia removed" in leaver
+    gates = output.split("\n9. ")[1]
+    assert "cited to someone other than bob: 0 times" in gates
+    assert "HR-PL-99 cited after its delete: 0 times" in gates
+    assert "re-links: 2 pages" in gates
+    assert "promises held: 16 of 16" in gates
+    assert "WARNING" not in output
+    assert "Lucía Navarro" not in "\n".join(  # traces hold IDs, never names
+        line for line in output.splitlines() if "re-link:" in line or "entity store:" in line
+    )
+
+
+@pytest.mark.filterwarnings(ANSWER_WARNING)
+def test_cli_lifecycle_runs_offline_and_reports_an_unreachable_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setenv("EKB_PROFILE", "local")
+    result = CliRunner().invoke(app, ["demo", "lifecycle"])
+    assert result.exit_code == 0, result.output
+    assert "promises held: 16 of 16" in result.output
+    result = CliRunner().invoke(app, ["demo", "lifecycle", "--url", "http://127.0.0.1:9"])
+    assert result.exit_code == 1
+    assert "Demo failed" in result.output
+
+
+@pytest.mark.parametrize("failure", ["promise", "leakage", "deleted"])
+def test_a_promise_that_does_not_hold_fails_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    """The demo is also a check: if a step does not do what it promised, it says so and the
+    command exits 1."""
+    from ekb.app.demos import lifecycle as demo
+
+    story = demo.Lifecycle(
+        system=None,  # type: ignore[arg-type]
+        sources=None,  # type: ignore[arg-type]
+        agents={},
+        echo=lambda line: None,
+    )
+    from ekb.app.lifecycle import OLD_TRAVEL_KEY, RESTRICTED_KEY
+    from ekb.contracts import AssistantAnswer, Citation
+
+    story.checks.append(demo.Check("leaver", "the link goes", held=failure != "promise"))
+    if failure != "promise":
+        key = RESTRICTED_KEY if failure == "leakage" else OLD_TRAVEL_KEY
+        citation = Citation(
+            number=1,
+            document_key=key,
+            document_version="1",
+            chunk_id="c",
+            title="synthetic",
+            section=(),
+        )
+        story.marks["delete_page"] = 0
+        story.replies.append(
+            AssistantAnswer(
+                user_id="alice",
+                agent_id="hr",
+                question="q",
+                answer="test [1]",
+                citations=(citation,),
+            )
+        )
+    monkeypatch.setattr(demo, "run_lifecycle_demo", lambda *args, **kwargs: story)
+    monkeypatch.setattr(demo, "run_mock_command", lambda *args, **kwargs: "")
+
+    class Client:
+        def __enter__(self) -> object:
+            return object()
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+    monkeypatch.setattr(demo, "mock_client", lambda *args, **kwargs: Client())
+    result = CliRunner().invoke(app, ["demo", "lifecycle"])
+    assert result.exit_code == 1

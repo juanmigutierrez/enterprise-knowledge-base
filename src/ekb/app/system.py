@@ -31,9 +31,15 @@ from ekb.app.answer import KnowledgeQuery, access_check, build_query
 from ekb.app.assistant import Assistant, AssistantResult, build_assistant, build_tokens
 from ekb.app.choices import Choices
 from ekb.app.connectors import build_connectors
-from ekb.app.pipeline import EventFailedError, build_changelog, build_pipeline, build_stores
+from ekb.app.pipeline import (
+    EventFailedError,
+    Outcome,
+    build_changelog,
+    build_pipeline,
+    build_stores,
+)
 from ekb.app.search import encoder_note, query_encoder
-from ekb.contracts import Caller
+from ekb.contracts import Caller, Trace, TraceStatus
 from ekb.platform.gateway.gateway import ModelGateway
 
 logger = logging.getLogger(__name__)
@@ -42,6 +48,7 @@ _RETRYABLE = (httpx.HTTPError, sqlite3.Error, OSError, ValueError, LookupError, 
 """What a sync round logs and retries next round, as in ``ekb inspector``."""
 PLACEHOLDER = "<token>"
 KEEP_ANSWERS = 50
+KEEP_TRACES = 1000
 
 
 class KnowledgeSystem:
@@ -67,7 +74,6 @@ class KnowledgeSystem:
         self.write, self.query, self.assistant_choices = write, query, assistant
         self.changelog = build_changelog(write)
         self.stores = build_stores(write, self.changelog)
-        self.pipeline = build_pipeline(write, self.changelog, stores=self.stores, gateway=gateway)
         self.connectors = build_connectors(docs, hr, idp, db_path, self.changelog)
         self.encoder = query_encoder(write, gateway)
         self.knowledge: KnowledgeQuery = build_query(
@@ -78,11 +84,32 @@ class KnowledgeSystem:
         self.assistant: Assistant = build_assistant(
             assistant, self.knowledge, gateway, on_answer=self._answered
         )
+        self.forgotten_answers = 0
+        """Cached answers dropped because a page they touched was deleted (S16)."""
+        self.traces: deque[Trace] = deque(maxlen=KEEP_TRACES)
+        """The worker's latest attempts, for the demo (they hold no content, S12)."""
+        self.pipeline = build_pipeline(
+            write,
+            self.changelog,
+            stores=self.stores,
+            gateway=gateway,
+            observers=(self._forget_answers,),
+            on_trace=self.traces.append,
+        )
+        self.pipeline.purge_guard = self.assistant.release_guard
         self.tokens: TokenCheck = tokens or build_tokens(assistant)
         self._sync_lock = threading.Lock()
 
     def _answered(self, caller: Caller, outcome: AssistantResult) -> None:
         self.answers.append((caller, outcome))
+
+    def _forget_answers(self, outcome: Outcome) -> None:
+        """A purge also empties the answer cache of every answer that touched the page
+        (S16): deleted content is not kept, not even until its next re-check. The model
+        cache forgets through the gateway, in the purge itself."""
+        if outcome.trace.status is TraceStatus.PURGED:
+            key = outcome.trace.document_key
+            self.forgotten_answers += self.assistant.cache.forget(key)
 
     def last_answer(self, user_id: str) -> AssistantResult | None:
         """How ``user_id``'s latest ``ask`` came about (reused, dropped and why, held back)."""
@@ -93,15 +120,19 @@ class KnowledgeSystem:
 
     def sync(self, *, listings: bool = False) -> None:
         """One round: the frequent connectors, the worker, then (``listings``) the full
-        listings that catch deletes, and the worker again."""
+        listings that catch deletes, and the worker again. After each drain the worker
+        re-links the pages an entity change affected (S16); on a listing round it also
+        retries the pages whose context headers failed."""
         with self._sync_lock:
             for connector in self.connectors.frequent:
                 connector.sync()
             self.pipeline.run()
+            self.pipeline.relink()
             if listings:
                 for connector in self.connectors.listings:
                     connector.sync()
                 self.pipeline.run()
+                self.pipeline.relink(retry_headers=True)
 
     def server(self, base_url: str) -> MCPServer:
         return create_server(self.assistant, self.tokens, base_url=base_url)

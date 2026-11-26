@@ -2,11 +2,14 @@
 #   quality      Is the code clean, typed, and does it respect the folder/layer rules?
 #   ui           Does the inspector UI lint, type-check and build, and are its API
 #                types generated from the current API schema (D19)?
-#   test         Do unit and contract tests pass, with enough coverage?
+#   test         Do unit, contract and gate tests pass, with enough coverage? The
+#                gates (tests/gates/, S16: leakage = 0, deleted content = 0,
+#                revocation and publication) run here, in memory and offline.
 #   security     Any leaked secret or known-vulnerable dependency?
 #   image        Does the image build, and is it free of critical vulnerabilities?
 #   integration  Does it work against the real local infrastructure, and do the
-#                permission and deletion gates hold (no LLM, deterministic)?
+#                permission and deletion gates hold there too (no LLM,
+#                deterministic; from S17)?
 #
 # Third-party actions are pinned to a full commit SHA (tag in the comment):
 # mutable tags were force-pushed to malware in the March 2026 trivy-action
@@ -89,7 +92,7 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: { enable-cache: true }
       - run: uv sync --locked
-      - name: Unit and contract tests
+      - name: Unit, contract and gate tests
         run: uv run pytest -m "not integration and not e2e and not eval" --cov --cov-report=xml --junitxml=junit.xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

@@ -27,11 +27,18 @@ what the choices name and routes T2's decisions.
 :class:`EventFailedError`: the event stays pending and comes back. After
 ``max_attempts`` the event is parked in the dead letters, its item withdrawn,
 and the worker moves on (:mod:`ekb.app.deadletters`). A delete is never parked.
+
+**Re-links (S16).** When the entity store changes (a hire, a leaver, a renamed
+team), the worker notes it; :meth:`Pipeline.relink`, run after each drain,
+processes again from their stored originals the published pages whose links
+are now stale, and, on listing rounds, the pages whose context headers failed
+(:mod:`ekb.app.relinks`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import perf_counter
@@ -43,6 +50,7 @@ from ekb.app.classify import classify_step
 from ekb.app.deadletters import DeadLetters, Parked
 from ekb.app.embed import embed_step
 from ekb.app.entities import RECORD_SOURCES, entity_store, link_step
+from ekb.app.gateway import forget_offline_replies
 from ekb.app.parse import parse_step
 from ekb.app.permissions import (
     membership_sync,
@@ -51,6 +59,7 @@ from ekb.app.permissions import (
     search_store,
     unpublisher,
 )
+from ekb.app.relinks import Relinks
 from ekb.changelog.bus.consume import drain
 from ekb.changelog.bus.port import Delivery, EventBus
 from ekb.changelog.rawstore.port import RawStore
@@ -65,14 +74,17 @@ from ekb.contracts import (
     TraceStatus,
 )
 from ekb.platform import registry
+from ekb.platform.gateway.config import OptionChoice
 from ekb.platform.gateway.gateway import ModelGateway
 from ekb.process.t2_diff.port import Differ
 from ekb.process.t2_diff.step import DiffResult, DiffStep
 from ekb.process.t3_parse.step import ParseStep
+from ekb.process.t4_chunk.header import header_failed
 from ekb.process.t4_chunk.step import ChunkStep
 from ekb.process.t4_chunk.step import summary as chunk_summary
 from ekb.process.t5_classify.step import ClassifyStep
 from ekb.process.t5_classify.step import summary as classify_summary
+from ekb.process.t6_entities.relink import EntityChange, candidates, stale
 from ekb.process.t6_entities.step import LinkStep
 from ekb.process.t6_entities.step import summary as entities_summary
 from ekb.process.t6_entities.sync import EntitySync, RecordResult
@@ -310,6 +322,7 @@ class Pipeline:
         stores: Stores,
         *,
         gateway: ModelGateway | None = None,
+        model_cache: OptionChoice | None = None,
         observers: Sequence[Observer] = (),
         on_trace: TraceListener | None = None,
         group: str = WORKER_GROUP,
@@ -321,15 +334,18 @@ class Pipeline:
         self.changelog = changelog
         self.stores = stores
         self.gateway = gateway
+        self._model_cache = model_cache
         self.group = group
         self.max_attempts = max_attempts
         self.dead_letters = DeadLetters()
+        self.relinks = Relinks()
         self.t2 = DiffStep(steps.differ, changelog.registry, changelog.rawstore, self._after_t2)
         self._observers = tuple(observers)
         self._on_trace = on_trace
         self._unpublish = unpublisher(stores.search, stores.permissions, steps.memberships)
         self._attempts: dict[tuple[int, int], int] = {}
         self._run: _Run | None = None
+        self.purge_guard: AbstractContextManager[object] = nullcontext()
 
     # ---- consuming
 
@@ -343,6 +359,9 @@ class Pipeline:
 
     def handle(self, delivery: Delivery) -> Outcome:
         """One event, end to end. Returning means "done": the bus may commit it."""
+        if delivery.event.op is ChangeOp.DELETE:
+            with self.purge_guard:
+                return self._handle(delivery, replay=False)
         return self._handle(delivery, replay=False)
 
     def _set_visible(self, key: str, visible: bool) -> None:
@@ -436,6 +455,7 @@ class Pipeline:
                 record = run.step(
                     "entity store", lambda: steps.entities.handle(event), _record_detail
                 )
+                self.relinks.changed(EntityChange(record.replaced, record.entity))
             if steps.memberships.handles(event.source):
                 membership = run.step(
                     "permission store", lambda: steps.memberships.handle(event), lambda r: r.reason
@@ -498,17 +518,21 @@ class Pipeline:
                 "(if any) dropped"
             ),
         )
-        run.step(
+        gone = run.step(
             "purge entity",
             lambda: self.steps.entities.forget(key),
             lambda e: f"{e.entity_id} removed" if e else "no entity",
         )
+        if gone is not None:
+            self.relinks.changed(EntityChange(gone, None))
         if self.gateway is not None:
             run.step(
                 "purge model cache",
                 lambda: self._forget_replies(key),
                 lambda n: f"{n} cached model replies and vectors forgotten",
             )
+        elif self._model_cache is not None:
+            forget_offline_replies(self._model_cache, key)
         return removed
 
     def _forget_replies(self, key: str) -> int:
@@ -624,6 +648,24 @@ class Pipeline:
         ):
             self.dead_letters.restored(key)  # nothing stored to rebuild from
             return None
+        why = f"from the stored original of v{record.version} (the registry's record)"
+        outcome = self._reprocess(key, lifetime, "rebuild", why, TraceStatus.REBUILT)
+        self.dead_letters.restored(key)
+        return outcome
+
+    def _reprocess(
+        self, key: str, lifetime: int, step: str, why: str, status_if_published: TraceStatus
+    ) -> Outcome | None:
+        """Run T3 … T8 again on an item's last stored original, with no event to deliver
+        it. ``None`` if there is nothing stored for its current lifetime."""
+        record = self.changelog.registry.get(key)
+        if (
+            record is None
+            or record.deleted
+            or record.raw_pointer is None
+            or lifetime != self.changelog.current_lifetime(key)
+        ):
+            return None
         event = ChangeEvent(
             source=record.source,
             source_id=record.source_id,
@@ -638,12 +680,10 @@ class Pipeline:
             original_lifetime=lifetime,
         )
         run = _Run(event, None, 1, rebuild=True)
-        run.note(
-            "rebuild", f"from the stored original of v{record.version} (the registry's record)"
-        )
+        run.note(step, why)
         try:
             status, readers, processed = self._process(run, event)
-            status = TraceStatus.REBUILT if status is TraceStatus.PUBLISHED else status
+            status = status_if_published if status is TraceStatus.PUBLISHED else status
             outcome = Outcome(None, run.trace(status, None), None, readers, processed)
             for observer in self._observers:
                 observer(outcome)
@@ -652,8 +692,61 @@ class Pipeline:
             trace = run.trace(TraceStatus.FAILED, None, _error(exc))
             self._emit(trace)
             raise EventFailedError(trace, self.max_attempts) from exc
-        self.dead_letters.restored(key)
         return self._finish(run, status, outcome=outcome)
+
+    # ---- re-links (S16)
+
+    def relink(self, *, retry_headers: bool = False) -> list[Outcome]:
+        """Process again the pages whose world changed: after each drain.
+
+        1. The entity changes noted since the last call become the published
+           pages they affect (:func:`~ekb.process.t6_entities.relink.candidates`).
+        2. With ``retry_headers`` (a listing round), pages whose context headers
+           failed are queued too, if the header option writes headers at all.
+        3. Each queued page whose links are stale (or whose headers failed) is
+           processed again from its stored original; one that fails stays queued
+           for the next call, still searchable as it was. A page in the dead
+           letters is left to its retry, and a page no longer published is dropped.
+        """
+        changes = self.relinks.take_changes()
+        if changes:
+            affected = candidates(self.stores.search.chunks(), changes)
+            for key, reasons in affected.items():
+                for reason in reasons:
+                    self.relinks.queue(key, reason)
+        if retry_headers and not self.steps.t4.header_id.startswith("none"):
+            for key in self.stores.search.documents():
+                if any(header_failed(c.header_id) for c in self.stores.search.chunks(key)):
+                    self.relinks.queue(key, "its context headers failed", headers=True)
+        outcomes: list[Outcome] = []
+        for pending in self.relinks.pages():
+            key = pending.document_key
+            if self.dead_letters.holds(key) or self.dead_letters.withdrawn(key):
+                self.relinks.done(key)  # its retry processes it against today's entities
+                continue
+            chunks = self.stores.search.chunks(key)
+            if not chunks:
+                self.relinks.done(key)  # deleted, withdrawn or never published
+                continue
+            links_stale = stale(chunks, self.stores.entities.entities())
+            if not links_stale and not pending.headers:
+                self.relinks.done(key)  # its links are already today's
+                continue
+            step, status = (
+                ("re-link", TraceStatus.RELINKED)
+                if links_stale
+                else ("rebuild", TraceStatus.REBUILT)
+            )
+            try:
+                outcome = self._reprocess(
+                    key, chunks[0].original_lifetime, step, "; ".join(pending.reasons), status
+                )
+            except EventFailedError:
+                continue  # traced as failed; queued for the next round
+            self.relinks.done(key)
+            if outcome is not None:
+                outcomes.append(outcome)
+        return outcomes
 
     # ---- traces
 
@@ -702,6 +795,7 @@ def build_pipeline(
         changelog,
         stores,
         gateway=gateway,
+        model_cache=choices.model_cache,
         observers=observers,
         on_trace=on_trace,
         group=group,

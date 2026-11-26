@@ -43,6 +43,7 @@ from ekb.contracts import (
     step_rank,
 )
 from ekb.operate.inspector.gateway import GatewayPanel
+from ekb.operate.inspector.lifecycle import ActionInfo, Applied, LifecyclePanel, Probed
 from ekb.operate.inspector.log import ChunkEntry, LoggedDecision, LoggedEvent, ParsedEntry
 from ekb.operate.inspector.permissions import PermissionSnapshot
 from ekb.operate.inspector.trace import LoggedTrace
@@ -904,7 +905,8 @@ class EntityListView(_View):
     """Chunks linked to at least one entity, of every live document."""
     stale_links: list[EntityLinkView]
     """Links to entities the store no longer holds (a leaver), kept by chunks processed
-    before the entity went: S9's stated limit, until the page changes or is rebuilt."""
+    before the entity went: S9's limit. Since S16 the worker re-links such pages after
+    its next drain, so these last only until then, or while a re-link keeps failing."""
 
     @classmethod
     def of(cls, entities: tuple[Entity, ...], chunks: list[ChunkEntry]) -> EntityListView:
@@ -1235,3 +1237,155 @@ class CallPage(_View):
     calls: list[CallView]
     cursor: int
     totals: list[CallTotalsView]
+
+
+# ------------------------------------------------------------- Lifecycle (S16)
+
+
+class LifecycleHeldView(_View):
+    """A page Q4 held back for this person, and the source's reason."""
+
+    document_key: str
+    verdict: AccessVerdict
+    reason: str
+
+
+class LifecycleProbeView(_View):
+    """One question asked as one person at one moment: is the page it depends on cited?"""
+
+    user_id: str
+    question: str
+    page: str
+    cited: bool
+    """The page the question depends on is among the cited passages."""
+    pages: list[str]
+    """Every page cited, each once, in citation order."""
+    held_back: list[LifecycleHeldView]
+    """Pages Q4 held back, each once: shown here only, never to an agent."""
+    reads_nothing: bool
+    reason: str
+    """Q2's scope in plain words: who they read as."""
+
+    @classmethod
+    def of(cls, probed: Probed) -> LifecycleProbeView:
+        result, probe = probed.result, probed.probe
+        pages = list(dict.fromkeys(p.citation.document_key for p in result.released.passages))
+        held: dict[str, LifecycleHeldView] = {}
+        for withheld in result.released.withheld:
+            access = withheld.access
+            held.setdefault(
+                access.document_key,
+                LifecycleHeldView(
+                    document_key=access.document_key, verdict=access.verdict, reason=access.reason
+                ),
+            )
+        return cls(
+            user_id=probe.user,
+            question=probe.question,
+            page=probe.page,
+            cited=probe.page in pages,
+            pages=pages,
+            held_back=list(held.values()),
+            reads_nothing=result.scope.reads_nothing,
+            reason=result.scope.reason,
+        )
+
+
+class LifecycleActionView(_View):
+    """One scripted change in a source, and whether it can be applied now."""
+
+    id: str
+    title: str
+    actor: str
+    source: str
+    change: str
+    caught_by: str
+    listing: bool
+    """Only a full listing sees it: the next round runs the listings."""
+    expect: str
+    after: list[str]
+    applied: bool
+    blocked: str
+    """Why it can't be applied now (``already applied``, ``needs add_page first``), or ``""``."""
+
+    @classmethod
+    def of(cls, action: ActionInfo, panel: LifecyclePanel) -> LifecycleActionView:
+        blocked = panel.available(action)
+        return cls(
+            id=action.id,
+            title=action.title,
+            actor=action.actor,
+            source=action.source,
+            change=action.change,
+            caught_by=action.caught_by,
+            listing=action.listing,
+            expect=action.expect,
+            after=list(action.after),
+            applied=blocked == "already applied",
+            blocked=blocked,
+        )
+
+
+class LifecycleTraceView(_View):
+    """What the worker did with one event after a change: no content (S12)."""
+
+    seq: int
+    document_key: str
+    version: str
+    action: DiffAction | None
+    status: TraceStatus
+    steps: list[str]
+    """The step names, in order: the route the event took."""
+    failed_step: str | None
+
+    @classmethod
+    def of(cls, entry: LoggedTrace) -> LifecycleTraceView:
+        trace = entry.trace
+        return cls(
+            seq=entry.seq,
+            document_key=trace.document_key,
+            version=trace.version,
+            action=trace.action,
+            status=trace.status,
+            steps=[step.step for step in trace.steps],
+            failed_step=trace.failed_step,
+        )
+
+
+class LifecycleStepView(_View):
+    """One change applied from the screen: the questions before it, right after it (the
+    worker had not run), and what the worker did since."""
+
+    number: int
+    action_id: str
+    title: str
+    applied_at: datetime
+    before: list[LifecycleProbeView]
+    right_after: list[LifecycleProbeView]
+    traces: list[LifecycleTraceView]
+
+    @classmethod
+    def of(cls, step: Applied, panel: LifecyclePanel) -> LifecycleStepView:
+        return cls(
+            number=step.number,
+            action_id=step.action.id,
+            title=step.action.title,
+            applied_at=step.applied_at,
+            before=[LifecycleProbeView.of(p) for p in step.before],
+            right_after=[LifecycleProbeView.of(p) for p in step.right_after],
+            traces=[LifecycleTraceView.of(e) for e in panel.traces_of(step)],
+        )
+
+
+class LifecycleView(_View):
+    """The story so far: the changes, what each did, and the questions answered now."""
+
+    wired: bool
+    """The sources are running and the actions can be applied."""
+    actions: list[LifecycleActionView]
+    steps: list[LifecycleStepView]
+    """Applied changes, newest first."""
+    now: list[LifecycleProbeView]
+    watched: str
+    links: list[str]
+    """The entity IDs on the watched page's published chunks now."""

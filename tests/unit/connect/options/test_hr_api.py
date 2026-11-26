@@ -167,6 +167,67 @@ def test_an_unmapped_hire_is_emitted_fail_closed_and_reported(
     assert people.unmapped == {"employee:E-1013"}
 
 
+def test_a_hire_whose_identity_account_comes_later_is_sent_again_by_the_listing(
+    monkeypatch: pytest.MonkeyPatch,
+    delta: HrApiDeltaConnector,
+    make_listing: MakeListing,
+    hr: TestClient,
+    idp: TestClient,
+    events: list[ChangeEvent],
+    people: PersonMap,
+) -> None:
+    """S16: HR hires first; the record carries no person and never changes when the account
+    appears. The listing sends the same version again, now with the person."""
+    delta.sync()
+    hr.post(
+        "/employees",
+        json={
+            "id": "E-1013",
+            "name": "Sara Neri",
+            "work_email": "sara.neri@example.com",
+            "team_id": "T-ENG",
+            "office": "Milan",
+            "start_date": "2026-12-01",
+        },
+        headers={"X-Actor": "dana"},
+    )
+    delta.sync()
+    hired = events[-1]
+    assert hired.person_id is None
+    known = _known(events)
+    assert make_listing(known).sync() == 0  # still no account: nothing to send again
+
+    idp.post(
+        "/scim/v2/Users",
+        json={"id": "sara", "name": "Sara Neri", "location": "Milan", "groups": ["all-staff"]},
+        headers={"X-Actor": "dana"},
+    ).raise_for_status()
+    events.clear()
+
+    # Computing the diff (or failing before delivery) must leave the mapping pending.
+    listing = make_listing(known)
+
+    def unavailable(event: ChangeEvent) -> None:
+        raise ConnectionError("event sink unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(listing, "_sink", unavailable)
+        with pytest.raises(ConnectionError, match="event sink unavailable"):
+            listing.sync()
+    assert "employee:E-1013" in people.unmapped
+    assert listing.sync() == 1
+    (again,) = events
+    assert (again.source_id, again.version, again.content_hash) == (
+        hired.source_id,
+        hired.version,
+        hired.content_hash,
+    )
+    assert again.person_id == "sara"
+    assert "employee:E-1013" not in people.unmapped  # settled
+    events.clear()
+    assert make_listing(known).sync() == 0  # sent once, not on every listing
+
+
 def test_a_failed_poll_keeps_the_cursor(
     clock: Clock, events: list[ChangeEvent], originals: Originals, people: PersonMap
 ) -> None:

@@ -28,6 +28,7 @@ from ekb.contracts.diff import DiffAction
 from ekb.contracts.events import ChangeOp
 
 STEP_ORDER: tuple[str, ...] = (
+    "re-link",
     "rebuild",
     "T2 diff",
     "T8 readers first",
@@ -94,7 +95,11 @@ class TraceStatus(StrEnum):
     PARKED = "parked"
     """Set aside in the dead letters: after too many failed attempts, or behind one."""
     REBUILT = "rebuilt"
-    """Processed again from its stored original, after its dead letters were retried."""
+    """Processed again from its stored original: after its dead letters were retried, or
+    because its context headers failed (a reconciliation run, S16)."""
+    RELINKED = "relinked"
+    """Processed again from its stored original because a person or team it names (or
+    named) changed: a hire, a leaver, a rename (S16)."""
 
 
 class Trace(BaseModel):

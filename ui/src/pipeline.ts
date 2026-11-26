@@ -10,6 +10,7 @@ export const STATUSES: { status: TraceStatus; meaning: string }[] = [
     { status: "failed", meaning: "a step raised; the event comes back" },
     { status: "parked", meaning: "set aside in the dead letters" },
     { status: "rebuilt", meaning: "republished from its stored original" },
+    { status: "relinked", meaning: "republished: a person or team it names changed" },
 ];
 
 /** The badge's class: one colour per status. */

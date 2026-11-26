@@ -36,8 +36,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ekb.access.answer.port import NOTHING_FOUND, AnswerCache, AnswerWriter, CachedAnswer, Draft
 from ekb.access.auth.port import TokenCheck
@@ -99,6 +100,9 @@ class Assistant:
     on_answer: Callable[[Caller, AssistantResult], None] | None = None
     """Told about every ``ask``, with how it came about: for the demo, never the agent."""
 
+    release_guard: threading.RLock = field(default_factory=threading.RLock, compare=False)
+    """Shared with the system's purge, from the first cache read through the final write."""
+
     def whoami(self, caller: Caller) -> Identity:
         scope = self.knowledge.search.q2.scope(caller.user_id)
         groups = tuple(sorted(scope.principals.groups)) if scope.principals is not None else ()
@@ -131,6 +135,10 @@ class Assistant:
         )
 
     def answer(self, caller: Caller, question: str) -> AssistantResult:
+        with self.release_guard:
+            return self._answer(caller, question)
+
+    def _answer(self, caller: Caller, question: str) -> AssistantResult:
         scope = self.knowledge.search.q2.scope(caller.user_id)
         key = cache_key(caller, scope, question, self.options)
         entry = self.cache.get(key)

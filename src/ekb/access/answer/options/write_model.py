@@ -17,10 +17,10 @@ own, so a model cannot invent a source.
 empty answer) the passages are quoted instead (``extractive``), with a note,
 and the answer is not cached, so the next question tries the model again.
 
-The gateway caches the reply by its full prompt, untagged: a reply quotes
-several pages, and the cache forgets a reply only through the one page it is
-tagged with. A reply that quoted a deleted page cannot be served again, because
-its prompt cannot be rebuilt once the page is purged; forgetting it is S16.
+The gateway caches the reply by its full prompt and records every page the
+prompt quotes (``quotes``, S16): deleting any one of them drops the reply from
+the cache, file included. (Tagging it as "used by" one page would keep it while
+any other page it quotes is alive, which suits a header, not an answer.)
 """
 
 from __future__ import annotations
@@ -72,6 +72,11 @@ def prompt(question: str, passages: Sequence[Passage]) -> str:
     return "Passages:\n\n" + "\n\n".join(blocks) + f"\n\nQuestion: {question.strip()}"
 
 
+def quoted(passages: Sequence[Passage]) -> tuple[str, ...]:
+    """The pages the prompt quotes, each once, in passage order."""
+    return tuple(dict.fromkeys(p.citation.document_key for p in passages))
+
+
 @register("answer", "model")
 class ModelWriter:
     def __init__(self, gateway: Completer, *, task: str = TASK) -> None:
@@ -92,6 +97,7 @@ class ModelWriter:
                 prompt_version=PROMPT_VERSION,
                 max_output_tokens=MAX_OUTPUT_TOKENS,
                 json_schema=SCHEMA,
+                quotes=quoted(passages),
             )
         except GatewayError as exc:
             logger.warning("no model wrote the answer: %s", exc)

@@ -37,7 +37,7 @@ from ekb.contracts import Chunk, ParsedDocument
 from ekb.platform.gateway.errors import GatewayError
 from ekb.platform.gateway.port import Completer
 from ekb.platform.registry import register
-from ekb.process.t4_chunk.header import HeaderOutcome, Headers, clean
+from ekb.process.t4_chunk.header import NO_HEADER, HeaderOutcome, Headers, clean
 
 VERSION = 1
 PROMPT_VERSION = "header@1"
@@ -116,7 +116,7 @@ class ModelHeaderWriter:
     def _failed(self, why: str, count: int) -> Headers:
         return Headers(
             texts=("",) * count,
-            header_id=f"model@{VERSION}({PROMPT_VERSION}, no header)",
+            header_id=f"model@{VERSION}({PROMPT_VERSION}, {NO_HEADER})",
             outcome=HeaderOutcome.FAILED,
             note=f"no header: {why}",
         )

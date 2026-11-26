@@ -14,7 +14,17 @@ import {
 test("every status has a meaning and a badge", () => {
     assert.deepEqual(
         STATUSES.map((s) => s.status),
-        ["published", "readers", "record", "skipped", "purged", "failed", "parked", "rebuilt"],
+        [
+            "published",
+            "readers",
+            "record",
+            "skipped",
+            "purged",
+            "failed",
+            "parked",
+            "rebuilt",
+            "relinked",
+        ],
     );
     assert.equal(statusClass("parked"), "trace trace-parked");
 });
