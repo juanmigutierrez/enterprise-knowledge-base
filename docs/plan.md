@@ -123,7 +123,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S17c | Real infrastructure · 5 · Search | OpenSearch search store: readers in the filter, BM25, one `knn_vector` field per size, all-at-once publishing | What changes when ranking moves into an engine, and what doesn't | `ekb demo search --docker` | 60 min | ✅ |
 | S17d | Real infrastructure · Services | `ekb connect`, `ekb worker`, `ekb api --query-only`; mock sources image; `docker compose --profile app up`; gates on the real options (fakes in every PR, Docker with `-m integration`) | How the system runs as separate services, and the consumer group the split needs | `ekb demo infra`; `docker compose --profile app up` | 60 min | ✅ |
 | S17e | Real infrastructure · Optional | *Optional.* Postgres + Debezium and Keycloak as extra options behind the S1d and S1c connectors | CDC from a real write-ahead log; OIDC tokens | — | 60 min | ⬜ |
-| S18 | 8 · Evaluation | Golden question set, runner, P1 experiments 4.4, 4.5, 4.13, 4.14 | How each choice is measured | `uv run ekb-eval run …` | 60 min | ⬜ |
+| S18 | 8 · Evaluation | Golden question set, runner, P1 experiments 4.4, 4.5, 4.13, 4.14 | How each choice is measured | `uv run ekb-eval run …` | 60 min | 🟡 |
 | S19 | Finish | README (setup, demo, assumptions), AI-SDLC write-up, clean setup check | — | Fresh clone → follow README | 30 min | ⬜ |
 
 **Estimate:** about 14–16 hours of build time, including about 3–4 hours of UI and about 2 hours for the extra source types (S1b–S1d, S2a; the optional S14b adds 45 minutes), plus the time you spend reading walkthroughs. That is more than the assignment's 4–6 hours because the steps are built to be understood, not just delivered.
@@ -236,7 +236,7 @@ S17 (real infrastructure) passed review in four parts (✅): [S17a](walkthrough/
 
 Settled while building: a purge finds what a record defined through a second table, not a secondary index (strongly consistent reads); each real option imports its library only when built, behind an import-linter contract; every run on Docker gets its own namespace, dropped at the end; the test tokens are in the `ekb-cache` named volume, not a folder mounted from the host (SQLite is unsafe on Windows bind mounts), and `docker compose logs api` prints them.
 
-Next: **S15b** (Cedar), **S14b** or **S16b** (both optional), **S17e** (optional), or **S18** with `/plan-task`.
+Next: **S15b** (Cedar), **S14b** or **S16b** (both optional), **S17e** (optional), or review [S18 evaluation](walkthrough/S18-evaluation.md).
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

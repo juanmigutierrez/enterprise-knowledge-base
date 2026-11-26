@@ -18,7 +18,7 @@ Mistral), the HTTP status otherwise (Groq, OpenRouter), network errors last.
 Embedding models (S10) go through LangChain's embedding classes the same way
 (:class:`LangChainEmbeddingClient`, :data:`EMBEDDING_PROVIDERS`): Ollama for
 bge-m3 in the POC, Bedrock for the production design. Their interface returns
-vectors only, no token counts.
+vectors only. Bedrock's response headers can supply input usage for the spend cap.
 """
 
 from __future__ import annotations
@@ -281,10 +281,8 @@ class LangChainEmbeddingClient:
     def embed(self, texts: Sequence[str]) -> EmbeddingReply:
         try:
             model = self._embeddings()
-            if self._provider == "bedrock" and self._params.get("model_kwargs", {}).get(
-                "embedding_types"
-            ) == ["int8"]:
-                return self._embed_int8(cast(_BedrockTransport, model), texts)
+            if self._provider == "bedrock":
+                return self._bedrock(model, texts)
             vectors = model.embed_documents(list(texts))
             return EmbeddingReply(
                 vectors=tuple(tuple(vector) for vector in vectors),
@@ -295,6 +293,47 @@ class LangChainEmbeddingClient:
             raise
         except Exception as exc:
             raise ModelCallError(classify(exc), describe(exc)) from exc
+
+    def _bedrock(self, model: Embeddings, texts: Sequence[str]) -> EmbeddingReply:
+        # LangChain returns vectors only. Observe successful InvokeModel responses
+        # on this call's client before the SDK discards their billing headers.
+        counts: list[int | None] = []
+
+        def observe(parsed: dict[str, Any], **_: Any) -> None:
+            metadata = parsed.get("ResponseMetadata", {})
+            if metadata.get("HTTPStatusCode") != 200:
+                return
+            value = str(metadata.get("HTTPHeaders", {}).get("x-amzn-bedrock-input-token-count"))
+            counts.append(int(value) if value.isascii() and value.isdecimal() else None)
+
+        events = getattr(getattr(getattr(model, "client", None), "meta", None), "events", None)
+        event = "after-call.bedrock-runtime.InvokeModel"
+        if events is not None:
+            events.register(event, observe)
+        try:
+            if self._params.get("model_kwargs", {}).get("embedding_types") == ["int8"]:
+                reply = self._embed_int8(cast(_BedrockTransport, model), texts)
+            else:
+                vectors = model.embed_documents(list(texts))
+                reply = EmbeddingReply(
+                    vectors=tuple(tuple(v) for v in vectors),
+                    usage_reported=False,
+                    served_model=self._model,
+                )
+        except Exception as exc:
+            if not counts:
+                raise
+            kind = exc.kind if isinstance(exc, ModelCallError) else classify(exc)
+            known = None if None in counts else (sum(n for n in counts if n is not None), 0)
+            raise ModelCallError(kind, describe(exc), received_reply=True, usage=known) from exc
+        finally:
+            if events is not None:
+                events.unregister(event, observe)
+        if not counts or None in counts:
+            return reply
+        return reply.model_copy(
+            update={"usage_reported": True, "input_tokens": sum(n for n in counts if n is not None)}
+        )
 
     def _embed_int8(self, model: _BedrockTransport, texts: Sequence[str]) -> EmbeddingReply:
         # BedrockEmbeddings.embed_documents only unwraps the float response.

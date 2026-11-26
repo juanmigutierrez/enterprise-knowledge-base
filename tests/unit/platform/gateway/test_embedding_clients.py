@@ -7,10 +7,12 @@ the errors are built by hand, as in ``test_clients.py``.
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+from botocore.hooks import HierarchicalEmitter
 from langchain_core.embeddings import Embeddings
 
 from ekb.platform.gateway.errors import ModelCallError
@@ -212,3 +214,28 @@ def test_ollama_errors_become_the_gateways_kinds_without_their_message(
     assert classify(error) == kind
     assert "carry" not in str(caught.value)
     assert "pulling" not in str(caught.value)  # only the type and status are kept
+
+
+@pytest.mark.parametrize(("second", "reported", "total"), [("7", True, 12), (None, False, 0)])
+def test_bedrock_sums_billed_headers_only_when_every_batch_reports_usage(
+    second: str | None, reported: bool, total: int
+) -> None:
+    events = HierarchicalEmitter()
+
+    class Metered(ScriptedEmbeddings):
+        client = SimpleNamespace(meta=SimpleNamespace(events=events))
+
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            for value in ("5", second):
+                headers = {} if value is None else {"x-amzn-bedrock-input-token-count": value}
+                events.emit(
+                    "after-call.bedrock-runtime.InvokeModel",
+                    parsed={"ResponseMetadata": {"HTTPStatusCode": 200, "HTTPHeaders": headers}},
+                )
+            return super().embed_documents(texts)
+
+    reply = LangChainEmbeddingClient("bedrock", "cohere.embed-v4:0", build=Metered).embed(
+        ["a", "b"]
+    )
+    assert reply.usage_reported is reported
+    assert reply.input_tokens == total

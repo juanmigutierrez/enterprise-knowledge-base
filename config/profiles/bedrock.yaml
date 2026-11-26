@@ -23,6 +23,10 @@ gateway:
     "bedrock_converse:global.anthropic.claude-opus-5-5":   { price: { input: 4.00, output: 20.00 } }
     # Cohere Embed v4 at 1024 dimensions, signed int8 (D10, D15: $0.12 per million input tokens).
     # Preserve Cohere's signed integer components (D16 #8).
+    "bedrock:amazon.titan-embed-text-v2:0":
+      kind: embedding
+      dimensions: 1024
+      price: { input: 0.02 }
     "bedrock:cohere.embed-v4:0":
       kind: embedding
       dimensions: 1024

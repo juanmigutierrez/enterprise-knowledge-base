@@ -51,7 +51,7 @@ jobs:
       - name: Run experiment
         env:
           EXPERIMENT: ${{ inputs.experiment }}
-        run: uv run ekb-eval run "evaluation/experiments/${EXPERIMENT}" --summary "$GITHUB_STEP_SUMMARY"
+        run: uv run --with langchain-aws ekb-eval run "evaluation/experiments/${EXPERIMENT}" --paid --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
