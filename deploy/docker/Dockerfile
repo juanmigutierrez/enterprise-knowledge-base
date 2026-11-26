@@ -34,10 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------------------------------------------------------------- runtime
 FROM python:${PYTHON_VERSION}-slim-trixie AS runtime
 
-# CVE-2026-85091 is fixed in Debian 13's deb13u1 revision.
+# Minimum Debian fixes for CVE-2026-85091 (zlib1g) and CVE-2026-124851 (libzstd1).
 RUN apt-get update \
- && apt-get install -y --only-upgrade --no-install-recommends zlib1g \
+ && apt-get install -y --only-upgrade --no-install-recommends zlib1g libzstd1 \
  && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge '1:1.3.dfsg+really1.3.1-1+deb13u1' \
+ && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libzstd1)" ge '1.5.7+dfsg-1+deb13u1' \
  && rm -rf /var/lib/apt/lists/*
 
 # uv installs all service dependencies in the builder. The service needs
