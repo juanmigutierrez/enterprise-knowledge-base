@@ -101,7 +101,7 @@ services:
 
   # ------------------------------------------------ 5 · knowledge stores
   opensearch:
-    image: opensearchproject/opensearch:3.9.0
+    image: opensearchproject/opensearch:3.10.0
     environment:
       discovery.type: single-node
       DISABLE_SECURITY_PLUGIN: "true"        # local only; production uses IAM + fine-grained access
