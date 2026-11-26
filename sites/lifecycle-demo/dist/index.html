@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lifecycle walkthrough · Knowledge Base Inspector</title>
+<link rel="stylesheet" href="./style.css">
+<header><div class="mast">Knowledge Base <span>Inspector</span></div><a href="https://github.com/juanmigutierrez/enterprise-knowledge-base#readme">Run locally ↗</a></header>
+<main>
+  <div class="introduction"><h1>Lifecycle walkthrough</h1>
+  <p>Follow eight changes in a synthetic HR system. Explore the recorded answers and see which components handled each change.</p></div>
+  <div class="layout">
+    <nav aria-label="Tutorial cases"><h2>Cases</h2><div id="cases"></div></nav>
+    <article>
+      <div class="progress" id="progress"></div><h2 id="title"></h2><p id="question"></p>
+      <div class="switch" aria-label="Case view"><button id="result">Recorded result</button><button id="architecture">Architecture</button></div>
+      <p id="description"></p>
+      <div class="canvas" tabindex="0" aria-label="Scrollable case image"><div id="figure"><img id="image" alt=""><svg id="overlay" viewBox="0 0 4056 2464" aria-hidden="true"></svg></div></div>
+      <div class="actions"><button id="zoom">Zoom in</button><div><button id="previous">Previous case</button> <button id="next">Next case</button></div></div>
+    </article>
+  </div>
+</main>
+<script type="module" src="./demo.js"></script>
+</html>

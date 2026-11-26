@@ -1,0 +1,3 @@
+# The standalone demo's HTML, JavaScript and images are its authored source.
+!dist/
+!dist/**

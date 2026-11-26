@@ -29,10 +29,15 @@ export function DocumentsScreen({ sources }: { sources: string[] }) {
     );
 
     return (
-        <section className="split">
+        <section className={selected ? "document-view with-history" : "document-view"}>
             <div className="pane">
+                <div className="panel-title">
+                    <h2>Document register</h2>
+                    {documents.data && <span>{rows.length} items</span>}
+                </div>
                 <div className="toolbar">
                     <select
+                        aria-label="Filter documents by source"
                         value={source}
                         onChange={(e) => setSource(e.target.value)}
                     >
@@ -42,11 +47,12 @@ export function DocumentsScreen({ sources }: { sources: string[] }) {
                         ))}
                     </select>
                     <input
-                        placeholder="Filter by item…"
+                        type="search"
+                        aria-label="Filter by document key"
+                        placeholder="Filter by document key…"
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                     />
-                    <span className="muted">{rows.length} items</span>
                 </div>
                 {documents.error && <p className="error">{documents.error}</p>}
                 <div className="scroll">
@@ -73,7 +79,14 @@ export function DocumentsScreen({ sources }: { sources: string[] }) {
                                     ].join(" ")}
                                     onClick={() => setSelected(d.document_key)}
                                 >
-                                    <td className="mono">{d.document_key}</td>
+                                    <td>
+                                        <button
+                                            className="item-link mono"
+                                            onClick={() => setSelected(d.document_key)}
+                                        >
+                                            {d.document_key}
+                                        </button>
+                                    </td>
                                     <td>
                                         <OpBadge op={d.last.op} />
                                     </td>
@@ -89,24 +102,26 @@ export function DocumentsScreen({ sources }: { sources: string[] }) {
                             ))}
                         </tbody>
                     </table>
+                    {documents.data && !rows.length && (
+                        <p className="empty">No documents match these filters.</p>
+                    )}
                 </div>
             </div>
-            <aside className="pane history">
-                <h2>{selected ?? "History"}</h2>
-                <div className="scroll">
-                    {selected ? (
+            {selected && (
+                <aside className="pane history">
+                    <div className="panel-title">
+                        <h2>History · {selected}</h2>
+                        <button onClick={() => setSelected(null)}>Close history</button>
+                    </div>
+                    {history.error && <p className="error">{history.error}</p>}
+                    <div className="scroll">
                         <EventTable
                             events={[...(history.data?.events ?? [])].reverse()}
                             showKey={false}
                         />
-                    ) : (
-                        <p className="muted">
-                            Click an item to see every event it has had, newest
-                            first.
-                        </p>
-                    )}
-                </div>
-            </aside>
+                    </div>
+                </aside>
+            )}
         </section>
     );
 }
