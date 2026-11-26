@@ -8,9 +8,11 @@ passages (``extractive``), or writes through the ``ci`` profile's fake gateway
 forgotten. Q4 reads the docs tool through a switch that can take
 it down (the timeout case of card 4.13).
 
-Every gate runs on two profiles, ``ci`` and ``local``: the gates hold whatever the
-options are. Every agent-facing reply is kept (:attr:`Story.replies`), so a test can
-scan everything an agent was ever told.
+Every gate runs on the ``ci`` and ``local`` profiles, in memory, and (S17) on the
+real options for boxes 3 and 5: over fakes in every pull request, and against
+``docker compose`` with ``-m integration``. The gates hold whatever the options
+are. Every agent-facing reply is kept (:attr:`Story.replies`), so a test can scan
+everything an agent was ever told.
 """
 
 from __future__ import annotations
@@ -105,7 +107,14 @@ def pages(reply: AssistantAnswer | Answer) -> set[str]:
 
 
 @contextmanager
-def built(tmp_path: Path, profile: str, *, writer: str = "extractive") -> Iterator[Story]:
+def built(
+    tmp_path: Path,
+    profile: str,
+    *,
+    writer: str = "extractive",
+    docker: bool = False,
+    namespace: str | None = None,
+) -> Iterator[Story]:
     """The world on one profile, loaded: one sync round with the listings.
 
     ``writer`` is the answer option: ``extractive`` quotes and cites the passages
@@ -126,7 +135,7 @@ def built(tmp_path: Path, profile: str, *, writer: str = "extractive") -> Iterat
                 as_httpx(hr),
                 as_httpx(idp),
                 tmp_path / "hr.sqlite",
-                write=choose(settings, offline=True),
+                write=choose(settings, offline=True, docker=docker, namespace=namespace),
                 query=choose_query(settings),
                 assistant=choose_assistant(settings).with_options("gate", answer=writer),
                 gateway=gateway,

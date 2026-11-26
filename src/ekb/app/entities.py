@@ -4,8 +4,9 @@ Three choices are made here, in the composition root, and nowhere else:
 
 - **Which store and which linker.** By name: the worker pipeline (S12) passes
   what the profile names. ``config/default.yaml`` names ``cascade`` and
-  ``dynamodb`` (card 4.10's and 4.17's starting choices), which run as their
-  stand-ins, ``exact_match`` and ``in_memory``, until they are built.
+  ``dynamodb`` (card 4.10's and 4.17's starting choices). ``cascade`` runs as
+  its stand-in, ``exact_match``, until it is built; ``dynamodb`` is built (S17)
+  and runs with ``--docker``, ``in_memory`` otherwise.
 - **Which sources define entities**, and how to read their records:
   ``RECORD_SOURCES``. Only the HR record API today: its employees and teams.
 - **When each half runs.** A record T3 reports as "not a document" updates
@@ -15,6 +16,8 @@ Three choices are made here, in the composition root, and nowhere else:
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from ekb.app.changelog import ChangeLog
 from ekb.platform import registry
@@ -36,9 +39,9 @@ RECORD_SOURCES: dict[str, RecordReader] = {"hr_api": hr_record}
 """Sources whose records define entities, each with the reader for its records."""
 
 
-def entity_store(name: str = DEFAULT_STORE) -> EntityStore:
-    """A registered entity store option by name (``in_memory``)."""
-    built = registry.create("entities", name)
+def entity_store(name: str = DEFAULT_STORE, **params: Any) -> EntityStore:
+    """A registered entity store option by name (``in_memory``, ``dynamodb``)."""
+    built = registry.create("entities", name, **params)
     if not isinstance(built, EntityStore):
         raise TypeError(f"entities option {name!r} does not implement the EntityStore port")
     return built

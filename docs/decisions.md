@@ -77,6 +77,7 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 - **Rejected for now:** Amazon MSK with compacted topics (the original choice; still the scale-out path); Kinesis (no compaction; replay limited by retention).
 - **Trade-off:** Two implementations of the event-bus interface; no log compaction in production at first; replay is a scan of S3 rather than a log read.
 - **Revisit:** Move to MSK at more than ~1M changes per day, when several independent consumers need the same stream, or for a ShopX-wide rollout.
+  - *Built in S17 (26 November 2026):* the local Kafka option keeps every event (`cleanup.policy=delete`, unlimited retention), so a new consumer group replays the whole history; compaction stays the scale option. The Knowledge API is already a second, independent consumer (the `answer-cache` group empties cached answers on deletes): the first sign of the "several consumers" trigger.
 
 ### D5. Search index: OpenSearch, sized small *(revised for company size)*
 
@@ -163,6 +164,7 @@ Companion artifact: the architecture whiteboard (production on AWS + the same de
 - **Rejected:** One AWS emulator for everything — LocalStack requires an account and auth token since March 2026, and MinIO's open-source project was archived in February 2026.
 - **Trade-off:** Some behaviour can't be proven locally: scale and latency, IAM / Lake Formation / AgentCore Policy, Glue zero-ETL, Bedrock Data Automation, and Neptune-specific openCypher differences.
 - **POC core (4–6 h budget):** mock sources, Kafka, workers, OpenSearch, DynamoDB Local, Knowledge API. Neo4j, DuckDB, Presidio, Jaeger and Keycloak are optional add-ons.
+  - *Built in S17 (26 November 2026):* Kafka, DynamoDB Local, SeaweedFS and OpenSearch run behind the same ports as the in-memory options, used with `--docker` and by `docker compose --profile app up` (connector, worker, API as three services of one image, plus the mocks in their own image). The change log's lifetimes moved into an acceptance log in DynamoDB, so every process sees a delete as soon as it is accepted. Keycloak and Postgres + Debezium are the optional S17e.
 
 ### D14. OpenSearch locally instead of Postgres + pgvector
 

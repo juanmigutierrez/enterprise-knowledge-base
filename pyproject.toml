@@ -35,10 +35,14 @@ dependencies = [
 [project.optional-dependencies]
 # Local models (S7), only on a machine that can run them: `uv sync --extra ollama`.
 ollama = ["langchain-ollama>=1.2"]
-# Filled in as options are implemented. Example:
-# kafka    = ["confluent-kafka>=2.6"]
-# search   = ["opensearch-py>=3.0"]
-# aws      = ["boto3>=1.35", "langchain-aws"]  # Bedrock, the production design (D15)
+# Real infrastructure (S17), behind the same ports as the in-memory options. Each option
+# imports its library only when it is built, so `ekb` runs without them. The dev group
+# installs all three; the image takes them through --build-arg EXTRAS.
+kafka = ["confluent-kafka>=2.16"]           # bus: kafka
+search = ["opensearch-py>=3.2"]             # search: opensearch
+aws = ["boto3>=1.44"]                       # DynamoDB Local and the S3 API (SeaweedFS)
+# Later:
+# bedrock  = ["langchain-aws"]   # the production design's models (D15)
 # docling  = ["docling>=2.0"]
 
 [project.scripts]
@@ -55,6 +59,10 @@ dev = [
   "import-linter>=2.1",
   "pre-commit>=4.0",
   "pip-audit>=2.7",
+  # S17: the real infrastructure's clients, so tests and type checks see them, and
+  # moto, which answers DynamoDB and S3 calls in process (no Docker in unit tests).
+  "ekb[kafka,search,aws]",
+  "moto[dynamodb,s3]>=5.2",
 ]
 
 [build-system]
@@ -93,12 +101,20 @@ strict = true
 files = ["src", "sources", "agents", "tests"]
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+# boto3, botocore and moto ship no type hints. ekb.platform.aws types the calls it makes
+# with its own protocols, so nothing untyped leaks out of it.
+module = ["boto3", "boto3.*", "botocore", "botocore.*", "moto", "moto.*"]
+ignore_missing_imports = true
+
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # The repository root is on the path so tests can import the mock sources (sources/).
 pythonpath = ["."]
-addopts = "-ra --strict-markers"
+# Integration, end-to-end and experiment tests run only when asked for (S17): a plain
+# `uv run pytest` needs no Docker; `uv run pytest -m integration` overrides this.
+addopts = '-ra --strict-markers -m "not integration and not e2e and not eval"'
 markers = [
   "integration: needs the Docker Compose infrastructure (make up)",
   "e2e: full scenario through the MCP access layer",
@@ -186,6 +202,27 @@ modules = [
 name = "Connector options can share helpers and cannot depend on sibling options"
 type = "independence"
 modules = ["ekb.connect.options.*"]
+
+[[tool.importlinter.contracts]]
+name = "Only the Kafka adapter imports confluent-kafka (S17)"
+type = "forbidden"
+source_modules = ["ekb"]
+forbidden_modules = ["confluent_kafka"]
+ignore_imports = ["ekb.changelog.bus.kafka -> confluent_kafka"]
+
+[[tool.importlinter.contracts]]
+name = "Only ekb.platform.aws imports boto3 and botocore (S17)"
+type = "forbidden"
+source_modules = ["ekb"]
+forbidden_modules = ["boto3", "botocore"]
+ignore_imports = ["ekb.platform.aws -> boto3", "ekb.platform.aws -> botocore"]
+
+[[tool.importlinter.contracts]]
+name = "Only the OpenSearch search store imports opensearch-py (S17)"
+type = "forbidden"
+source_modules = ["ekb"]
+forbidden_modules = ["opensearchpy"]
+ignore_imports = ["ekb.stores.search.options.opensearch -> opensearchpy"]
 
 [[tool.importlinter.contracts]]
 name = "Only the gateway's LangChain option imports LangChain; everything else calls the gateway (S7)"

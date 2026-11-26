@@ -118,13 +118,17 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S15b | 6 · Q2 + 5 · Policies | Cedar policies on the caller's agent and on sensitivity (`acl_and_cedar`, `cedar_local`); a second agent (the roadmap agent) to show default deny | Why an agent's rights are narrower than the person's | `ekb demo cedar`: the same person through two agents | 45 min | ⬜ |
 | S16 | Self-maintenance | Scripted scenario across the sources: add, edit, delete a page; delete an HR record (found by the full listing); revoke on the page **and** by removing a user from a group → answers change; re-link the pages an entity change affects (a hire, a leaver; left open in S9); gate tests | The "maintains itself" requirement, proven | `ekb demo lifecycle` · UI: **Lifecycle** screen (add, edit, delete, revoke → see the effect) | 70 min | ✅ |
 | S16b | 6 · MCP | *Optional.* `changes_since` over MCP: what changed since a cursor, for the pages the caller may read now (Q2 + Q4), and what it may say about deleted or revoked pages | How an agent keeps its own copy fresh without learning what it lost | `ekb demo mcp` · `changes_since` from MCP Inspector | 40 min | ⬜ |
-| S17 | Real infrastructure | Kafka, OpenSearch and DynamoDB options; `docker compose --profile app up`. Optional: Postgres + Debezium and Keycloak as extra options behind the S1d and S1c connectors | That swapping infrastructure doesn't change the logic | Same demos against Docker | 45 min | ⬜ |
+| S17a | Real infrastructure · 3 · Change log | Kafka bus, DynamoDB registry and acceptance log (lifetimes, latest events, what the bus accepted), S3 raw store on SeaweedFS; `--docker` (in memory by default) | That swapping infrastructure doesn't change the logic, and what a durable log keeps | `ekb demo s3 --docker` | 60 min | ✅ |
+| S17b | Real infrastructure · 5 · Stores | Entity and permission stores on DynamoDB (mapping tables, not secondary indexes) | Why the gates need strongly consistent reads | `ekb demo ingest --docker` | 30 min | ✅ |
+| S17c | Real infrastructure · 5 · Search | OpenSearch search store: readers in the filter, BM25, one `knn_vector` field per size, all-at-once publishing | What changes when ranking moves into an engine, and what doesn't | `ekb demo search --docker` | 60 min | ✅ |
+| S17d | Real infrastructure · Services | `ekb connect`, `ekb worker`, `ekb api --query-only`; mock sources image; `docker compose --profile app up`; gates on the real options (fakes in every PR, Docker with `-m integration`) | How the system runs as separate services, and the consumer group the split needs | `ekb demo infra`; `docker compose --profile app up` | 60 min | ✅ |
+| S17e | Real infrastructure · Optional | *Optional.* Postgres + Debezium and Keycloak as extra options behind the S1d and S1c connectors | CDC from a real write-ahead log; OIDC tokens | — | 60 min | ⬜ |
 | S18 | 8 · Evaluation | Golden question set, runner, P1 experiments 4.4, 4.5, 4.13, 4.14 | How each choice is measured | `uv run ekb-eval run …` | 60 min | ⬜ |
 | S19 | Finish | README (setup, demo, assumptions), AI-SDLC write-up, clean setup check | — | Fresh clone → follow README | 30 min | ⬜ |
 
 **Estimate:** about 14–16 hours of build time, including about 3–4 hours of UI and about 2 hours for the extra source types (S1b–S1d, S2a; the optional S14b adds 45 minutes), plus the time you spend reading walkthroughs. That is more than the assignment's 4–6 hours because the steps are built to be understood, not just delivered.
 
-**Minimum path if time runs short:** S1 → S6 (including S1b–S1d and S2a), S10 → S16 (in-memory stores, no models except embeddings). Skip S7–S9, S14b and S17 and state them as planned. If more must go, drop S1d and the database connector next: S1b and S1c stay, because they feed the deletion and revocation gates. That still demonstrates the write path, permissions, self-maintenance and the MCP access layer. For the UI, the per-step panels are skipped first; S2b and the **Search as user** (S13) and **Lifecycle** (S16) screens are kept, because they show the two hardest requirements in the interview.
+**Minimum path if time runs short:** S1 → S6 (including S1b–S1d and S2a), S10 → S16 (in-memory stores, no models except embeddings). Skip S7–S9, S14b and S17a–S17e and state them as planned. If more must go, drop S1d and the database connector next: S1b and S1c stay, because they feed the deletion and revocation gates. That still demonstrates the write path, permissions, self-maintenance and the MCP access layer. For the UI, the per-step panels are skipped first; S2b and the **Search as user** (S13) and **Lifecycle** (S16) screens are kept, because they show the two hardest requirements in the interview.
 
 ---
 
@@ -219,7 +223,20 @@ S16 (self-maintenance) is complete (✅). The [S16 walkthrough](walkthrough/S16-
 - The gate tests (`tests/gates/`: deletion, revocation with the cached path, publication, leakage, the whole story) run with no marker in every pull request, on the `ci` and `local` profiles. S17 runs them again against Docker.
 - The demo asks over MCP with test tokens it issues itself (alice, lucia, bob). It runs offline, and exits 1 if a step does not do what it promised.
 
-Next: **S15b** (Cedar), **S14b** or **S16b** (both optional), or **S17** with `/plan-task`.
+S17 (real infrastructure) passed review in four parts (✅): [S17a](walkthrough/S17a-durable-change-log.md) the durable change log, [S17b](walkthrough/S17b-dynamodb-stores.md) the DynamoDB stores, [S17c](walkthrough/S17c-opensearch.md) OpenSearch, [S17d](walkthrough/S17d-services.md) the three services. Settled in S17's plan on 26 November 2026:
+- S17 is split into S17a–S17d; Postgres + Debezium and Keycloak move to an optional S17e.
+- Boxes 3 and 5 run in memory unless `--docker` (like `--models`); `ci.yaml` names `in_memory`, so pull requests never need Docker; `config/default.yaml` is unchanged (it always named kafka, dynamodb, s3 and opensearch).
+- The raw store is `s3` on SeaweedFS. The change log's lifetimes, latest deliveries and accepted records move into a new port, the acceptance log (`in_memory`, `dynamodb`); publish first, then accept.
+- One topic, `ekb.changes`, 3 partitions, `cleanup.policy=delete`, unlimited retention (compaction is the scale option).
+- OpenSearch's BM25 is used as it is (statistics over the whole index), with the readers in the filter clause; the in-memory store keeps the stricter rule, and the difference is documented (S17c). One `knn_vector` field per vector size; lower case and ASCII folding, no stemming.
+- Everything is temporary: `down` and `up` start clean, and the full listings rebuild. DynamoDB Local is pinned (3.3.2).
+- The Knowledge API reads the deletes with its own consumer group (`answer-cache`); the model cache and cost log are on a volume shared by the worker and the API. One image for the four mocks; the HR database on a shared volume.
+- Libraries: confluent-kafka, opensearch-py and boto3 as extras, installed by the dev group; moto for DynamoDB and S3 in unit tests.
+- Durable connector cursors, a retry command for parked events, OIDC tokens, a name query on OpenSearch for re-links and language analyzers stay for later.
+
+Settled while building: a purge finds what a record defined through a second table, not a secondary index (strongly consistent reads); each real option imports its library only when built, behind an import-linter contract; every run on Docker gets its own namespace, dropped at the end; the test tokens are in the `ekb-cache` named volume, not a folder mounted from the host (SQLite is unsafe on Windows bind mounts), and `docker compose logs api` prints them.
+
+Next: **S15b** (Cedar), **S14b** or **S16b** (both optional), **S17e** (optional), or **S18** with `/plan-task`.
 
 S7 is complete and reviewed (✅). See the [model gateway walkthrough](walkthrough/S07-model-gateway.md). Settled in S7's plan on 24 November 2026 (D15):
 - Free API tiers, not local models, for development and the POC's production: Google AI Studio, Groq, Mistral and OpenRouter, tried in order per task, with failover when a quota is used up. Ollama is an optional provider; the production design keeps Bedrock.

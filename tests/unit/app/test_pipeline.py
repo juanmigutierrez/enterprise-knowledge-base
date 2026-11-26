@@ -155,6 +155,21 @@ def world(tmp_path: Path) -> Iterator[World]:
 # ------------------------------------------------------------- the write path
 
 
+def test_worker_releases_recovered_page_when_it_overtakes_acceptance(world: World) -> None:
+    world.load()
+    key = "hr_docs:HR-PL-04"
+    previous = next(
+        o.delivery for o in world.outcomes if o.delivery and o.delivery.event.document_key == key
+    )
+    assert previous is not None
+    world.stores.search.set_visible(key, visible=False)
+    pending = world.changelog.bus.publish(previous.event)
+    assert world.pipeline.run() == 1
+    world.changelog.acceptance.accept(pending)
+    assert world.lag() == 0
+    assert key in world.pages("alice")
+
+
 def test_one_group_takes_every_source_through_the_write_path(world: World) -> None:
     world.load()
 

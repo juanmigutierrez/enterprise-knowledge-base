@@ -16,6 +16,12 @@ both are printed, never silent:
 - **Offline.** ``choose(…, offline=True)`` swaps every option that calls a model
   for its offline counterpart (``OFFLINE``): no header, the rules classifier,
   fake vectors. ``ekb demo ingest`` runs that way unless asked for models.
+- **In memory, unless ``--docker``** (S17). The configuration names the real
+  infrastructure for boxes 3 and 5 (Kafka, DynamoDB, S3, OpenSearch), and those
+  options are built now. Without ``docker=True`` every one of them is swapped
+  for ``in_memory`` (``INFRA_STEPS``), so nothing needs ``docker compose`` unless
+  asked, the way ``--models`` works for models. With it, the real options run,
+  each in the given ``namespace`` (``ekb.platform.infra``).
 
 The inspector's ``--header``, ``--classifier`` and ``--embed`` flags override
 the configuration last (:meth:`Choices.with_options`).
@@ -74,16 +80,21 @@ SETTING_STEPS: Mapping[str, tuple[str, str, str]] = MappingProxyType(
 """Query steps that are another step's setting in ``config/``, not steps of their own:
 ``step: (owner step, setting, option when the setting is absent)``."""
 
+INFRA_STEPS = ("bus", "registry", "rawstore", "search", "entities", "permissions")
+"""Boxes 3 and 5: the steps whose options are infrastructure (S17). They run in memory
+unless ``docker=True``."""
+IN_MEMORY = "in_memory"
+
 STAND_INS: Mapping[str, str] = MappingProxyType(
     {
-        "bus": "in_memory",  # kafka (S17)
-        "registry": "in_memory",  # dynamodb (S17)
-        "rawstore": "in_memory",  # s3 (S17)
+        "bus": IN_MEMORY,  # when no option is configured
+        "registry": IN_MEMORY,
+        "rawstore": IN_MEMORY,
         "t3_parse": "markdown",  # docling (card 4.1)
         "t6_entities": "exact_match",  # cascade (card 4.10)
-        "search": "in_memory",  # opensearch (S17)
-        "entities": "in_memory",  # dynamodb (S17)
-        "permissions": "in_memory",  # dynamodb (S17)
+        "search": IN_MEMORY,
+        "entities": IN_MEMORY,
+        "permissions": IN_MEMORY,
         "q1_plan": "rules",  # rewrite_when_needed (card 4.8)
         "q2_prefilter": "acl",  # acl_and_cedar (S15b)
         "q3_rerank": "none",  # bge_reranker, cohere_rerank_3_5 (card 4.6)
@@ -164,6 +175,11 @@ class Choices:
         return tuple(choice for choice in self.steps if choice.swapped)
 
     @property
+    def on_docker(self) -> bool:
+        """Whether any infrastructure step runs a real option (S17: ``--docker``)."""
+        return any(c.option != IN_MEMORY for c in self.steps if c.step in INFRA_STEPS)
+
+    @property
     def calls_models(self) -> bool:
         """Whether any step runs an option that calls a model (and so needs the gateway)."""
         return any(c.option in MODEL_OPTIONS.get(c.step, frozenset()) for c in self.steps)
@@ -187,12 +203,31 @@ class Choices:
         return replace(self, steps=tuple(steps))
 
 
-def choose(settings: Settings, *, offline: bool = False) -> Choices:
+def choose(
+    settings: Settings,
+    *,
+    offline: bool = False,
+    docker: bool = False,
+    namespace: str | None = None,
+) -> Choices:
     """The options the active profile names, each replaced by its stand-in while it is
-    not built, and, ``offline``, every model option by its offline counterpart."""
-    return replace(
-        _choose(settings, PIPELINE_STEPS, offline=offline), model_cache=settings.gateway.cache
-    )
+    not built, and, ``offline``, every model option by its offline counterpart.
+
+    Boxes 3 and 5 run in memory unless ``docker``; with it, the real options run,
+    in ``namespace`` when one is given (a demo or test run's own, S17)."""
+    chosen = _choose(settings, PIPELINE_STEPS, offline=offline)
+    steps = tuple(_on_infra(choice, docker=docker, namespace=namespace) for choice in chosen.steps)
+    return replace(chosen, steps=steps, model_cache=settings.gateway.cache)
+
+
+def _on_infra(choice: Choice, *, docker: bool, namespace: str | None) -> Choice:
+    if choice.step not in INFRA_STEPS or choice.option == IN_MEMORY:
+        return choice
+    if not docker:
+        return replace(choice, option=IN_MEMORY, params={}, why="in memory: no --docker")
+    if namespace is None:
+        return choice
+    return replace(choice, params={**choice.params, "namespace": namespace})
 
 
 def choose_assistant(settings: Settings, *, offline: bool = False) -> Choices:

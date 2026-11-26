@@ -36,9 +36,17 @@ class ServedApp:
 
 
 @contextmanager
-def serving(app: Starlette, *, timeout_s: float = STARTUP_TIMEOUT_S) -> Iterator[ServedApp]:
-    port = free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+def serving(
+    app: Starlette,
+    *,
+    timeout_s: float = STARTUP_TIMEOUT_S,
+    host: str = "127.0.0.1",
+    port: int | None = None,
+) -> Iterator[ServedApp]:
+    """Serve ``app`` in a background thread: on 127.0.0.1 and a free port unless told
+    otherwise (``ekb connect`` in a container listens on 0.0.0.0, port 8090, S17)."""
+    port = port or free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, name=f"serve-{port}", daemon=True)
     thread.start()
     served = ServedApp(server, thread, f"http://127.0.0.1:{port}")

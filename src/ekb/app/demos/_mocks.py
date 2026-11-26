@@ -20,6 +20,8 @@ from typing import Any
 import httpx
 import typer
 
+from ekb.platform.infra import START_HINT, InfrastructureError
+
 Echo = Callable[[str], None]
 
 STARTUP_TIMEOUT_S = 20.0
@@ -119,6 +121,8 @@ def call(client: httpx.Client, method: str, path: str, **kwargs: Any) -> Any:
 
 
 def fail(exc: Exception) -> typer.Exit:
-    """Print a failed demo's reason and return the exit to raise."""
-    typer.secho(f"Demo failed: {exc}", fg="red", err=True)
+    """Print a failed demo's reason and return the exit to raise. When the real
+    infrastructure did not answer (``--docker``, S17), say how to start it."""
+    hint = f" ({START_HINT})" if isinstance(exc, InfrastructureError) else ""
+    typer.secho(f"Demo failed: {exc}{hint}", fg="red", err=True)
     return typer.Exit(code=1)

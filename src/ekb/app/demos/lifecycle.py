@@ -42,7 +42,7 @@ import typer
 from ekb.access.auth.options.static_tokens import IssuedToken, StaticTokens, new_token
 from ekb.access.mcp.server import PATH, create_app
 from ekb.app.choices import Choices, choose_assistant, choose_query
-from ekb.app.demos._app import demo_app
+from ekb.app.demos._app import DockerFlag, demo_app
 from ekb.app.demos._mocks import (
     Echo,
     MockStartError,
@@ -54,6 +54,7 @@ from ekb.app.demos._mocks import (
 from ekb.app.demos._serve import serving
 from ekb.app.demos.ingest import demo_choices, route
 from ekb.app.demos.mcp import Agent
+from ekb.app.infra import run_namespace
 from ekb.app.lifecycle import (
     ACTIONS,
     HOTEL_QUESTION,
@@ -544,33 +545,37 @@ def lifecycle(
             help="Call the models the profile names (keys in .env; Ollama for T7).",
         ),
     ] = False,
+    docker: DockerFlag = False,
     url: Annotated[str | None, typer.Option(help="A running mock docs service.")] = None,
     hr_url: Annotated[str | None, typer.Option(help="A running mock HR API.")] = None,
     idp_url: Annotated[str | None, typer.Option(help="A running mock identity provider.")] = None,
 ) -> None:
     """S16 · Self-maintenance: eight changes in the sources, and what the agent hears after each."""
     try:
-        settings = load_settings()
-        write, gateway, note = demo_choices(settings, models)
-        if note:
-            typer.secho(f"Note: {note}.\n", fg="yellow")
-        with ExitStack() as stack:
-            docs = stack.enter_context(mock_client(DOCS, url))
-            hr = stack.enter_context(mock_client(HR, hr_url))
-            idp = stack.enter_context(mock_client(IDP, idp_url))
-            db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
-            run_mock_command(DB, ["init", "--path", str(db_path)])
-            story = run_lifecycle_demo(
-                docs,
-                hr,
-                idp,
-                db_path,
-                write=write,
-                query=choose_query(settings),
-                assistant=choose_assistant(settings, offline=not models),
-                gateway=gateway,
+        with run_namespace(docker) as namespace:
+            settings = load_settings()
+            write, gateway, note = demo_choices(
+                settings, models, docker=docker, namespace=namespace
             )
-        if story.leakage_count or story.deleted_count or not all(c.held for c in story.checks):
-            raise typer.Exit(code=1)
-    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError) as exc:
+            if note:
+                typer.secho(f"Note: {note}.\n", fg="yellow")
+            with ExitStack() as stack:
+                docs = stack.enter_context(mock_client(DOCS, url))
+                hr = stack.enter_context(mock_client(HR, hr_url))
+                idp = stack.enter_context(mock_client(IDP, idp_url))
+                db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
+                run_mock_command(DB, ["init", "--path", str(db_path)])
+                story = run_lifecycle_demo(
+                    docs,
+                    hr,
+                    idp,
+                    db_path,
+                    write=write,
+                    query=choose_query(settings),
+                    assistant=choose_assistant(settings, offline=not models),
+                    gateway=gateway,
+                )
+            if story.leakage_count or story.deleted_count or not all(c.held for c in story.checks):
+                raise typer.Exit(code=1)
+    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError, OSError) as exc:
         raise fail(exc) from exc

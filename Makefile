@@ -27,7 +27,7 @@ imports: ## Enforce the folder/layer rules
 test: ## Unit and contract tests with coverage
 	uv run pytest -m "not integration and not e2e and not eval" --cov
 
-test-int: ## Integration tests (needs `make up`)
+test-int: ## Integration tests and gates on the real infrastructure (needs `make up`)
 	uv run pytest -m integration
 
 check: lint typecheck imports test ## Everything CI runs on a pull request, locally (UI: make ui-check)
@@ -44,11 +44,11 @@ up: ## Start the infrastructure core
 up-models: ## Core + Ollama
 	docker compose --profile models up -d --wait
 
-up-app: ## Core + our services
+up-app: ## Core + mock sources + our three services (connector, worker, api; S17)
 	docker compose --profile app up -d --build --wait
 
 down: ## Stop everything (keeps volumes)
-	docker compose --profile models --profile app down
+	docker compose --profile models --profile sources --profile app down
 
 logs: ## Follow logs
 	docker compose logs -f --tail=100

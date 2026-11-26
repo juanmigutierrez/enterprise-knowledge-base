@@ -5,7 +5,7 @@ source ID, version. Each part is URL-encoded, because IDs and versions can
 contain ``/`` or ``:`` (``employees/E-1001``, an ISO timestamp). The store never
 parses a pointer back; it is only a key.
 
-It stands in for S3 with versioning (production) and SeaweedFS (S17).
+It stands in for S3 with versioning (production) and SeaweedFS (``s3``, S17).
 Thread-safe, lost when the process stops.
 """
 

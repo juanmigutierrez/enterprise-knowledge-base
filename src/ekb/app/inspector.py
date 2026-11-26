@@ -57,11 +57,13 @@ from ekb.app.choices import Choices, choose, choose_query
 from ekb.app.chunk import HEADER_OPTIONS
 from ekb.app.classify import CLASSIFIER_OPTIONS
 from ekb.app.connectors import Connectors, build_connectors
+from ekb.app.demos._app import DockerFlag
 from ekb.app.demos._mocks import call, mock_client, run_mock_command
 from ekb.app.demos._serve import serving
 from ekb.app.embed import EMBEDDER_OPTIONS, MODEL_EMBEDDERS, embed_help, probe
 from ekb.app.entities import entity_store
 from ekb.app.gateway import build_gateway, max_spend, provider_status
+from ekb.app.infra import drop
 from ekb.app.lifecycle import ACTIONS, MENTORING_KEY, PROBES, ActionRefusedError, Sources, check
 from ekb.app.permissions import permission_store, resolver, search_store
 from ekb.app.pipeline import (
@@ -102,6 +104,7 @@ from ekb.operate.inspector.search import SearchPanel
 from ekb.operate.inspector.trace import TraceLog
 from ekb.platform.config import Settings, load_settings
 from ekb.platform.gateway.gateway import ModelGateway
+from ekb.platform.infra import new_namespace
 from ekb.process.t2_diff.step import DiffStep
 from ekb.process.t3_parse.step import ParseStep
 from ekb.process.t4_chunk.step import ChunkStep
@@ -338,6 +341,7 @@ def inspector(
             "Default: the profile's t7_embed."
         ),
     ] = None,
+    docker: DockerFlag = False,
 ) -> None:
     """8 · Inspector (local only): run the connectors and serve the read-only inspector API."""
     if not math.isfinite(interval) or interval <= 0:
@@ -367,7 +371,8 @@ def inspector(
         return
     settings = load_settings()
     profile = settings.profile
-    choices = choose(settings).with_options(
+    namespace = new_namespace("inspector") if docker else None
+    choices = choose(settings, docker=docker, namespace=namespace).with_options(
         "command line", t4_header=header, t5_classify=classifier, t7_embed=embed
     )
     log, decisions, parsed, chunks = EventLog(), DecisionLog(), ParsedStore(), ChunkStore()
@@ -413,6 +418,8 @@ def inspector(
             raise typer.Exit(code=2)
 
     with ExitStack() as stack:
+        if namespace is not None:  # S17: this run's topic, tables, bucket and indexes go
+            stack.callback(drop, namespace)
         docs = stack.enter_context(mock_client("sources.mock_docs", docs_url))
         hr = stack.enter_context(mock_client("sources.mock_hr_api", hr_url))
         idp = stack.enter_context(mock_client("sources.mock_idp", idp_url))

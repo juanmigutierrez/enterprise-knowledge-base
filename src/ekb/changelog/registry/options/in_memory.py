@@ -1,6 +1,6 @@
 """In-memory document registry: a dict from ``document_key`` to its record.
 
-It stands in for DynamoDB (production) and DynamoDB Local (S17): one item per
+It stands in for DynamoDB (production) and DynamoDB Local (``dynamodb``, S17): one item per
 document, read and written by key. Thread-safe, lost when the process stops.
 """
 
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import threading
 
-from ekb.changelog.registry.port import DocumentRecord
-from ekb.contracts.listing import ListingVersion, NeedsOriginal
+from ekb.changelog.registry.port import DocumentRecord, known_versions
+from ekb.contracts.listing import ListingVersion
 from ekb.platform.registry import register
 
 
@@ -28,13 +28,7 @@ class InMemoryRegistry:
             self._records[record.document_key] = record
 
     def known(self, source: str) -> dict[str, ListingVersion]:
-        return {
-            r.source_id: r.version
-            if r.raw_pointer is not None
-            else NeedsOriginal(version=r.version)
-            for r in self.records(source)
-            if not r.deleted
-        }
+        return known_versions(self.records(source))
 
     def records(self, source: str | None = None) -> list[DocumentRecord]:
         with self._lock:

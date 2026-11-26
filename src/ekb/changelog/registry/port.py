@@ -13,6 +13,10 @@ Since S4, T2 writes the registry: it records each event once it has decided
 what the event needs and handed that on (``ekb inspector``, ``ekb demo t2``).
 Only ``ekb demo s3`` still uses S3's stand-in, which records without deciding.
 
+Options: ``in_memory`` (S3) and ``dynamodb`` (S17: DynamoDB Local, one item per
+document). The change log's *acceptance log* (:mod:`ekb.changelog.registry.acceptance`)
+is the registry's twin for what the bus has accepted rather than processed.
+
 **A delete leaves a tombstone, not a gap.** The record stays, marked
 ``deleted``, with its last version and time, but without anything about the
 content: no hash, readers, pointer or person, the same rule as a delete event.
@@ -21,13 +25,14 @@ The history is kept ("this existed and was deleted at ..."); the content is not.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Protocol, Self, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from ekb.contracts import Acl, ChangeEvent, ChangeOp
-from ekb.contracts.listing import ListingVersion
+from ekb.contracts.listing import ListingVersion, NeedsOriginal
 
 
 class DocumentRecord(BaseModel):
@@ -137,6 +142,17 @@ class DocumentRegistry(Protocol):
     def records(self, source: str | None = None) -> list[DocumentRecord]:
         """Every record, tombstones included, sorted by ``document_key``."""
         ...
+
+
+def known_versions(records: Iterable[DocumentRecord]) -> dict[str, ListingVersion]:
+    """What :meth:`DocumentRegistry.known` answers, from a source's records: every live
+    item's version, or :class:`NeedsOriginal` when its record has no original to point to
+    (so a listing fetches it again even at the same version). Every option shares it."""
+    return {
+        r.source_id: r.version if r.raw_pointer is not None else NeedsOriginal(version=r.version)
+        for r in records
+        if not r.deleted
+    }
 
 
 def record_event(registry: DocumentRegistry, event: ChangeEvent) -> DocumentRecord:

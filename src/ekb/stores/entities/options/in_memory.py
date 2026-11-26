@@ -1,6 +1,6 @@
 """In-memory entity store: a dict from entity ID to entity.
 
-It stands in for DynamoDB (production) and DynamoDB Local (S17): one item per
+It stands in for DynamoDB (production) and DynamoDB Local (``dynamodb``, S17): one item per
 entity, read by ID, plus an index from the defining record to its entity (a
 DynamoDB secondary index later). Thread-safe, lost when the process stops.
 """

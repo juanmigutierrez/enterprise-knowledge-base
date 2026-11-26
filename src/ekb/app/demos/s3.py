@@ -16,9 +16,12 @@ import httpx
 import typer
 
 from ekb.app.changelog import REGISTRY_GROUP, ChangeLog
-from ekb.app.demos._app import demo_app
+from ekb.app.choices import choose
+from ekb.app.demos._app import DockerFlag, demo_app
 from ekb.app.demos._mocks import Echo, MockStartError, call, fail, mock_client
 from ekb.app.demos._serve import serving
+from ekb.app.infra import run_namespace
+from ekb.app.pipeline import build_changelog
 from ekb.changelog.bus.port import Delivery, OutOfOrderCommitError
 from ekb.changelog.registry.options.in_memory import InMemoryRegistry
 from ekb.changelog.registry.port import DocumentRecord, record_event
@@ -29,6 +32,7 @@ from ekb.connect.options.docs_webhook import DocsWebhookConnector
 from ekb.connect.people import PersonMap, load_people
 from ekb.connect.receiver import DOCS_WEBHOOK_PATH, create_receiver_app
 from ekb.contracts import ChangeEvent, ChangeOp
+from ekb.platform.config import load_settings
 
 DOCS, IDP = "sources.mock_docs", "sources.mock_idp"
 SOURCE = "hr_docs"
@@ -55,7 +59,9 @@ def _line(delivery: Delivery) -> str:
 
 def _record_line(record: DocumentRecord) -> str:
     state = "deleted" if record.deleted else "live"
-    pointer = record.raw_pointer.removeprefix("mem://ekb-raw/") if record.raw_pointer else "-"
+    pointer = (
+        record.raw_pointer.split("://", 1)[-1].split("/", 1)[-1] if record.raw_pointer else "-"
+    )
     hashed = record.content_hash.removeprefix("sha256:")[:8] if record.content_hash else "-"
     return (
         f"{record.source_id:<9} v{record.version:<4} {state:<7} "
@@ -73,11 +79,32 @@ def _pending(changelog: ChangeLog, group: str) -> int:
 # ---------------------------------------------------------------------- live part
 
 
-def run_s3_live(docs: httpx.Client, idp: httpx.Client, echo: Echo = typer.echo) -> ChangeLog:
-    """Publish, record and redeliver, against the docs tool. Returns the change log."""
+def where(changelog: ChangeLog) -> tuple[str, str, str]:
+    """Where the events, the originals and the records are, in plain words (S17)."""
+    bus, raw, records = changelog.bus, changelog.rawstore, changelog.registry
+    topic = getattr(bus, "topic", None)
+    bucket = getattr(raw, "bucket", None)
+    table = getattr(getattr(records, "table", None), "name", None)
+    return (
+        f"Kafka topic {topic}" if topic else "in memory; Kafka with --docker",
+        f"S3 bucket {bucket} on SeaweedFS" if bucket else "in memory; SeaweedFS with --docker",
+        f"DynamoDB table {table}" if table else "in memory; DynamoDB Local with --docker",
+    )
+
+
+def run_s3_live(
+    docs: httpx.Client,
+    idp: httpx.Client,
+    echo: Echo = typer.echo,
+    *,
+    changelog: ChangeLog | None = None,
+) -> ChangeLog:
+    """Publish, record and redeliver, against the docs tool. Returns the change log
+    (in memory unless one is given: ``--docker`` gives Kafka, DynamoDB and S3, S17)."""
     call(docs, "POST", "/reset")
     call(idp, "POST", "/reset")
-    changelog = ChangeLog.in_memory(partitions=3)
+    changelog = changelog or ChangeLog.in_memory(partitions=3)
+    bus_at, raw_at, registry_at = where(changelog)
     published: list[Delivery] = []
 
     def publish(event: ChangeEvent) -> None:
@@ -92,9 +119,9 @@ def run_s3_live(docs: httpx.Client, idp: httpx.Client, echo: Echo = typer.echo) 
 
     echo("S3 · Change log: event bus, document registry, raw store\n")
     echo("0. The docs connectors (S2) now hand everything to the change log:")
-    echo(f"   events    -> bus, {changelog.bus.partitions} partitions (in memory; Kafka in S17)")
-    echo("   originals -> raw store (in memory; S3 API on SeaweedFS in S17)")
-    echo("   'known'   <- document registry (in memory; DynamoDB Local in S17)\n")
+    echo(f"   events    -> bus, {changelog.bus.partitions} partitions ({bus_at})")
+    echo(f"   originals -> raw store ({raw_at})")
+    echo(f"   'known'   <- document registry ({registry_at})\n")
 
     _initial_load(echo, changelog, listing, published)
     with serving(create_receiver_app(webhook.receive)) as receiver:
@@ -209,9 +236,15 @@ def _registry_after(echo: Echo, changelog: ChangeLog, listing: DocsFullListingCo
 # --------------------------------------------------------------------- replay part
 
 
-def run_s3_replay(changelog: ChangeLog, source_note: str, echo: Echo = typer.echo) -> None:
-    """Replay the whole history with a new group, reading originals only from the raw store."""
+def run_s3_replay(
+    changelog: ChangeLog, source_note: str, echo: Echo = typer.echo, *, durable: bool = False
+) -> None:
+    """Replay the whole history with a new group, reading originals only from the raw store.
+    ``durable``: ``changelog`` is a second set of clients, as a new process would open."""
     echo(f"6. Replay. {source_note}")
+    if durable:
+        echo("   This is a new bus, registry and raw store, opened as another process would:")
+        echo("   what they read was kept by Kafka, DynamoDB and SeaweedFS, not by this demo.")
     echo(f"   A new consumer group, '{REPLAY_GROUP}', starts at the earliest event:")
     rebuilt = InMemoryRegistry()
     events, originals, total_bytes = 0, 0, 0
@@ -253,18 +286,27 @@ def s3(
     idp_url: Annotated[
         str | None, typer.Option(help="A running mock identity provider (port 8083).")
     ] = None,
+    docker: DockerFlag = False,
 ) -> None:
     """S3 · Change log: publish, consume in order, redeliver after a crash, replay."""
     try:
-        with ExitStack() as stack:
-            docs = stack.enter_context(mock_client(DOCS, url))
-            idp = stack.enter_context(mock_client(IDP, idp_url))
-            changelog = run_s3_live(docs, idp)
-        note = (
-            "The demo has closed its connection to the docs tool."
-            if url
-            else "The docs tool has been stopped."
-        )
-        run_s3_replay(changelog, note)
-    except (MockStartError, httpx.HTTPError) as exc:
+        with run_namespace(docker) as namespace:
+            durable = None
+            if docker:
+                choices = choose(load_settings(), offline=True, docker=True, namespace=namespace)
+                durable = build_changelog(choices)
+            with ExitStack() as stack:
+                docs = stack.enter_context(mock_client(DOCS, url))
+                idp = stack.enter_context(mock_client(IDP, idp_url))
+                changelog = run_s3_live(docs, idp, changelog=durable)
+            note = (
+                "The demo has closed its connection to the docs tool."
+                if url
+                else "The docs tool has been stopped."
+            )
+            if docker:
+                run_s3_replay(build_changelog(choices), note, durable=True)
+            else:
+                run_s3_replay(changelog, note)
+    except (MockStartError, httpx.HTTPError, OSError, LookupError, ValueError) as exc:
         raise fail(exc) from exc

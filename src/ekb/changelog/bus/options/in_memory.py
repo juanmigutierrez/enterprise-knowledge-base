@@ -9,7 +9,7 @@
 
 It keeps every event forever (no retention, no compaction), so a new group
 always replays the full history. It lives in one process and is lost when the
-process stops; Kafka (S17) is the durable option behind the same port.
+process stops; ``kafka`` (S17) is the durable option behind the same port.
 It is thread-safe: in ``ekb inspector`` connectors publish from one thread
 while the API reads from others.
 """

@@ -49,8 +49,11 @@ def serve(
     default_port: int,
     argv: list[str] | None = None,
 ) -> None:
-    """Parse ``--port`` and serve the app on 127.0.0.1 only (a local test double)."""
+    """Parse ``--port`` (and ``--host``) and serve the app, on 127.0.0.1 unless told
+    otherwise: a local test double. Inside a container (S17) it listens on 0.0.0.0, and
+    ``compose.yaml`` publishes the port on the host's 127.0.0.1 only."""
     parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument("--port", type=int, default=default_port)
+    parser.add_argument("--host", default="127.0.0.1", help="address to listen on")
     args = parser.parse_args(argv)
-    uvicorn.run(app_factory(), host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(app_factory(), host=args.host, port=args.port, log_level="warning")

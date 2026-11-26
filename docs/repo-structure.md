@@ -17,6 +17,7 @@ enterprise-knowledge-base/
 │   ├── changelog/            3 · Change log and raw store
 │   │   ├── bus/                  Kafka (local) · SQS (AWS)
 │   │   ├── registry/             DynamoDB document registry
+│   │   ├── acceptance/           What the bus accepted: lifetimes, latest events (S17)
 │   │   └── rawstore/             S3 API (SeaweedFS locally)
 │   ├── process/              4 · Worker pipeline
 │   │   ├── t2_diff/  t3_parse/  t4_chunk/  t5_classify/
@@ -37,12 +38,18 @@ enterprise-knowledge-base/
 ├── config/                   Chosen option per step; profiles: local · ci · bedrock
 ├── deploy/
 │   ├── docker/Dockerfile         One image for connector, worker and API
+│   ├── docker/sources.Dockerfile The mock sources' image (S17), not the product
 │   └── aws/                      Lean AWS profile (optional, D18)
 ├── tests/
 │   ├── unit/                     Mirrors src/ekb
-│   ├── contract/                 Every option satisfies its step's port
-│   ├── gates/                    Deletion, revocation, publication and leakage gates (S16)
-│   └── (integration/, e2e/)      Added with the first infrastructure code
+│   ├── contract/                 Every option satisfies its step's port, and keeps its
+│   │                             promises: behaviour suites per port, in memory, over
+│   │                             fakes, and against Docker with -m integration (S17)
+│   ├── fakes/                    Kafka log, OpenSearch client, moto: the real options
+│   │                             without Docker (S17)
+│   ├── gates/                    Deletion, revocation, publication and leakage gates (S16),
+│   │                             in memory, over fakes and against Docker (S17)
+│   └── (e2e/)                    Added later
 ├── docs/                     Design document sources, plan, this file
 ├── compose.yaml              Local infrastructure (profiles: models, app, …)
 ├── pyproject.toml · uv.lock  Dependencies, tool config, layer rules
@@ -85,21 +92,25 @@ This is what makes the option evaluation plan possible without rewriting code pe
 | Steps T2–T8 never import each other; same for Q1–Q4 and for the stores | `import-linter` independence contracts |
 | Every option implements its port | `tests/contract/` |
 | Only the gateway's LangChain option imports LangChain; steps call the gateway (S7) | `import-linter` forbidden contract |
+| Only one module each imports confluent-kafka, boto3/botocore and opensearch-py (S17) | `import-linter` forbidden contracts |
+| Every option of a port keeps the same promises, wherever it runs (S17) | behaviour suites in `tests/contract/` |
 | A change event is valid (an upsert points to the original; a delete carries no content) | Pydantic validator in `contracts/events.py` + unit tests |
 | No chunk is publishable before ACL, sensitivity and vector are set | `Chunk.publishable` in `contracts/knowledge.py`; publication test (card 4.14) |
 | Formatting, lint, security lint (bandit rules), strict types | ruff, mypy strict |
 | Coverage ≥ 80% | pytest-cov `fail_under` |
 | No secrets committed | gitleaks (pre-commit and CI), `.gitignore`, `.env.example` only |
 
-Running `uv run lint-imports` on the current skeleton: **4 contracts kept, 0 broken.**
+Running `uv run lint-imports` after S17: **11 contracts kept, 0 broken.**
 
 ## 4. Docker
 
 - **One image, several roles.** `deploy/docker/Dockerfile` builds one image; Compose runs it as `ekb connect`, `ekb worker` and `ekb api`. This matches "same container image" in the architecture and halves build and scan time.
 - **Multi-stage build with uv.** Dependencies are installed from `uv.lock` in their own cached layer, so code changes rebuild in seconds. The runtime stage has no build tools.
 - **Hardening.** Non-root user (UID 10001), no bytecode or pip caches, `.dockerignore` as an allow-list (only `pyproject.toml`, `uv.lock`, `README.md`, `src/`, `config/` enter the build).
-- **Optional heavy dependencies** (Docling, AWS SDK) are installed through `--build-arg EXTRAS=...`, so the base image stays small.
-- **Compose profiles.** `docker compose up` starts the infrastructure core (Kafka, OpenSearch, DynamoDB Local); `--profile models` adds Ollama; `--profile app` adds our services; `sources`, `full` and `observability` profiles are added as those parts are built. Ports bind to `127.0.0.1` only, images are pinned to versions, and services have health checks so `--wait` is reliable.
+- **Optional dependencies** are installed through `--build-arg EXTRAS=...`. The real infrastructure's clients (`kafka`, `search`, `aws`) are in by default since S17; Docling and Bedrock come later.
+- **A second, small image for the mock sources** (`deploy/docker/sources.Dockerfile`, S17), with its own allow-list (`sources.Dockerfile.dockerignore`) and dependencies pinned to `uv.lock` with hashes. The product image still never contains `sources/`.
+- **Compose profiles.** `docker compose up` starts the infrastructure core (Kafka, OpenSearch, DynamoDB Local, SeaweedFS); `--profile models` adds Ollama; `--profile sources` the four mocks; `--profile app` the mocks and our three services (`ekb connect`, `ekb worker`, `ekb api --query-only`, S17). `full` and `observability` come later. Ports bind to `127.0.0.1` only, images are pinned to versions, and services have health checks so `--wait` is reliable.
+- **In memory unless `--docker`.** Commands run on the host (demos, `ekb api`, `ekb inspector`) keep boxes 3 and 5 in memory unless given `--docker`; then they use the core's services, each run in a namespace of its own (S17).
 
 ## 5. CI/CD
 
@@ -109,7 +120,7 @@ Running `uv run lint-imports` on the current skeleton: **4 contracts kept, 0 bro
 | `ci.yml` › test | Every PR | Unit and contract tests, coverage ≥ 80%, JUnit + coverage reports uploaded |
 | `ci.yml` › security | Every PR | gitleaks over the full history; pip-audit on locked dependencies |
 | `ci.yml` › image | After quality and test | Build with layer cache, smoke run, Trivy scan (fails on fixable critical/high) |
-| `ci.yml` › integration | After quality and test | Starts Compose infrastructure; integration tests and the **permission and deletion gates** with the `ci` profile (no models, free, deterministic) |
+| `ci.yml` › integration | After quality and test | Starts Compose infrastructure; every port's behaviour suite against it, and the **permission and deletion gates** on the `local` profile's real options, offline (no models, free, deterministic; S17) |
 | `eval.yml` | Manual only | Runs one option experiment with Bedrock through **GitHub OIDC** (no stored AWS keys), with a spend cap; uploads the result |
 | `release.yml` | Tag `v*.*.*` | Multi-arch image to GHCR with **SBOM and build provenance**; GitHub release with generated notes |
 | `dependabot.yml` | Weekly | uv, GitHub Actions, Dockerfile and Compose image updates |
@@ -127,7 +138,9 @@ Suggested repository settings (done once in GitHub): protect `main`, require the
 ```
 make setup        # uv sync + pre-commit hooks
 make check        # what CI runs: lint, types, layer rules, tests
-make up           # infrastructure core
+make up           # infrastructure core (Kafka, OpenSearch, DynamoDB Local, SeaweedFS)
+make up-app       # + the mock sources and the three services (S17)
+make test-int     # behaviour suites and gates against the core (after make up)
 make options      # which option each step uses, and which are built
 ```
 On Windows without `make`, run the command behind each target (`make help` lists them). `.gitattributes` forces LF line endings so files edited on Windows behave the same in Linux containers.
@@ -136,5 +149,4 @@ On Windows without `make`, run the command behind each target (`make help` lists
 
 - Only the pattern is implemented end to end: contracts, registry, config, CLI and one option (`t7_embed: fake`). Other steps have their folder and docstring; their ports are written as each step is built (plan §4.2).
 - The image build could not be tested from the environment that wrote this file because Docker Hub was not reachable; it runs in the `image` CI job on the first push.
-- `amazon/dynamodb-local` is still on `latest`; pin it after the first pull.
-- The integration job tolerates "no tests collected" until the first integration test lands.
+- The images and the `app` profile were validated (`docker compose config`) but not built where S17 was written (no image registry reachable there); the first build is CI's `image` job.

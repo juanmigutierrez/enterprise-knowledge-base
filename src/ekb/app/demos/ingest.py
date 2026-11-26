@@ -36,7 +36,7 @@ import typer
 
 from ekb.app.choices import Choices, choose
 from ekb.app.connectors import build_connectors
-from ekb.app.demos._app import demo_app
+from ekb.app.demos._app import DockerFlag, demo_app
 from ekb.app.demos._mocks import (
     Echo,
     MockStartError,
@@ -48,6 +48,7 @@ from ekb.app.demos._mocks import (
 from ekb.app.demos._serve import serving
 from ekb.app.embed import MODEL_EMBEDDERS, embedder, probe
 from ekb.app.gateway import build_gateway
+from ekb.app.infra import run_namespace
 from ekb.app.pipeline import (
     WORKER_GROUP,
     EventFailedError,
@@ -463,10 +464,17 @@ def _summary(story: Story) -> None:
 # -------------------------------------------------------------------------- CLI
 
 
-def demo_choices(settings: Settings, models: bool) -> tuple[Choices, ModelGateway | None, str]:
-    """The story's options and gateway; offline unless ``models``. With models, a T7
-    model that cannot answer is swapped for the fake one, and the note says why."""
-    choices = choose(settings, offline=not models)
+def demo_choices(
+    settings: Settings,
+    models: bool,
+    *,
+    docker: bool = False,
+    namespace: str | None = None,
+) -> tuple[Choices, ModelGateway | None, str]:
+    """The story's options and gateway; offline unless ``models``, in memory unless
+    ``docker`` (S17, in ``namespace``). With models, a T7 model that cannot answer is
+    swapped for the fake one, and the note says why."""
+    choices = choose(settings, offline=not models, docker=docker, namespace=namespace)
     if not choices.calls_models:
         return choices, None, ""
     gateway = build_gateway(settings.gateway)
@@ -486,21 +494,25 @@ def ingest(
             "--models", help="Call the models the profile names (keys in .env; Ollama for T7)."
         ),
     ] = False,
+    docker: DockerFlag = False,
     url: Annotated[str | None, typer.Option(help="A running mock docs service.")] = None,
     hr_url: Annotated[str | None, typer.Option(help="A running mock HR API.")] = None,
     idp_url: Annotated[str | None, typer.Option(help="A running mock identity provider.")] = None,
 ) -> None:
     """S12 · The worker pipeline: the full write path, T2 -> T8 on the bus."""
     try:
-        choices, gateway, note = demo_choices(load_settings(), models)
-        if note:
-            typer.secho(f"Note: {note}.\n", fg="yellow")
-        with ExitStack() as stack:
-            docs = stack.enter_context(mock_client(DOCS, url))
-            hr = stack.enter_context(mock_client(HR, hr_url))
-            idp = stack.enter_context(mock_client(IDP, idp_url))
-            db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
-            run_mock_command(DB, ["init", "--path", str(db_path)])
-            run_ingest_demo(docs, hr, idp, db_path, choices=choices, gateway=gateway)
-    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError) as exc:
+        with run_namespace(docker) as namespace:
+            choices, gateway, note = demo_choices(
+                load_settings(), models, docker=docker, namespace=namespace
+            )
+            if note:
+                typer.secho(f"Note: {note}.\n", fg="yellow")
+            with ExitStack() as stack:
+                docs = stack.enter_context(mock_client(DOCS, url))
+                hr = stack.enter_context(mock_client(HR, hr_url))
+                idp = stack.enter_context(mock_client(IDP, idp_url))
+                db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
+                run_mock_command(DB, ["init", "--path", str(db_path)])
+                run_ingest_demo(docs, hr, idp, db_path, choices=choices, gateway=gateway)
+    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError, OSError) as exc:
         raise fail(exc) from exc
