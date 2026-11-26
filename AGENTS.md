@@ -22,6 +22,8 @@ The folder layout mirrors the architecture diagram. Put code in the layer it bel
 Shared models are in `src/ekb/contracts/`. Plumbing with no business logic (registry, config, model gateway) goes in `src/ekb/platform/`. Wiring happens only in `src/ekb/app/`.
 
 ## How a step is built
+Boxes 3 and 5 run in memory unless a command is given `--docker` (S17); the `ci` profile keeps them in memory always, so tests need no Docker.
+
 Each step or store has:
 - `port.py`: a `typing.Protocol` that every option implements
 - `options/<name>.py`: one class per option, decorated `@register("<step>", "<name>")`
@@ -50,7 +52,10 @@ uv run ruff format . && uv run ruff check --fix .
 uv run mypy                      # strict
 uv run lint-imports              # layer rules
 uv run pytest -m "not integration and not e2e and not eval" --cov
-docker compose up -d --wait      # infrastructure for integration tests
+docker compose up -d --wait      # infrastructure core (make up): Kafka, OpenSearch, DynamoDB, SeaweedFS
+uv run pytest -m integration     # behaviour suites and gates against it (S17)
+uv run ekb demo infra            # the S16 story in memory and on Docker, side by side
+docker compose --profile app up -d --build   # mocks + connector, worker, api as services
 uv run ekb options               # chosen option per step and whether it is built
 ```
 `make check` runs everything a pull request runs.

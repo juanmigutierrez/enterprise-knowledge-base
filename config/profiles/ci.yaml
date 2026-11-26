@@ -1,6 +1,14 @@
 # CI: no models, no network, deterministic. Used by unit and integration tests
 # so permission and deletion gates run on every pull request for free.
 steps:
+  # Boxes 3 and 5 in memory (S17), even with --docker: pull-request checks need no
+  # Docker. The integration job runs the gates on the local profile's real options.
+  bus:          { option: in_memory }
+  registry:     { option: in_memory }
+  rawstore:     { option: in_memory }
+  search:       { option: in_memory }
+  entities:     { option: in_memory }
+  permissions:  { option: in_memory }
   t3_parse:     { option: plain_text }
   t4_chunk:     { option: fixed, params: { max_tokens: 400 } }
   t4_header:    { option: none }

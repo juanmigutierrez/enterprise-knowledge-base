@@ -1,6 +1,6 @@
 """In-memory permission store: memberships by user, readers records by document.
 
-It stands in for DynamoDB (production, and DynamoDB Local in S17): one item
+It stands in for DynamoDB (production, and DynamoDB Local: ``dynamodb``, S17): one item
 per user and one per document, plus an index from the identity record to its
 user (a DynamoDB secondary index later). Thread-safe, lost when the process
 stops.

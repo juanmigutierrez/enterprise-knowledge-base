@@ -60,6 +60,7 @@ from ekb.app.permissions import (
     unpublisher,
 )
 from ekb.app.relinks import Relinks
+from ekb.changelog.acceptance.port import AcceptanceLog
 from ekb.changelog.bus.consume import drain
 from ekb.changelog.bus.port import Delivery, EventBus
 from ekb.changelog.rawstore.port import RawStore
@@ -113,15 +114,22 @@ def _refuse(step: str, choices: Choices, port: str) -> TypeError:
 
 
 def build_changelog(choices: Choices) -> ChangeLog:
-    """Box 3 as the choices name it: the bus, the document registry and the raw store."""
+    """Box 3 as the choices name it: the bus, the document registry, the raw store, and
+    the acceptance log, which is the registry's option (in memory beside the in-memory
+    registry, a DynamoDB table beside the DynamoDB one, S17)."""
     bus, records, originals = (_built(choices, s) for s in ("bus", "registry", "rawstore"))
+    accepted = registry.create(
+        "acceptance", choices.option("registry"), **choices.params("registry")
+    )
     if not isinstance(bus, EventBus):
         raise _refuse("bus", choices, "EventBus")
     if not isinstance(records, DocumentRegistry):
         raise _refuse("registry", choices, "DocumentRegistry")
     if not isinstance(originals, RawStore):
         raise _refuse("rawstore", choices, "RawStore")
-    return ChangeLog(bus, records, originals)
+    if not isinstance(accepted, AcceptanceLog):
+        raise _refuse("registry", choices, "AcceptanceLog")
+    return ChangeLog(bus, records, originals, accepted)
 
 
 def differ(choices: Choices) -> Differ:
@@ -145,11 +153,17 @@ def build_stores(choices: Choices, changelog: ChangeLog) -> Stores:
     """The search, permission and entity stores the choices name. The first two hide a
     deleted item's data as soon as its delete is accepted (the change log's lifetimes)."""
     return Stores(
-        search=search_store(choices.option("search"), current_lifetime=changelog.current_lifetime),
-        permissions=permission_store(
-            choices.option("permissions"), current_lifetime=changelog.current_lifetime
+        search=search_store(
+            choices.option("search"),
+            current_lifetime=changelog.current_lifetime,
+            **choices.params("search"),
         ),
-        entities=entity_store(choices.option("entities")),
+        permissions=permission_store(
+            choices.option("permissions"),
+            current_lifetime=changelog.current_lifetime,
+            **choices.params("permissions"),
+        ),
+        entities=entity_store(choices.option("entities"), **choices.params("entities")),
     )
 
 

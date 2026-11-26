@@ -1,0 +1,6 @@
+# Only the mocks and their pinned dependencies enter the sources image.
+*
+!sources/
+!deploy/docker/sources-requirements.txt
+**/__pycache__
+**/*.py[cod]

@@ -1,8 +1,9 @@
 """The whole POC in one process, with the Knowledge API on top (S15).
 
-Until the change log is durable (S17), connectors, worker and API share one
-process, as in ``ekb inspector``. :class:`KnowledgeSystem` builds it, for
-``ekb api`` and ``ekb demo mcp`` alike::
+Connectors, worker and API in one process, as in ``ekb inspector``.
+:class:`KnowledgeSystem` builds it, for ``ekb api``, the demos and the gates, in
+memory or (``--docker``) on the real infrastructure. Since S17 the same pieces
+also run as three separate services (:mod:`ekb.app.services`)::
 
     4 mock sources ─▶ 6 connectors ─▶ change log ─▶ worker (T2 … T8) ─▶ stores
                                                                           ▲
@@ -44,7 +45,7 @@ from ekb.platform.gateway.gateway import ModelGateway
 
 logger = logging.getLogger(__name__)
 
-_RETRYABLE = (httpx.HTTPError, sqlite3.Error, OSError, ValueError, LookupError, EventFailedError)
+RETRYABLE = (httpx.HTTPError, sqlite3.Error, OSError, ValueError, LookupError, EventFailedError)
 """What a sync round logs and retries next round, as in ``ekb inspector``."""
 PLACEHOLDER = "<token>"
 KEEP_ANSWERS = 50
@@ -168,7 +169,7 @@ def syncing(system: KnowledgeSystem, interval_s: float, listing_every: int) -> I
         while not stop.wait(interval_s):
             try:
                 system.sync(listings=rounds % listing_every == 0)
-            except _RETRYABLE as exc:
+            except RETRYABLE as exc:
                 logger.warning("sync failed, retrying next round: %s", exc)
             rounds += 1
 

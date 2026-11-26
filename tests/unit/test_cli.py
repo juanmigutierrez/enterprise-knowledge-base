@@ -20,7 +20,8 @@ def test_options_reports_the_effective_spend_cap(monkeypatch: pytest.MonkeyPatch
     assert "max_spend_usd=1.25" in result.output
 
 
-def test_unimplemented_service_exits_with_clear_message() -> None:
+def test_the_services_need_the_real_infrastructure() -> None:
+    """S17: on the ci profile (everything in memory) a service cannot share anything."""
     result = runner.invoke(app, ["worker"])
     assert result.exit_code == 2
-    assert "not implemented yet" in result.output
+    assert "would be in memory" in result.output

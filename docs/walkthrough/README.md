@@ -28,3 +28,7 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S14 | [Q4 + Q1: why a second permission check exists](S14-q4-q1-answer.md) |
 | S15 | [The Knowledge API over MCP: how an agent uses the knowledge base safely](S15-mcp-hr-assistant.md) |
 | S16 | [Self-maintenance: changes in the sources reach the answers with no manual step](S16-lifecycle.md) |
+| S17a | [The durable change log: Kafka, DynamoDB and S3 behind the same ports](S17a-durable-change-log.md) |
+| S17b | [The entity and permission stores on DynamoDB](S17b-dynamodb-stores.md) |
+| S17c | [The search store on OpenSearch](S17c-opensearch.md) |
+| S17d | [Three services on Docker: `docker compose --profile app up`](S17d-services.md) |

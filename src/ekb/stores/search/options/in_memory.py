@@ -1,6 +1,6 @@
 """In-memory search store: the published chunks in a dict, by document.
 
-It stands in for OpenSearch (production and S17): one index entry per chunk,
+It stands in for OpenSearch (production; ``opensearch``, S17): one index entry per chunk,
 replaced per document, with the readers as filterable fields. The filter
 (:func:`ekb.contracts.admits`) is the one OpenSearch will run as a ``terms``
 query on ``acl.users`` and ``acl.groups``. Thread-safe, lost when the process
@@ -14,8 +14,8 @@ rank only those:
   often it appears in a chunk, with diminishing returns (``k1``), less in a
   longer-than-average chunk (``b``). The statistics are computed over the
   admitted chunks only, so a restricted page cannot shift anyone else's scores.
-  OpenSearch computes them per shard over every document; S17 will note the
-  difference.
+  OpenSearch computes them per shard over every document (the
+  ``opensearch`` option, S17c).
 - ``nearest``: cosine similarity between the question's vector and each
   chunk's, for chunks embedded with the same model (``space``).
 
@@ -33,7 +33,8 @@ from dataclasses import dataclass
 
 from ekb.contracts import Chunk, DocumentAcl, Principals, admits
 from ekb.platform.registry import register
-from ekb.stores.search.port import Published, Ranking, RankingSnapshot, Scored, UnpublishableError
+from ekb.stores.search.port import Published, Ranking, RankingSnapshot, Scored
+from ekb.stores.search.rules import best, check_batch
 from ekb.stores.search.text import indexed_text, terms
 
 K1 = 1.2
@@ -73,7 +74,7 @@ class InMemorySearchStore:
 
     def publish(self, document_key: str, chunks: Sequence[Chunk]) -> Published:
         batch = tuple(sorted(chunks, key=lambda c: c.position))
-        _check(document_key, batch)
+        check_batch(document_key, batch)
         counted = {chunk.chunk_id: _Terms.of(chunk) for chunk in batch}
         with self._lock:
             before = self._by_document.pop(document_key, ())
@@ -186,7 +187,7 @@ class _Snapshot:
                     score += weight * tf * (K1 + 1) / (tf + norm)
             if score > 0:
                 scored.append(Scored(chunk, score))
-        return Ranking(hits=_best(scored, k), searched=total)
+        return Ranking(hits=best(scored, k), searched=total)
 
     def nearest(self, vector: Sequence[float], space: str, k: int) -> Ranking:
         readable = self.readable
@@ -207,44 +208,8 @@ class _Snapshot:
             if norm:
                 dot = sum(a * b for a, b in zip(vector, theirs, strict=True))
                 scored.append(Scored(chunk, dot / (query_norm * norm)))
-        return Ranking(hits=_best(scored, k), searched=len(readable), skipped=skipped)
-
-
-def _best(scored: list[Scored], k: int) -> tuple[Scored, ...]:
-    """The ``k`` best, ties broken by document then position, so results are stable."""
-    ordered = sorted(scored, key=lambda s: (-s.score, s.chunk.document_key, s.chunk.position))
-    return tuple(ordered[:k])
+        return Ranking(hits=best(scored, k), searched=len(readable), skipped=skipped)
 
 
 def _norm(vector: Sequence[float]) -> float:
     return math.sqrt(sum(v * v for v in vector))
-
-
-def _check(document_key: str, batch: tuple[Chunk, ...]) -> None:
-    """The publication gate, checked again at the door: all or nothing."""
-    for chunk in batch:
-        if chunk.document_key != document_key:
-            raise UnpublishableError(f"{chunk.chunk_id} belongs to {chunk.document_key}")
-        if not chunk.publishable:
-            missing = [
-                name
-                for name, value in (
-                    ("readers (T8)", chunk.acl),
-                    ("a sensitivity (T5)", chunk.sensitivity),
-                    ("a vector (T7)", chunk.vector),
-                )
-                if value is None
-            ]
-            raise UnpublishableError(
-                f"{chunk.chunk_id} is not publishable: missing {' and '.join(missing)}"
-            )
-    if len({chunk.original_lifetime for chunk in batch}) > 1:
-        raise UnpublishableError(f"{document_key}: chunks belong to different lifetimes")
-    versions = {chunk.document_version for chunk in batch}
-    if len(versions) > 1:
-        raise UnpublishableError(
-            f"{document_key}: one version at a time, not {', '.join(sorted(versions))}"
-        )
-    ids = [chunk.chunk_id for chunk in batch]
-    if len(set(ids)) != len(ids):
-        raise UnpublishableError(f"{document_key}: the same chunk ID twice")

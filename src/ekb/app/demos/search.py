@@ -36,9 +36,10 @@ import typer
 
 from ekb.app.choices import Choices, choose_query
 from ekb.app.connectors import build_connectors
-from ekb.app.demos._app import demo_app
+from ekb.app.demos._app import DockerFlag, demo_app
 from ekb.app.demos._mocks import Echo, MockStartError, call, fail, mock_client, run_mock_command
 from ekb.app.demos.ingest import demo_choices
+from ekb.app.infra import run_namespace
 from ekb.app.pipeline import build_changelog, build_pipeline, build_stores
 from ekb.app.search import Search, build_search, encoder_note, query_encoder
 from ekb.contracts import Chunk, Hit, SearchResult
@@ -291,32 +292,36 @@ def search(
         bool,
         typer.Option("--models", help="Embed with the profile's T7 model (bge-m3 on Ollama)."),
     ] = False,
+    docker: DockerFlag = False,
     url: Annotated[str | None, typer.Option(help="A running mock docs service.")] = None,
     hr_url: Annotated[str | None, typer.Option(help="A running mock HR API.")] = None,
     idp_url: Annotated[str | None, typer.Option(help="A running mock identity provider.")] = None,
 ) -> None:
     """S13 · Q2 + Q3: the same question, asked by different people."""
     try:
-        settings = load_settings()
-        write, gateway, note = demo_choices(settings, models)
-        if note:
-            typer.secho(f"Note: {note}.\n", fg="yellow")
-        with ExitStack() as stack:
-            docs = stack.enter_context(mock_client(DOCS, url))
-            hr = stack.enter_context(mock_client(HR, hr_url))
-            idp = stack.enter_context(mock_client(IDP, idp_url))
-            db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
-            run_mock_command(DB, ["init", "--path", str(db_path)])
-            run_search_demo(
-                docs,
-                hr,
-                idp,
-                db_path,
-                users=tuple(user or USERS),
-                questions=(question,) if question else QUESTIONS,
-                write=write,
-                query=choose_query(settings),
-                gateway=gateway,
+        with run_namespace(docker) as namespace:
+            settings = load_settings()
+            write, gateway, note = demo_choices(
+                settings, models, docker=docker, namespace=namespace
             )
-    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError) as exc:
+            if note:
+                typer.secho(f"Note: {note}.\n", fg="yellow")
+            with ExitStack() as stack:
+                docs = stack.enter_context(mock_client(DOCS, url))
+                hr = stack.enter_context(mock_client(HR, hr_url))
+                idp = stack.enter_context(mock_client(IDP, idp_url))
+                db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
+                run_mock_command(DB, ["init", "--path", str(db_path)])
+                run_search_demo(
+                    docs,
+                    hr,
+                    idp,
+                    db_path,
+                    users=tuple(user or USERS),
+                    questions=(question,) if question else QUESTIONS,
+                    write=write,
+                    query=choose_query(settings),
+                    gateway=gateway,
+                )
+    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError, OSError) as exc:
         raise fail(exc) from exc

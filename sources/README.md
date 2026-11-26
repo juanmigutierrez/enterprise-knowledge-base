@@ -15,6 +15,6 @@ or the identity provider, exactly as it would to the real systems.
 
 Every write to the docs tool, the HR API and the identity provider may name its writer with an `X-Actor: <identity user id>` header; the database has a `changed_by` column the application fills in (S2a).
 
-Each mock gets its own small Dockerfile and a service under the `sources` profile in `compose.yaml` when the Docker step (S17) needs it; until then they run as local processes.
+Since S17 the four mocks share one small image (`deploy/docker/sources.Dockerfile`) and run as services under the `sources` and `app` profiles in `compose.yaml` (`--host 0.0.0.0` inside the container, published on the host's `127.0.0.1` only). The demos still start them as local processes.
 `src/ekb` never imports this folder: an import-linter contract in `pyproject.toml` enforces it.
 All data is synthetic.

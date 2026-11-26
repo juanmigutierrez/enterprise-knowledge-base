@@ -2,10 +2,9 @@
 
 The connectors use the injection points introduced in S2 (``sink``,
 ``store_original``, ``known``), here pointed at one change log. They are still
-chosen by hand: choosing them per source in config, and running them as their
-own service (``ekb connect``), comes with a durable bus in S17. Until then a
-connector and the worker must share one process, because the in-memory bus
-lives in it.
+chosen by hand (choosing them per source in config comes later). Since S17 they
+also run as their own service, ``ekb connect`` (:mod:`ekb.app.services`), once
+the change log is on Kafka, DynamoDB and S3.
 """
 
 from __future__ import annotations
@@ -47,7 +46,7 @@ def build_connectors(
     people = PersonMap(load_people(IdentityApi(idp), HrApi(hr)))
     sink = changelog.publish
     webhook = DocsWebhookConnector(
-        DocsApi(docs), sink, originals, people, known=lambda: changelog.accepted.known("hr_docs")
+        DocsApi(docs), sink, originals, people, known=changelog.accepted("hr_docs")
     )
     return Connectors(
         webhook=webhook,
@@ -63,10 +62,10 @@ def build_connectors(
                 sink,
                 originals,
                 people,
-                known=lambda: changelog.accepted.known("hr_docs"),
+                known=changelog.accepted("hr_docs"),
             ),
             HrApiFullListingConnector(
-                HrApi(hr), sink, originals, people, known=lambda: changelog.accepted.known("hr_api")
+                HrApi(hr), sink, originals, people, known=changelog.accepted("hr_api")
             ),
         ],
         people=people,

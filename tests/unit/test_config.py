@@ -11,7 +11,9 @@ def test_ci_profile_overrides_default() -> None:
     assert settings.gateway.tasks["context_header"] == ("fake:fake-small", "fake:fake-large")
     assert settings.steps["t7_embed"].option == "fake"
     # untouched steps keep the default choice
-    assert settings.steps["search"].option == "opensearch"
+    assert settings.steps["t2_diff"].option == "content_hash"
+    # boxes 3 and 5 stay in memory in CI, even with --docker (S17)
+    assert settings.steps["search"].option == "in_memory"
 
 
 def test_unknown_profile_fails_loudly(tmp_path: Path) -> None:

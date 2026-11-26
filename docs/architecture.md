@@ -121,8 +121,8 @@ flowchart LR
   end
 
   subgraph BUS["3 · Event backbone and raw store"]
-    Q["Apache Kafka, KRaft, 1 node<br/>compacted topics, tombstones, replay<br/>same event-bus interface as SQS"]
-    REG["Document registry<br/>DynamoDB Local"]
+    Q["Apache Kafka, KRaft, 1 node<br/>one topic, every event kept, replay<br/>same event-bus interface as SQS"]
+    REG["Document registry + acceptance log<br/>DynamoDB Local"]
     RAW["SeaweedFS, S3 API<br/>originals + Parquet"]
   end
 
@@ -187,6 +187,8 @@ flowchart LR
 ```
 
 **POC core** (fits the 4–6 hour budget): mock sources, Kafka, workers, OpenSearch, DynamoDB Local, Knowledge API. Keycloak, Neo4j, DuckDB, Presidio, Jaeger and Prometheus / Grafana are optional add-ons.
+
+**As built in S17:** `docker compose --profile app up` runs the four mocks (one small image), and the connector, the worker and the Knowledge API as three containers of the product image. Between them are only Kafka (`ekb.changes`), DynamoDB Local (registry, acceptance log, entity and permission stores), SeaweedFS (originals) and OpenSearch (`ekb-chunks`). The mock HR database is still SQLite, read by the CDC reader through a shared volume (Postgres + Debezium is the optional S17e), and the identity provider is still the mock (Keycloak: S17e).
 
 ---
 

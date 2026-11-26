@@ -20,6 +20,7 @@ from ekb.access.query.q3_retrieve.port import Reranker, Retriever
 from ekb.access.query.q4_postcheck.options.redact_none import NoRedactor
 from ekb.access.query.q4_postcheck.port import PostCheck, Redactor, SourceAccessCheck
 from ekb.app.bootstrap import load_options
+from ekb.changelog.acceptance.port import AcceptanceLog
 from ekb.changelog.bus.port import EventBus
 from ekb.changelog.rawstore.port import RawStore
 from ekb.changelog.registry.port import DocumentRegistry
@@ -49,6 +50,7 @@ from tests.unit.platform.gateway.helpers import Scripted, make_world
 
 PORTS: dict[str, type] = {
     "bus": EventBus,
+    "acceptance": AcceptanceLog,
     "connect": Connector,
     "registry": DocumentRegistry,
     "rawstore": RawStore,

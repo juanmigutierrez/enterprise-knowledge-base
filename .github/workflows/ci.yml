@@ -158,9 +158,9 @@ jobs:
       - name: Start infrastructure
         run: docker compose up -d --wait
       - name: Integration tests and gates (leakage = 0, deleted content = 0)
-        # Exit code 5 means "no tests collected": allowed until the first
-        # integration test lands (docs/plan.md §4.2 task 10).
-        run: uv run pytest -m integration || [ $? -eq 5 ]
+        # S17: every port's behaviour suite against Kafka, DynamoDB Local, SeaweedFS and
+        # OpenSearch, and the S16 gates on the local profile's real options.
+        run: uv run pytest -m integration
       - name: Logs on failure
         if: failure()
         run: docker compose logs --tail=200

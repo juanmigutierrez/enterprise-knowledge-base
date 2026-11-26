@@ -18,6 +18,7 @@ from ekb.platform.registry import UnknownOptionError
 from ekb.process.t2_diff.step import DiffStep
 from ekb.process.t6_entities.port import Linking
 from ekb.process.t6_entities.step import LinkStep
+from ekb.stores.entities.options.dynamodb import DynamoEntityStore
 from ekb.stores.entities.port import EntityStore
 from tests.unit.changelog.factories import acl_change, delete, upsert
 from tests.unit.process.t3_parse.conftest import page_json
@@ -162,5 +163,6 @@ def test_the_wiring_names_the_options() -> None:
     assert entity_store().entities() == ()
     with pytest.raises(UnknownOptionError):
         linker("cascade")  # card 4.10's starting choice, built later
+    assert isinstance(entity_store("dynamodb"), DynamoEntityStore)  # S17: builds, connects later
     with pytest.raises(UnknownOptionError):
-        entity_store("dynamodb")  # S17
+        entity_store("neptune")  # phase 2 (D6)

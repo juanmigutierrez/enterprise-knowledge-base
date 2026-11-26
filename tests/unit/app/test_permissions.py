@@ -25,6 +25,8 @@ from ekb.platform.gateway.errors import NoModelAvailableError
 from ekb.platform.registry import UnknownOptionError
 from ekb.process.t2_diff.step import DiffStep
 from ekb.process.t8_permissions.step import PermissionResult, T8Action, T8Error
+from ekb.stores.permissions.options.dynamodb import DynamoPermissionStore
+from ekb.stores.search.options.opensearch import OpenSearchSearchStore
 from tests.unit.changelog.factories import acl_change, delete, upsert
 from tests.unit.platform.gateway.helpers import make_world
 from tests.unit.process.t3_parse.conftest import page_json
@@ -267,7 +269,8 @@ def test_a_purged_identity_record_takes_its_membership_with_it() -> None:
 
 def test_the_wiring_names_the_options() -> None:
     assert resolver().resolver_id == "source_acl@1"
+    # S17: the real options build without connecting (they connect on first use).
+    assert isinstance(search_store("opensearch"), OpenSearchSearchStore)
+    assert isinstance(permission_store("dynamodb"), DynamoPermissionStore)
     with pytest.raises(UnknownOptionError):
-        search_store("opensearch")  # S17
-    with pytest.raises(UnknownOptionError):
-        permission_store("dynamodb")  # S17
+        search_store("s3_vectors")  # a cold tier, only at tens of millions of vectors (D5)

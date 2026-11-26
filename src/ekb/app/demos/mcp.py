@@ -53,7 +53,7 @@ from mcp.types import CallToolResult
 from ekb.access.auth.options.static_tokens import USERS, IssuedToken, StaticTokens, new_token
 from ekb.access.mcp.server import PATH, create_app
 from ekb.app.choices import Choices, choose_assistant, choose_query
-from ekb.app.demos._app import demo_app
+from ekb.app.demos._app import DockerFlag, demo_app
 from ekb.app.demos._mocks import (
     COMMAND_TIMEOUT_S,
     Echo,
@@ -65,6 +65,7 @@ from ekb.app.demos._mocks import (
 )
 from ekb.app.demos._serve import serving
 from ekb.app.demos.ingest import demo_choices
+from ekb.app.infra import run_namespace
 from ekb.app.system import KnowledgeSystem
 from ekb.contracts import AssistantAnswer, Identity
 from ekb.platform.config import load_settings
@@ -453,31 +454,35 @@ def mcp(
             help="Write answers with the gateway's answer task and embed with T7's model.",
         ),
     ] = False,
+    docker: DockerFlag = False,
     url: Annotated[str | None, typer.Option(help="A running mock docs service.")] = None,
     hr_url: Annotated[str | None, typer.Option(help="A running mock HR API.")] = None,
     idp_url: Annotated[str | None, typer.Option(help="A running mock identity provider.")] = None,
 ) -> None:
     """S15 · The Knowledge API over MCP: tokens, tools, and the HR assistant's cached answers."""
     try:
-        settings = load_settings()
-        write, gateway, note = demo_choices(settings, models)
-        if note:
-            typer.secho(f"Note: {note}.\n", fg="yellow")
-        with ExitStack() as stack:
-            docs = stack.enter_context(mock_client(DOCS, url))
-            hr = stack.enter_context(mock_client(HR, hr_url))
-            idp = stack.enter_context(mock_client(IDP, idp_url))
-            db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
-            run_mock_command(DB, ["init", "--path", str(db_path)])
-            run_mcp_demo(
-                docs,
-                hr,
-                idp,
-                db_path,
-                write=write,
-                query=choose_query(settings),
-                assistant=choose_assistant(settings, offline=not models),
-                gateway=gateway,
+        with run_namespace(docker) as namespace:
+            settings = load_settings()
+            write, gateway, note = demo_choices(
+                settings, models, docker=docker, namespace=namespace
             )
-    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError) as exc:
+            if note:
+                typer.secho(f"Note: {note}.\n", fg="yellow")
+            with ExitStack() as stack:
+                docs = stack.enter_context(mock_client(DOCS, url))
+                hr = stack.enter_context(mock_client(HR, hr_url))
+                idp = stack.enter_context(mock_client(IDP, idp_url))
+                db_path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "hr.sqlite"
+                run_mock_command(DB, ["init", "--path", str(db_path)])
+                run_mcp_demo(
+                    docs,
+                    hr,
+                    idp,
+                    db_path,
+                    write=write,
+                    query=choose_query(settings),
+                    assistant=choose_assistant(settings, offline=not models),
+                    gateway=gateway,
+                )
+    except (MockStartError, httpx.HTTPError, LookupError, GatewayError, ValueError, OSError) as exc:
         raise fail(exc) from exc

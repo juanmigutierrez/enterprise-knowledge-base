@@ -6,6 +6,7 @@ import pytest
 
 from ekb.app.choices import (
     ASSISTANT_STEPS,
+    INFRA_STEPS,
     PIPELINE_STEPS,
     QUERY_STEPS,
     Choice,
@@ -35,9 +36,36 @@ def test_the_local_profile_runs_its_built_options_and_stand_ins_for_the_rest() -
         "entities": ("dynamodb", "in_memory"),
         "permissions": ("dynamodb", "in_memory"),
     }
-    assert {c.why for c in choices.swapped} == {"not built yet"}
+    infra = {"bus", "registry", "rawstore", "search", "entities", "permissions"}
+    assert {c.why for c in choices.swapped if c.step in infra} == {"in memory: no --docker"}
+    assert {c.why for c in choices.swapped if c.step not in infra} == {"not built yet"}
     assert choices.params("rawstore") == {}  # the s3 bucket means nothing to in_memory
+    assert not choices.on_docker
     assert choices.calls_models
+
+
+def test_docker_runs_the_real_infrastructure_in_the_given_namespace() -> None:
+    """S17: boxes 3 and 5 run in memory unless asked, the way --models works for models."""
+    choices = choose(load_settings(profile="local"), docker=True, namespace="demo-1a2b3c4d")
+    assert {s: choices.option(s) for s in INFRA_STEPS} == {
+        "bus": "kafka",
+        "registry": "dynamodb",
+        "rawstore": "s3",
+        "search": "opensearch",
+        "entities": "dynamodb",
+        "permissions": "dynamodb",
+    }
+    assert choices.params("rawstore") == {"bucket": "ekb-raw", "namespace": "demo-1a2b3c4d"}
+    assert choices.params("bus") == {"namespace": "demo-1a2b3c4d"}
+    assert choices.on_docker
+    assert choose(load_settings(profile="local"), docker=True).params("bus") == {}
+
+
+def test_the_ci_profile_stays_in_memory_even_with_docker() -> None:
+    choices = choose(load_settings(profile="ci"), docker=True, namespace="x")
+    assert {choices.option(s) for s in INFRA_STEPS} == {"in_memory"}
+    assert not choices.on_docker
+    assert all(choices.params(s) == {} for s in INFRA_STEPS)
 
 
 def test_offline_swaps_every_model_option_and_says_so() -> None:

@@ -1,30 +1,54 @@
 # Local version of the architecture (docs/architecture.md §2).
 #
-#   docker compose up -d                       infrastructure core
-#   docker compose --profile models up -d      + Ollama (free local models)
-#   docker compose --profile app up -d         + connector, worker, api (once built)
+#   docker compose up -d --wait                   infrastructure core (make up)
+#   docker compose --profile models up -d         + Ollama (free local models)
+#   docker compose --profile app up -d --build    + the mock sources and our three
+#                                                   services: connector, worker, api (S17)
 #
-# All ports bind to 127.0.0.1 only. No credentials are needed for the core.
-# Images are pinned to versions; Dependabot proposes upgrades.
+# All ports bind to 127.0.0.1 only. No credentials are needed. Images are pinned to
+# versions; Dependabot proposes upgrades. Nothing is meant to outlive the containers:
+# the mocks start from their seed, and the full listings rebuild the knowledge base.
 
 name: ekb
 
 x-app: &app
-  build:
-    context: .
-    dockerfile: deploy/docker/Dockerfile
+  pull_policy: never
   image: ekb:local
   env_file:
     - path: .env
       required: false
-  environment:
+  environment: &app-env
     EKB_PROFILE: ${EKB_PROFILE:-local}
-  depends_on:
+    # Where the infrastructure and the sources are, from inside the Compose network.
+    EKB_KAFKA_BOOTSTRAP: kafka:9092
+    EKB_DYNAMODB_URL: http://dynamodb:8000
+    EKB_S3_URL: http://seaweedfs:8333
+    EKB_OPENSEARCH_URL: http://opensearch:9200
+    EKB_DOCS_URL: http://mock-docs:8081
+    EKB_HR_URL: http://mock-hr-api:8082
+    EKB_IDP_URL: http://mock-idp:8083
+    OLLAMA_URL: http://ollama:11434
+    EKB_MODELS: ${EKB_MODELS:-false}   # true: call the models the profile names (keys in .env)
+  volumes:
+    - ekb-cache:/app/.cache            # model cache, cost log, test tokens (shared)
+  depends_on: &app-depends
     kafka: { condition: service_healthy }
     opensearch: { condition: service_healthy }
-    dynamodb: { condition: service_started }
+    dynamodb: { condition: service_healthy }
+    seaweedfs: { condition: service_healthy }
   restart: unless-stopped
   profiles: ["app"]
+
+x-source: &source
+  pull_policy: never
+  image: ekb-sources:local
+  restart: unless-stopped
+  profiles: ["sources", "app"]
+
+x-source-health: &source-health
+  interval: 5s
+  timeout: 5s
+  retries: 12
 
 services:
   # ------------------------------------------------ 3 · change log
@@ -34,7 +58,7 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://127.0.0.1:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
@@ -43,7 +67,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # topics are created explicitly, compacted
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # the bus creates ekb.changes itself (S17)
     ports: ["127.0.0.1:29092:29092"]
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
@@ -52,11 +76,28 @@ services:
       retries: 12
 
   dynamodb:
-    # Document registry, entity store and permission store.
-    # TODO: pin to a version tag or digest after the first pull.
-    image: amazon/dynamodb-local:latest
+    # Document registry, acceptance log, entity store and permission store (S17).
+    image: amazon/dynamodb-local:3.3.2
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
     ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      # No curl in the image: an open port is enough (unsigned requests get a 400).
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8000'"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  seaweedfs:
+    # The raw store: originals behind the S3 API (S17, D13). No identities are
+    # configured, so it takes the placeholder credentials ekb signs with locally.
+    image: chrislusf/seaweedfs:4.55
+    command: ["server", "-s3", "-s3.port=8333", "-dir=/data", "-master.volumeSizeLimitMB=64"]
+    ports: ["127.0.0.1:8333:8333"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz || wget -q -O /dev/null http://127.0.0.1:8333/"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
 
   # ------------------------------------------------ 5 · knowledge stores
   opensearch:
@@ -68,7 +109,6 @@ services:
       OPENSEARCH_JAVA_OPTS: -Xms1g -Xmx1g
     ulimits:
       memlock: { soft: -1, hard: -1 }
-    volumes: ["opensearch-data:/usr/share/opensearch/data"]
     ports: ["127.0.0.1:9200:9200"]
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s"]
@@ -83,25 +123,89 @@ services:
     ports: ["127.0.0.1:11434:11434"]
     profiles: ["models"]
 
-  # ------------------------------------------------ our services (one image)
+  # ------------------------------------------------ 1 · mock sources (S17)
+  mock-docs:
+    build:
+      context: .
+      dockerfile: deploy/docker/sources.Dockerfile
+    <<: *source
+    command: ["sources.mock_docs", "--host", "0.0.0.0", "--port", "8081"]
+    ports: ["127.0.0.1:8081:8081"]
+    healthcheck:
+      <<: *source-health
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8081/health', timeout=3)"]
+
+  mock-hr-api:
+    <<: *source
+    command: ["sources.mock_hr_api", "--host", "0.0.0.0", "--port", "8082"]
+    ports: ["127.0.0.1:8082:8082"]
+    healthcheck:
+      <<: *source-health
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8082/health', timeout=3)"]
+
+  mock-idp:
+    <<: *source
+    command: ["sources.mock_idp", "--host", "0.0.0.0", "--port", "8083"]
+    ports: ["127.0.0.1:8083:8083"]
+    healthcheck:
+      <<: *source-health
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8083/health', timeout=3)"]
+
+  mock-hr-db:
+    # The HR database is a SQLite file (S1d), made fresh on every start; the connector's
+    # CDC reader reads it through the shared volume. Change it with
+    #   docker compose exec mock-hr-db python -m sources.mock_hr_db sql --path /data/hr.sqlite "…"
+    <<: *source
+    entrypoint: ["sh", "-c"]
+    command: ["rm -f /data/hr.sqlite && python -m sources.mock_hr_db init --path /data/hr.sqlite && exec sleep infinity"]
+    volumes: ["hr-db:/data"]
+    healthcheck:
+      <<: *source-health
+      test: ["CMD", "test", "-f", "/data/hr.sqlite"]
+
+  # ------------------------------------------------ our services (one image, S17)
   connector:
     <<: *app
     command: ["connect"]
+    environment:
+      <<: *app-env
+      EKB_BIND: 0.0.0.0
+      EKB_RECEIVER_URL: http://connector:8090   # where the docs tool posts its webhooks
+      EKB_HR_DB: /data/hr.sqlite
+    volumes:
+      - ekb-cache:/app/.cache
+      - hr-db:/data
+    depends_on:
+      <<: *app-depends
+      mock-docs: { condition: service_healthy }
+      mock-hr-api: { condition: service_healthy }
+      mock-idp: { condition: service_healthy }
+      mock-hr-db: { condition: service_healthy }
 
   worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
     <<: *app
     command: ["worker"]
 
   api:
     <<: *app
-    command: ["api"]
+    command: ["api", "--query-only"]
+    environment:
+      <<: *app-env
+      EKB_BIND: 0.0.0.0                         # inside the container; published on 127.0.0.1
     ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      <<: *app-depends
+      mock-docs: { condition: service_healthy }
+      mock-idp: { condition: service_healthy }
 
-  # Added as the plan progresses (docs/plan.md §4.2), each behind a profile:
-  #   sources:        mock-docs, mock-hr-api, hr-db (Postgres)      -> profile "sources"
-  #   full:           seaweedfs, keycloak, debezium, neo4j, duckdb  -> profile "full"
+  # Added later, each behind a profile:
+  #   full:           keycloak, postgres + debezium, neo4j, duckdb  -> profile "full"
   #   observability:  otel-collector, jaeger, prometheus, grafana   -> profile "observability"
 
 volumes:
-  opensearch-data:
   ollama-models:
+  ekb-cache:
+  hr-db:

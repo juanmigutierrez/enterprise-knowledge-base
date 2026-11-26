@@ -2,7 +2,8 @@
 # picks the role: `ekb connect`, `ekb worker`, `ekb api`.
 #
 # Build:  docker build -f deploy/docker/Dockerfile -t ekb:local .
-# Extras: docker build --build-arg EXTRAS="--extra kafka --extra search" ...
+# Extras: the real infrastructure's clients are in by default (S17); a smaller image:
+#         docker build --build-arg EXTRAS="" ...
 
 ARG PYTHON_VERSION=3.13
 
@@ -15,7 +16,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /app
-ARG EXTRAS=""
+# Kafka, OpenSearch, and DynamoDB + S3 clients (S17): the services run on them.
+ARG EXTRAS="--extra kafka --extra search --extra aws"
 
 # 1) Dependencies only: this layer is cached until uv.lock changes.
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -44,9 +46,13 @@ RUN python -m pip uninstall -y pip \
  && python -c "import ensurepip, pathlib, shutil; shutil.rmtree(pathlib.Path(ensurepip.__file__).parent)"
 
 RUN groupadd --system --gid 10001 app \
- && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app
+ && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app \
+ && mkdir -p /app/.cache \
+ && chown app:app /app/.cache
 
 WORKDIR /app
+# .cache/ holds the model cache, the cost log and the test tokens; compose mounts a
+# volume here, which starts owned by the app user because this folder is.
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app config ./config
 

@@ -4,7 +4,7 @@ Four choices are made here, in the composition root, and nowhere else:
 
 - **Which stores and which resolver.** By name: the worker pipeline (S12)
   passes what the profile names (``source_acl``; ``opensearch`` and
-  ``dynamodb`` run as their ``in_memory`` stand-ins until S17).
+  ``dynamodb`` since S17, with ``--docker``; ``in_memory`` otherwise).
 - **Which sources say who is in which group**, and how to read their records:
   ``MEMBERSHIP_SOURCES``. Only the identity provider: its user records.
 - **When T8 runs.** After T7, on the same document; before T3, T2's
@@ -21,6 +21,7 @@ Four choices are made here, in the composition root, and nowhere else:
 from __future__ import annotations
 
 from collections.abc import Callable, Collection
+from typing import Any
 
 from ekb.app.changelog import ChangeLog
 from ekb.contracts import DiffAction
@@ -47,20 +48,26 @@ MEMBERSHIP_SOURCES: dict[str, MembershipReader] = {"identity": idp_user}
 
 
 def search_store(
-    name: str = DEFAULT_STORE, *, current_lifetime: Callable[[str], int] | None = None
+    name: str = DEFAULT_STORE,
+    *,
+    current_lifetime: Callable[[str], int] | None = None,
+    **params: Any,
 ) -> SearchStore:
-    """A registered search store option by name (``in_memory``)."""
-    built = registry.create("search", name, current_lifetime=current_lifetime)
+    """A registered search store option by name (``in_memory``, ``opensearch``)."""
+    built = registry.create("search", name, current_lifetime=current_lifetime, **params)
     if not isinstance(built, SearchStore):
         raise TypeError(f"search option {name!r} does not implement the SearchStore port")
     return built
 
 
 def permission_store(
-    name: str = DEFAULT_STORE, *, current_lifetime: Callable[[str], int] | None = None
+    name: str = DEFAULT_STORE,
+    *,
+    current_lifetime: Callable[[str], int] | None = None,
+    **params: Any,
 ) -> PermissionStore:
-    """A registered permission store option by name (``in_memory``)."""
-    built = registry.create("permissions", name, current_lifetime=current_lifetime)
+    """A registered permission store option by name (``in_memory``, ``dynamodb``)."""
+    built = registry.create("permissions", name, current_lifetime=current_lifetime, **params)
     if not isinstance(built, PermissionStore):
         raise TypeError(f"permissions option {name!r} does not implement the PermissionStore port")
     return built
