@@ -33,3 +33,4 @@ Files are named `S<nn>-<topic>.md` (for example `S02-t1-normalize.md`) and follo
 | S17c | [The search store on OpenSearch](S17c-opensearch.md) |
 | S17d | [Three services on Docker: `docker compose --profile app up`](S17d-services.md) |
 | S18 | [Evaluation: measuring retrieval, permissions and freshness](S18-evaluation.md) |
+| S19 | [Running the system from a clean checkout](S19-clean-setup.md) |

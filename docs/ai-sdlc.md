@@ -1,6 +1,6 @@
 # AI-SDLC: how AI was used to design, build, test and review this project
 
-> Deliverable 2 asks for "the process you followed and your AI-SDLC". This file describes the process and keeps the evidence log. Update the log as you work. It's what makes the description believable.
+The evidence log connects each build step to the human decision, review finding and check that shaped it.
 
 ## 1. Principles
 
@@ -17,7 +17,7 @@
 | Implementation of plan tasks | Claude Code (`/plan-task`) | Writes the code and the tests; reads `AGENTS.md` through `CLAUDE.md` |
 | Inline completions while editing (optional) | GitHub Copilot (Student) in VS Code | Fast small edits; reads `AGENTS.md` and `.github/copilot-instructions.md` |
 | Test writing | Claude Code writes the tests from the port and option card; Codex checks in review that failure cases and gates are covered | Tests are checked by a model that didn't write them |
-| Code review | Codex (ChatGPT Plus) with the read-only `cross-review` skill; then me | A different model family (OpenAI) reviews Anthropic-written code |
+| Code review | Codex (ChatGPT Plus) uses `cross-review` for Claude-authored steps, reports findings, fixes blockers and should-fixes, and reruns checks | The human resolves design questions and authorizes the commit and push |
 | Checks | ruff, mypy, import-linter, pytest, gitleaks, pip-audit, Trivy in CI | Same checks for human and AI code |
 
 All tools read the same instructions: `AGENTS.md`. Codex and Copilot load it directly; Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`). Repeatable workflows are written once as skills in `.agents/skills/` (Codex) with thin wrappers in `.claude/skills/` (Claude Code).
@@ -28,8 +28,8 @@ All tools read the same instructions: `AGENTS.md`. Codex and Copilot load it dir
 plan task (docs/plan.md)
   → Claude Code: /plan-task <n> → proposes a plan → I approve or correct it
   → Claude Code implements + writes tests → runs format, lint, types, layer rules, tests
-  → Codex: $cross-review → findings → I decide which to fix → Claude Code fixes → repeat until "approve"
-  → commit with AI-SDLC trailers → git push → CI on GitHub
+  → Codex: $cross-review → reports findings → I resolve design questions → Codex fixes and verifies
+  → I confirm → commit with AI-SDLC trailers → git push → CI on GitHub
   → if a default option changes: experiment result in evaluation/results/
 ```
 
@@ -37,6 +37,7 @@ Commit trailers (template in `.gitmessage`, enabled with `git config commit.temp
 ```
 AI-Tool: Claude Code + <model>
 AI-Reviewed-by: Codex + <model>
+Review-fixes: <findings addressed>
 Human-changes: <what I changed in the AI output>
 ```
 
@@ -57,8 +58,8 @@ Human-changes: <what I changed in the AI output>
 - Model quality is measured separately, with the frozen question set and the experiment runner.
 
 **Review.**
-- The `cross-review` skill (read-only) checks gates, layer rules, tests, model-call rules and secrets, in that order.
-- The reviewer is always Codex, so an OpenAI model reviews code an Anthropic model wrote. Nothing is pushed without its approval.
+- The `cross-review` skill begins with a read-only pass over gates, layer rules, tests, model-call rules and secrets. The reviewer then reports findings and verifies the fixes.
+- For S18 and S19 the user asked Codex to take over implementation. Both steps await independent review.
 - CI repeats every automated check on GitHub.
 
 ## 5. Evidence log
@@ -88,11 +89,12 @@ Human-changes: <what I changed in the AI output>
 | 2026-11-26 | S16 lifecycle and deletion gates | Claude Code (implementation), Codex + GPT-6 (review) | Lifecycle demo and inspector screen, entity re-linking, cache purge and gate tests | Approved discarding untraceable legacy cache entries on upgrade and serializing answers with purges in the shared process | Codex fixed six findings. All 1,367 Python tests, 56 UI tests, eight import contracts, Ruff, strict mypy, UI lint and the UI build passed. The demo met all 16 promises with zero unauthorized or post-deletion citations. |
 | 2026-11-26 | S17a-d real infrastructure and services | Claude Code (implementation), Codex + GPT-6 (review) | Kafka, DynamoDB, SeaweedFS and OpenSearch adapters, three services, four walkthroughs and demos | Selected staged publication with an atomic active-generation switch so readers retain the complete previous version during replacement | Codex fixed nine findings across publication, visibility, recovery, Compose builds, emulator credentials, Kafka connectivity and the walkthroughs. Ruff, strict mypy, 11 import contracts, 1,535 default tests and 71 Docker integration tests passed. All four demos passed. The lifecycle demo matched citations on all 11 replies with zero unauthorized or deleted-page citations. |
 | 2026-11-26 | S18 evaluation | Codex (implementation at user request); independent review pending | Frozen 80/20 question split, four experiment cards, results and walkthrough | The user approved local comparisons with Bedrock opt-in and human label review pending | On 80 development questions vector-only Recall@5 was 1.000, hybrid 0.831 and BM25 0.725. The stale pre-filter baseline disclosed the withdrawn candidate. The combined path passed all denied probes. The default suite passed 1,539 tests with 94.16% coverage. A separate run of the final 22 focused evaluation and gateway tests passed. Ruff, strict mypy and 11 import contracts passed. See the [S18 walkthrough and evidence](walkthrough/S18-evaluation.md). |
+| 2026-11-26 | S19 handoff | Codex (implementation) | README, clean setup verification, walkthrough and development evidence summary | The user approved reusing the offline lifecycle demo for acceptance | Independent review pending. [Verification record](walkthrough/S19-clean-setup.md) |
 
-## 6. What I'll report at the end
+## 6. What the records support
 
-- Share of commits written mainly by AI, and how many I changed before merging.
-- Issues the reviewer agent caught that the authoring model missed (and the reverse).
-- Where AI was wrong or unhelpful, and how the guardrails caught it, or didn't.
-- Time spent per task compared with the estimates in `docs/plan.md`.
-- Model spend during development (from cost logs), against the $10–25 budget.
+**Authorship.** Through `d2c535c`, 19 of 23 non-merge commits identify an AI implementation tool in their trailers (83%). Seventeen name Claude Code and two name Codex, including the container security fix. Four early commits have no tool trailer. Fourteen of the 19 record a human decision or approval. Those entries do not establish how often a human edited code. Reproduce the count with `git log --no-merges d2c535c --format="%h %s %(trailers:key=AI-Tool,valueonly)"`.
+
+**What review changed.** The S5 review found a deletion case in which a page could be recreated with its previous key and version. The regression test exercises that sequence and checks which document lifetime the reader can see. In S17, a review finding led to the human decision to switch search generations atomically, so readers can still see the previous complete version during replacement. Automated checks covered both decisions after the failure modes were identified. [S5 walkthrough](walkthrough/S05-t3-parse.md) · [S17 search walkthrough](walkthrough/S17c-opensearch.md)
+
+**Time and cost.** The plan estimates 30 minutes for S19. The project has no per-step timesheets, so elapsed implementation time cannot be compared reliably with those estimates. The two S18 local retrieval and embedding reports each record USD 0.00000 ingestion cost per 1,000 chunks. That measure covers the recorded model calls. The available evidence cannot establish total development spend against the $10–25 budget. [Build estimates](plan.md) · [Retrieval costs](../evaluation/results/2026-11-26-121614-4.05-retrieval-9e7a02.md) · [Embedding costs](../evaluation/results/2026-11-26-122651-4.04-embeddings-6c024e.md)

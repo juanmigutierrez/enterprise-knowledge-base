@@ -124,7 +124,7 @@ A step is never started before the previous one is pushed. Exception, decided on
 | S17d | Real infrastructure · Services | `ekb connect`, `ekb worker`, `ekb api --query-only`; mock sources image; `docker compose --profile app up`; gates on the real options (fakes in every PR, Docker with `-m integration`) | How the system runs as separate services, and the consumer group the split needs | `ekb demo infra`; `docker compose --profile app up` | 60 min | ✅ |
 | S17e | Real infrastructure · Optional | *Optional.* Postgres + Debezium and Keycloak as extra options behind the S1d and S1c connectors | CDC from a real write-ahead log; OIDC tokens | — | 60 min | ⬜ |
 | S18 | 8 · Evaluation | Golden question set, runner, P1 experiments 4.4, 4.5, 4.13, 4.14 | How each choice is measured | `uv run ekb-eval run …` | 60 min | 🟡 |
-| S19 | Finish | README (setup, demo, assumptions), AI-SDLC write-up, clean setup check | — | Fresh clone → follow README | 30 min | ⬜ |
+| S19 | Finish | README (setup, demo, assumptions), AI-SDLC write-up, [clean setup check](walkthrough/S19-clean-setup.md) | — | Fresh clone → follow README | 30 min | 🟡 |
 
 **Estimate:** about 14–16 hours of build time, including about 3–4 hours of UI and about 2 hours for the extra source types (S1b–S1d, S2a; the optional S14b adds 45 minutes), plus the time you spend reading walkthroughs. That is more than the assignment's 4–6 hours because the steps are built to be understood, not just delivered.
 
